@@ -13,6 +13,7 @@ import logging
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 from aurora.config import AuroraConfig
 
@@ -27,17 +28,6 @@ _MOCK_HINT = (
 
 class RuntimeRequirementError(RuntimeError):
     """A dependency the configured campaign needs is missing."""
-
-
-def resolve_terminal_driver(config: AuroraConfig) -> str:
-    """The agent driver the pipeline phases will use (mirrors TerminalIteration)."""
-    driver = config.terminal_driver
-    if driver != "auto":
-        return driver
-    base = config.terminal_base_url
-    if not base or "anthropic.com" in base:
-        return "anthropic"
-    return "claude-code"
 
 
 def _docker_ok() -> tuple[bool, str]:
@@ -56,57 +46,46 @@ def _docker_ok() -> tuple[bool, str]:
     return True, ""
 
 
-def _has_api_key(config: AuroraConfig, driver: str) -> bool:
-    if config.terminal_api_key:
-        return True
-    if config.use_terminal_iteration and driver in ("claude-code", "openai"):
-        # the agent sessions authenticate with the OpenRouter key specifically
-        return bool(os.environ.get("OPENROUTER_API_KEY"))
-    if any(getattr(p, "api_key", "") for p in config.llm_providers):
-        return True
-    return any(os.environ.get(n) for n in ("OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"))
-
-
 def check_runtime_requirements(config: AuroraConfig) -> None:
     """Raise :class:`RuntimeRequirementError` listing every missing dependency."""
     if config.mock_mode:
         return
 
     problems: list[str] = []
-    driver = resolve_terminal_driver(config)
+    if shutil.which("claude") is None:
+        problems.append(
+            "Claude Code CLI not found (every phase runs as a Claude Code session). Install it with "
+            "`npm install -g @anthropic-ai/claude-code` (Node.js 18+) and check that "
+            "`claude --version` works in the shell that starts AURORA."
+        )
 
-    if config.use_terminal_iteration and driver == "claude-code":
-        if shutil.which("claude") is None:
-            problems.append(
-                "Claude Code CLI not found (the pipeline phases run as Claude Code "
-                "sessions). Install it with `npm install -g @anthropic-ai/claude-code` "
-                "(Node.js 18+), then check that `claude --version` works."
-            )
-
-    if config.use_docker:
+    if config.sandbox.docker:
         ok, why = _docker_ok()
         if not ok:
             problems.append(
-                f"Docker is required because `use_docker: true`, but {why}. Install "
-                "Docker (https://docs.docker.com/engine/install/) and make sure this "
-                "user can run `docker info`; or set `use_docker: false` to run without "
-                "a container (Claude Code sessions are then limited to reading and "
-                "editing files in the workspace)."
+                f"Docker is required because `sandbox.docker` is true, but {why}. Install Docker "
+                "(https://docs.docker.com/engine/install/) and make sure this user can run "
+                "`docker info`; or set `sandbox.docker: false` (the agents can then only read and "
+                "write files in the workspace)."
             )
-    elif config.use_terminal_iteration and not config.allow_host_bash:
+    elif not config.sandbox.allow_host_bash:
         logger.warning(
-            "use_docker is false: Claude Code sessions can read and edit files in the "
-            "workspace but cannot run shell commands (set allow_host_bash: true to "
-            "allow commands on the host)."
+            "sandbox.docker is false: the agents can read and write files in the workspace but "
+            "cannot run commands (set sandbox.allow_host_bash: true to allow commands on this machine)."
         )
 
-    if not _has_api_key(config, driver):
-        key = "OPENROUTER_API_KEY" if driver in ("claude-code", "openai") else "ANTHROPIC_API_KEY"
+    if not config.api_key_value:
         problems.append(
-            f"No API key found. Put `{key}=...` in the `.env` file at the project "
-            "root (it is loaded automatically) or export it in the shell, or set "
-            "`terminal_api_key` in the config."
+            "No API key. Put `OPENROUTER_API_KEY=...` in a `.env` file (in the current directory or "
+            "in ~/.aurora/) or export it in the shell, or set `api_key` in the config."
         )
+
+    for item in config.inputs:
+        if not Path(item).expanduser().exists():
+            problems.append(f"Input not found: {item}")
+    for d in config.skills_dirs:
+        if not Path(d).expanduser().is_dir():
+            problems.append(f"skills_dirs entry is not a directory: {d}")
 
     if problems:
         lines = "\n".join(f"  - {p}" for p in problems)

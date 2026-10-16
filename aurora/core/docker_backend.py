@@ -18,7 +18,6 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from aurora.llm.tool_runner import ToolSchema
 
 logger = logging.getLogger(__name__)
 
@@ -169,17 +168,6 @@ class DockerBackend:
             raise IOError(
                 f"Cannot write {path}: {proc.stderr.decode(errors='replace')}"
             )
-
-    def get_tool_registry(self) -> list[ToolSchema]:
-        if not self._container_id:
-            raise RuntimeError("Container not started")
-        from aurora.tools.shell import build_shell_tool
-        from aurora.lhtb.runner import _build_docker_file_tools
-        tools: list[ToolSchema] = [
-            build_shell_tool("/app", docker_container=self._container_id, timeout=120.0),
-        ]
-        tools.extend(_build_docker_file_tools(self._container_id, "/app"))
-        return tools
 
     async def run_verifier(self, *, timeout: float = 600.0) -> tuple[bool, float, str]:
         """Run verifier with test isolation.

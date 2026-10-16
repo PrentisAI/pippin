@@ -13,7 +13,7 @@ from typing import Type, TypeVar
 
 from pydantic import BaseModel
 
-from aurora.config import LLMProviderConfig, AuroraConfig, PipelineStage
+from aurora.config import AuroraConfig, PipelineStage, ProviderConfig
 from aurora.llm.base import (
     LLMError,
     LLMProvider,
@@ -36,21 +36,6 @@ _MODEL_PREFIX_TO_PROVIDER: dict[str, str] = {
     "gemini-": "google",
     "deepseek-": "deepseek",
     "mock-": "mock",
-}
-
-# OpenRouter-style prefixes (provider/model format)
-_OPENROUTER_PREFIX_TO_PROVIDER: dict[str, str] = {
-    "anthropic/": "openrouter",
-    "openai/": "openrouter",
-    "google/": "openrouter",
-    "deepseek/": "openrouter",
-    "meta-llama/": "openrouter",
-    "mistralai/": "openrouter",
-    "qwen/": "openrouter",
-    "moonshotai/": "openrouter",
-    "x-ai/": "openrouter",
-    "z-ai/": "openrouter",
-    "minimax/": "openrouter",
 }
 
 
@@ -79,18 +64,17 @@ class LLMRouter:
         self._config = config
         self._usage_tracker = usage_tracker or UsageTracker()
         self._providers: dict[str, LLMProvider] = providers or {}
-        self._provider_configs: dict[str, LLMProviderConfig] = {
-            pc.provider: pc for pc in config.llm_providers
+        self._provider_configs: dict[str, ProviderConfig] = {
+            pc.provider: pc for pc in config.providers
         }
 
     # -- provider resolution --------------------------------------------------
 
     def _provider_name_for_model(self, model_id: str) -> str:
         """Infer the provider name from a model identifier prefix."""
-        # Check OpenRouter-style prefixes first (provider/model)
-        for prefix, provider in _OPENROUTER_PREFIX_TO_PROVIDER.items():
-            if model_id.startswith(prefix):
-                return provider
+        # vendor/model IDs are OpenRouter's naming scheme
+        if "/" in model_id:
+            return "openrouter"
         for prefix, provider in _MODEL_PREFIX_TO_PROVIDER.items():
             if model_id.startswith(prefix):
                 return provider
@@ -141,8 +125,8 @@ class LLMRouter:
             from aurora.llm.openai_provider import OpenAIProvider
 
             provider = OpenAIProvider(
-                api_key=(pc.api_key if pc else None) or os.environ.get("OPENROUTER_API_KEY", ""),
-                base_url=(pc.base_url if pc else None) or "https://openrouter.ai/api/v1",
+                api_key=(pc.api_key if pc else None) or self._config.api_key_value,
+                base_url=(pc.base_url if pc else None) or self._config.api_base_url,
                 usage_tracker=self._usage_tracker,
             )
         elif provider_name == "mock":
@@ -170,7 +154,7 @@ class LLMRouter:
             For ``ROUNDTABLE_SEAT``, selects among the configured seat
             models (wraps around if out of range).
         """
-        model_id = self._config.llm_assignment.get_model(stage, seat_index)
+        model_id = self._config.models.get_model(stage, seat_index)
         provider_name = self._provider_name_for_model(model_id)
         provider = self._get_or_create_provider(provider_name)
         return provider, model_id

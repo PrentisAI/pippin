@@ -1,22 +1,21 @@
-"""Terminal iteration runner — agent loop in a terminal environment.
+"""Research phase: one Claude Code session per research job.
 
-Fourth execution mode alongside Legacy, Agentic, and Duplex.
-The agent runs autonomously in a terminal environment (local or Docker),
-with optional verifier-based retry until timeout.
-
-This is a general-purpose runner, not LHTB-specific. Any task that
-involves autonomous agent execution with shell access can use it.
+The research agent works in the campaign's execution backend (normally the
+Docker container).  Each job of the experiment plan gets a fresh session whose
+task message carries the objective, the chosen direction and the job itself.
+When acceptance tests are configured (``sandbox.tests_dir``) they run after the
+session, and a failing job is resumed with the test output until it passes or
+its time runs out.
 """
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import json
 import logging
-import os
 import time
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -24,20 +23,18 @@ from aurora.config import AuroraConfig
 from aurora.core.events import Event, EventBus
 from aurora.core.execution_backend import ExecutionBackend
 from aurora.core.lifecycle import IterationDecision, IterationResult
-from aurora.llm.tool_runner import StreamEvent, ToolSchema
+from aurora.llm.stream import StreamEvent
 from aurora.models.experiment import ExperimentJob, ExperimentPlan, JobResult
 from aurora.state.artifacts import ArtifactStore
 
 logger = logging.getLogger(__name__)
 
+# Sessions resumed after failing acceptance tests, per job
+_MAX_TEST_RETRIES = 3
+
 
 class TerminalIteration:
-    """Execute a task via an autonomous agent loop in a terminal environment.
-
-    The agent loop driver (ClaudeCodeLoop, OpenAIAgenticLoop, or
-    AnthropicAgenticLoop) is selected based on config. The backend
-    provides tools and verifier.
-    """
+    """Runs research jobs as Claude Code sessions in the execution backend."""
 
     def __init__(
         self,
@@ -47,6 +44,7 @@ class TerminalIteration:
         *,
         system_prompt: str = "",
         task_instruction: str = "",
+        campaign_brief: str = "",
         artifact_store: ArtifactStore | None = None,
         prior_phase_context: str = "",
         transcript_dir: str | Path | None = None,
@@ -58,237 +56,157 @@ class TerminalIteration:
         self._bus = event_bus
         self._system_prompt = system_prompt
         self._task_instruction = task_instruction
+        self._campaign_brief = campaign_brief
         self._artifact_store = artifact_store
         self._current_loop: Any = None
         self._prior_phase_context = prior_phase_context
         self._transcript_dir = Path(transcript_dir) if transcript_dir else None
         self._cwd = cwd
         self.transcript_path: str | None = None
-        self._all_trajectory: list[Any] = []
         self._text_callback = text_callback
         self.session_id: str | None = None
-        self._pending_supervisor_advice: list[str] = []
+        self.cost_usd: float = 0.0
+        self._pending_messages: list[str] = []
+        self._stop_requested = False
 
     async def inject_message(self, message: str) -> None:
-        """Inject a message into the currently running agent loop.
-
-        If no loop is active (between phases), the message is buffered
-        and prepended to the next phase's user message.
-        """
-        if self._current_loop and hasattr(self._current_loop, "inject_message"):
+        """Send *message* to the running session, or queue it for the next one."""
+        if self._current_loop is not None:
             await self._current_loop.inject_message(message)
         else:
-            self._pending_supervisor_advice.append(message)
+            self._pending_messages.append(message)
 
     def interrupt(self) -> None:
-        """Interrupt the currently running agent loop (SIGINT to subprocess)."""
-        if self._current_loop and hasattr(self._current_loop, "interrupt"):
+        """Interrupt the current tool call of the running session (SIGINT)."""
+        if self._current_loop is not None:
             self._current_loop.interrupt()
 
-    async def run(
-        self,
-        job: ExperimentJob,
-        plan: ExperimentPlan,
-        iteration_number: int = 0,
-    ) -> IterationResult:
-        """Execute the terminal iteration for *job*."""
-        iter_id = f"term_{uuid.uuid4().hex[:8]}"
-        start_time = time.time()
+    def request_stop(self) -> None:
+        """Stop the running job and do not start further sessions."""
+        self._stop_requested = True
+        self.interrupt()
 
-        await self._bus.publish(Event(
-            name="iteration_started",
-            data={"iteration_id": iter_id, "job_id": job.job_id, "mode": "terminal"},
-            source="terminal_iteration",
-        ))
+    async def run(self, job: ExperimentJob, plan: ExperimentPlan, iteration_number: int = 0) -> IterationResult:
+        iter_id = f"job_{job.job_id}_{uuid.uuid4().hex[:6]}"
+        start = time.time()
+        deadline = start + self._config.agent.research_timeout_minutes * 60
+        await self._publish("iteration_started", iteration_id=iter_id, job_id=job.job_id)
 
-        phase = 0
-        best_reward = 0.0
-        prev_feedback = ""
-        total_turns = 0
-        total_tokens = 0
-        verifier_passed = False
-        timeout_sec = self._config.terminal_timeout_sec
-        checkpoint_interval = 1800.0
-        last_checkpoint = start_time
-
+        turns, cost, errors = 0, 0.0, []
+        passed = False
+        message = self._job_message(job, plan)
+        resume_id: str | None = None
         try:
-            while True:
-                elapsed = time.time() - start_time
-                remaining = timeout_sec - elapsed
-
-                if remaining <= 30:
-                    logger.info("Timeout reached after %d phases", phase)
+            for attempt in range(1 + (_MAX_TEST_RETRIES if self._config.sandbox.tests_dir else 0)):
+                if self._stop_requested:
+                    errors.append("stopped by request")
                     break
-
-                # Determine max turns for this phase — cap by checkpoint interval
-                time_until_checkpoint = checkpoint_interval - (time.time() - last_checkpoint)
-                phase_timeout = min(remaining, max(time_until_checkpoint, 60.0))
-                turns_this_phase = min(
-                    self._config.terminal_max_turns,
-                    int(phase_timeout / 5),
-                )
-                if turns_this_phase < 5:
+                remaining = deadline - time.time()
+                if remaining < 30:
+                    errors.append("research time limit reached")
                     break
+                if self._pending_messages:
+                    message += "\n\n" + "\n\n".join(self._pending_messages)
+                    self._pending_messages.clear()
 
-                await self._bus.publish(Event(
-                    name="phase_started",
-                    data={"phase": phase, "elapsed": round(elapsed), "remaining": round(remaining)},
-                    source="terminal_iteration",
-                ))
-
-                system_prompt = self._build_system_prompt(phase, prev_feedback)
-                user_message = self._build_user_message(phase, prev_feedback)
-
-                if self._pending_supervisor_advice:
-                    advice = "\n\n".join(self._pending_supervisor_advice)
-                    user_message = f"{user_message}\n\n{advice}"
-                    self._pending_supervisor_advice.clear()
-
-                loop = self._create_loop(turns_this_phase)
-                self._current_loop = loop
-
-                try:
-                    loop_result = await loop.run(system_prompt, user_message, temperature=0.3)
-                finally:
-                    self._current_loop = None
-                    trajectory = loop_result.get("trajectory", [])
-                    self._all_trajectory.extend(trajectory)
-                    if hasattr(loop, "session_id") and loop.session_id:
-                        self.session_id = loop.session_id
-                    await loop.close()
-
-                tokens = loop_result.get("tokens", {})
-                phase_tokens = (
-                    tokens.get("prompt", 0) + tokens.get("completion", 0)
-                    if isinstance(tokens, dict) else 0
-                )
-                phase_turns = loop_result.get("turns", 0)
-                total_turns += phase_turns
-                total_tokens += phase_tokens
-
-                # Run verifier on task_complete OR checkpoint interval
-                task_completed = loop_result.get("task_completed", False)
-                checkpoint_due = (time.time() - last_checkpoint) >= checkpoint_interval
-                should_verify = task_completed or checkpoint_due
-
-                if should_verify:
-                    verify_reason = "task_complete" if task_completed else "checkpoint"
-                    logger.info(
-                        "Running verifier (reason=%s, phase=%d)", verify_reason, phase
-                    )
-                    await self._bus.publish(Event(
-                        name="verifier_started",
-                        data={"phase": phase, "reason": verify_reason},
-                        source="terminal_iteration",
-                    ))
-                    try:
-                        passed, reward, v_output = await self._backend.run_verifier(
-                            timeout=600.0,
-                        )
-                        await self._bus.publish(Event(
-                            name="verifier_result",
-                            data={"phase": phase, "passed": passed, "reward": round(reward, 4)},
-                            source="terminal_iteration",
-                        ))
-
-                        if reward > best_reward:
-                            best_reward = reward
-
-                        if passed:
-                            verifier_passed = True
-                            break
-
-                    except Exception as exc:
-                        logger.warning("Verifier failed: %s", exc)
-
-                    last_checkpoint = time.time()
-
-                if not self._config.continue_until_timeout:
+                result = await self._run_session(message, remaining, resume_id)
+                turns += result.get("turns", 0)
+                cost += result.get("cost_usd", 0.0)
+                if result.get("error"):
+                    errors.append(result["error"])
                     break
+                resume_id = self.session_id
 
-                phase += 1
-                # Binary rejection — no reward, no test details (LHTB-compatible)
-                prev_feedback = (
-                    "Your submitted solution did not pass verification. "
-                    "No verifier details, test output, scalar reward, or "
-                    "hidden requirements are available. Continue working "
-                    "from the current project state. Re-read the original "
-                    "requirements, inspect your implementation, and run "
-                    "your own checks before submitting again. "
-                    f"This is continuation {phase}; approximately "
-                    f"{int(timeout_sec - (time.time() - start_time))} seconds remain."
-                )
-
+                if not self._config.sandbox.tests_dir:
+                    passed = True
+                    break
+                passed, test_output = await self._run_tests(attempt)
+                if passed:
+                    break
+                message = ("The acceptance tests failed. Fix the problems and run your own checks "
+                           f"before finishing. Last lines of the test output:\n\n{test_output[-3000:]}")
         except Exception as exc:
-            logger.exception("Terminal iteration failed")
-            return IterationResult(
-                iteration_id=iter_id,
-                job_id=job.job_id,
-                decision=IterationDecision.ERROR.value,
-                error=str(exc),
-                wall_time_seconds=time.time() - start_time,
-            )
+            logger.exception("Research job %s failed", job.job_id)
+            errors.append(str(exc))
 
-        wall_time = time.time() - start_time
-
-        self._save_transcript()
-
+        self.cost_usd += cost
+        wall = time.time() - start
         job_result = JobResult(
             job_id=job.job_id,
-            success=verifier_passed,
-            metrics={"reward": best_reward, "turns": total_turns, "tokens": total_tokens},
-            wall_time_seconds=wall_time,
+            success=passed,
+            metrics={"turns": float(turns), "cost_usd": round(cost, 4)},
+            errors=errors,
+            wall_time_seconds=wall,
         )
-
-        decision = (
-            IterationDecision.DONE.value if verifier_passed
-            else IterationDecision.CONTINUE.value
-        )
-
+        decision = IterationDecision.DONE.value if passed else IterationDecision.ERROR.value
         self._record_to_artifact_store(job, job_result, iter_id)
-
-        await self._bus.publish(Event(
-            name="iteration_complete",
-            data={
-                "iteration_id": iter_id,
-                "job_id": job.job_id,
-                "decision": decision,
-                "reward": best_reward,
-            },
-            source="terminal_iteration",
-        ))
-
+        await self._publish("iteration_complete", iteration_id=iter_id, job_id=job.job_id,
+                            decision=decision, cost_usd=round(cost, 4), errors=errors)
         return IterationResult(
             iteration_id=iter_id,
             job_id=job.job_id,
             decision=decision,
             job_result=job_result,
-            wall_time_seconds=wall_time,
+            error="; ".join(errors) or None,
+            wall_time_seconds=wall,
         )
 
-    def _save_transcript(self) -> None:
-        """Backfill transcript if live writing was not used (non-Claude-Code drivers)."""
-        if self._transcript_dir is None or not self._all_trajectory:
-            return
-        self._transcript_dir.mkdir(parents=True, exist_ok=True)
-        path = self._transcript_dir / "research_loop.jsonl"
-        if path.exists() and path.stat().st_size > 0:
-            self.transcript_path = str(path)
-            return
-        with open(path, "w") as f:
-            for entry in self._all_trajectory:
-                if dataclasses.is_dataclass(entry):
-                    row = dataclasses.asdict(entry)
-                elif hasattr(entry, "__dict__"):
-                    row = entry.__dict__
-                else:
-                    row = entry
-                f.write(json.dumps(row, default=str) + "\n")
-        self.transcript_path = str(path)
+    async def _run_session(self, message: str, time_left: float, resume_id: str | None) -> dict[str, Any]:
+        loop = self._create_loop(self._config.agent.research_max_turns)
+        if resume_id:
+            loop._resume_session_id = resume_id
+        self._current_loop = loop
+        try:
+            return await asyncio.wait_for(loop.run(self._build_system_prompt(), message), timeout=time_left)
+        except asyncio.TimeoutError:
+            loop.interrupt()
+            return {"error": "research time limit reached", "turns": 0}
+        finally:
+            self._current_loop = None
+            if getattr(loop, "session_id", None):
+                self.session_id = loop.session_id
+            await loop.close()
+
+    async def _run_tests(self, attempt: int) -> tuple[bool, str]:
+        await self._publish("verifier_started", attempt=attempt)
+        try:
+            passed, score, output = await self._backend.run_verifier(timeout=600.0)
+        except Exception as exc:
+            logger.warning("Acceptance tests could not run: %s", exc)
+            passed, score, output = False, 0.0, str(exc)
+        await self._publish("verifier_result", attempt=attempt, passed=passed, score=round(score, 4))
+        return passed, output
+
+    async def _publish(self, name: str, **data: Any) -> None:
+        await self._bus.publish(Event(name=name, data=data, source="terminal_iteration"))
+
+    def _job_message(self, job: ExperimentJob, plan: ExperimentPlan) -> str:
+        parts = []
+        if self._campaign_brief:
+            parts.append(self._campaign_brief)
+        parts.append(f"## Your job: {job.job_id}\n\n{job.skill_name}")
+        if job.parameters:
+            parts.append("Details:\n```json\n" + json.dumps(job.parameters, indent=2, ensure_ascii=False) + "\n```")
+        if job.expected_outputs:
+            parts.append("Expected outputs:\n" + "\n".join(f"- {o}" for o in job.expected_outputs))
+        if job.dependencies:
+            parts.append("This job builds on: " + ", ".join(job.dependencies)
+                         + ". Their outputs are in the working directory.")
+        others = [j.job_id for j in plan.jobs if j.job_id != job.job_id]
+        if others:
+            parts.append("Other jobs of the plan (done separately, not by you): " + ", ".join(others))
+        if self._task_instruction:
+            parts.append(f"## Instructions from the researcher\n\n{self._task_instruction}")
+        parts.append("Explore the working directory first, then do the job. Verify your results, and "
+                     "end with a short summary of what you did, where the outputs are, and what is "
+                     "uncertain.")
+        return "\n\n".join(parts)
+
+    def _build_system_prompt(self) -> str:
+        return f"{self._system_prompt}\n{self._prior_phase_context}"
 
     def _create_loop(self, max_turns: int) -> Any:
-        """Instantiate the appropriate agent loop driver."""
-        driver = self._resolve_driver()
+        from aurora.core.agent_session import make_claude_code_loop
 
         async def stream_callback(event: StreamEvent) -> None:
             await self._bus.publish(Event(
@@ -297,85 +215,20 @@ class TerminalIteration:
                 source="terminal_iteration",
             ))
 
-        if driver == "claude-code":
-            from aurora.llm.agent_loops import ClaudeCodeLoop
-            container_id = getattr(self._backend, 'container_id', None)
-            base_url = ""
-            if self._config.terminal_base_url and "openrouter.ai" in self._config.terminal_base_url:
-                base_url = "https://openrouter.ai/api"
-            live_path = None
-            if self._transcript_dir:
-                self._transcript_dir.mkdir(parents=True, exist_ok=True)
-                live_path = str(self._transcript_dir / "research_loop.jsonl")
-                self.transcript_path = live_path
-            return ClaudeCodeLoop(
-                model=self._config.terminal_model or self._config.llm_assignment.researcher,
-                api_key=self._config.terminal_api_key or os.environ.get("OPENROUTER_API_KEY", ""),
-                base_url=base_url,
-                max_turns=max_turns,
-                docker_container=container_id,
-                cwd=self._cwd,
-                stream_callback=stream_callback,
-                live_transcript_path=live_path,
-                text_callback=self._text_callback,
-                allow_host_bash=self._config.allow_host_bash,
-            )
-        elif driver == "anthropic":
-            from aurora.llm.agent_loops import AnthropicAgenticLoop
-            tools = self._backend.get_tool_registry()
-            tools.append(self._build_task_complete_tool())
-            return AnthropicAgenticLoop(
-                api_key=self._config.terminal_api_key or os.environ.get("ANTHROPIC_API_KEY", ""),
-                model=self._config.terminal_model or self._config.llm_assignment.researcher,
-                tools=tools,
-                max_turns=max_turns,
-                stream_callback=stream_callback,
-            )
-        else:
-            from aurora.llm.agent_loops import OpenAIAgenticLoop
-            tools = self._backend.get_tool_registry()
-            tools.append(self._build_task_complete_tool())
-            return OpenAIAgenticLoop(
-                api_key=self._config.terminal_api_key or os.environ.get("OPENROUTER_API_KEY", ""),
-                model=self._config.terminal_model or self._config.llm_assignment.researcher,
-                tools=tools,
-                base_url=self._config.terminal_base_url,
-                max_turns=max_turns,
-                stream_callback=stream_callback,
-            )
-
-    def _resolve_driver(self) -> str:
-        driver = self._config.terminal_driver
-        if driver != "auto":
-            return driver
-        base = self._config.terminal_base_url
-        if not base or "anthropic.com" in base:
-            return "anthropic"
-        return "claude-code"
-
-    def _build_task_complete_tool(self) -> ToolSchema:
-        async def handler(params: dict[str, Any]) -> str:
-            return json.dumps({
-                "acknowledged": True,
-                "message": "Task marked as complete. Running verification...",
-            })
-        return ToolSchema(
-            name="task_complete",
-            description=(
-                "Signal that you have finished working on the task. "
-                "Call this when all required output files have been produced "
-                "and you believe the solution is correct."
-            ),
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "summary": {
-                        "type": "string",
-                        "description": "Brief summary of what was done",
-                    },
-                },
-            },
-            handler=handler,
+        live_path = None
+        if self._transcript_dir:
+            self._transcript_dir.mkdir(parents=True, exist_ok=True)
+            live_path = str(self._transcript_dir / "research_loop.jsonl")
+            self.transcript_path = live_path
+        return make_claude_code_loop(
+            self._config,
+            model=self._config.models.agent,
+            max_turns=max_turns,
+            docker_container=getattr(self._backend, "container_id", None),
+            cwd=self._cwd,
+            stream_callback=stream_callback,
+            live_transcript_path=live_path,
+            text_callback=self._text_callback,
         )
 
     def _record_to_artifact_store(
@@ -407,8 +260,7 @@ class TerminalIteration:
                 observation_id=f"obs_{iter_id}",
                 source_job_id=job.job_id,
                 description=(
-                    f"Terminal iteration {'passed' if job_result.success else 'failed'}. "
-                    f"Reward: {job_result.metrics.get('reward', 0):.2%}, "
+                    f"Research job {job.job_id} {'completed' if job_result.success else 'failed'}. "
                     f"Turns: {job_result.metrics.get('turns', 0)}, "
                     f"Wall time: {job_result.wall_time_seconds:.1f}s"
                 ),
@@ -424,27 +276,3 @@ class TerminalIteration:
         except Exception as exc:
             logger.warning("Failed to record to ArtifactStore: %s", exc)
 
-    def _build_system_prompt(self, phase: int, prev_feedback: str) -> str:
-        phase_info = ""
-        if phase > 0 and prev_feedback:
-            phase_info = f"\n## Previous Attempt Feedback\nThis is attempt #{phase + 1}.\n{prev_feedback}\n"
-
-        return f"""{self._system_prompt}
-{self._prior_phase_context}
-{phase_info}
-## Your Approach
-
-1. **Understand**: Read the task instruction carefully. Explore the environment.
-2. **Plan**: Break the task into subtasks.
-3. **Execute**: Work systematically, verifying after each step.
-4. **Complete**: When done, call task_complete.
-"""
-
-    def _build_user_message(self, phase: int, prev_feedback: str) -> str:
-        if phase == 0:
-            return (
-                f"Here is your task instruction:\n\n"
-                f"---\n{self._task_instruction}\n---\n\n"
-                f"Begin by exploring the task environment, then work on the task."
-            )
-        return prev_feedback

@@ -7,7 +7,6 @@ the engine interprets.
 Two base classes are provided:
 
 - :class:`Agent` — classic prompt-and-parse agents (auditor, roundtable, etc.)
-- :class:`AgenticAgent` — tool-use loop agents that autonomously call tools
 """
 
 from __future__ import annotations
@@ -27,13 +26,6 @@ from pydantic import BaseModel
 from aurora.config import PipelineStage
 from aurora.llm.base import Message
 from aurora.llm.router import LLMRouter
-from aurora.llm.tool_runner import (
-    AgenticLoop,
-    AgenticResult,
-    HookInterceptor,
-    StreamCallback,
-    ToolSchema,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -285,140 +277,3 @@ class Agent(ABC):
                 f"\n### Available Tools: {', '.join(context.available_tools)}"
             )
         return "\n".join(parts)
-
-
-# ---------------------------------------------------------------------------
-# Agentic base (tool-use loop)
-# ---------------------------------------------------------------------------
-
-
-class AgenticAgent(Agent):
-    """Base class for agents that use Claude's tool_use in an autonomous loop.
-
-    Instead of returning AgentActions for the engine to execute, an
-    AgenticAgent calls tools directly during its run and returns
-    an :class:`AgenticResult` summarizing what it did.
-
-    Subclasses must implement :meth:`system_prompt` and :meth:`tools`.
-    The :meth:`run` method is implemented here using :class:`AgenticLoop`.
-    """
-
-    def __init__(
-        self,
-        router: LLMRouter,
-        agent_id: str | None = None,
-        *,
-        max_turns: int = 30,
-        hook_interceptor: HookInterceptor | None = None,
-        user_message_queue: asyncio.Queue | None = None,
-        stream_callback: StreamCallback | None = None,
-    ) -> None:
-        super().__init__(router, agent_id)
-        self._max_turns = max_turns
-        self._hook_interceptor = hook_interceptor
-        self._user_queue = user_message_queue
-        self._stream_callback = stream_callback
-        self._last_agentic_result: AgenticResult | None = None
-
-    @abstractmethod
-    def tools(self) -> list[ToolSchema]:
-        """Return the tool schemas available to this agent."""
-        ...
-
-    @property
-    def last_agentic_result(self) -> AgenticResult | None:
-        """The result of the most recent agentic loop run."""
-        return self._last_agentic_result
-
-    async def run(self, context: AgentContext) -> list[AgentAction]:
-        """Execute one iteration via an autonomous tool-use loop.
-
-        The agent calls tools directly (DFT, ASE, record_observation, etc.)
-        and returns a summary as AgentActions for backward compatibility with
-        the engine's action-processing layer.
-        """
-        provider, model = self._router.get_provider_and_model(self.pipeline_stage)
-
-        # Resolve API key
-        api_key = ""
-        if hasattr(provider, "_api_key"):
-            api_key = provider._api_key
-        if not api_key:
-            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-
-        loop = AgenticLoop(
-            api_key=api_key,
-            model=model,
-            tools=self.tools(),
-            max_turns=self._max_turns,
-            usage_tracker=self._router.usage_tracker,
-            hook_interceptor=self._hook_interceptor,
-            user_message_queue=self._user_queue,
-            stream_callback=self._stream_callback,
-        )
-
-        context_text = self._format_context(context)
-        user_message = (
-            f"## Research Context\n\n{context_text}\n\n"
-            f"## Task\n\n"
-            f"Execute one research iteration. Use the available tools to:\n"
-            f"1. Review current state (read_artifacts)\n"
-            f"2. Design and run experiments\n"
-            f"3. Analyze results\n"
-            f"4. Record observations and claims\n"
-            f"5. Decide the next step\n\n"
-            f"When you're done, call decide_next_step with your decision."
-        )
-
-        try:
-            result = await loop.run(
-                system_prompt=self.system_prompt(),
-                user_message=user_message,
-            )
-            self._last_agentic_result = result
-        finally:
-            await loop.close()
-
-        return self._agentic_result_to_actions(result)
-
-    def _agentic_result_to_actions(self, result: AgenticResult) -> list[AgentAction]:
-        """Convert an AgenticResult to AgentActions for engine compatibility."""
-        actions: list[AgentAction] = []
-
-        # Record each observation as an action
-        for obs in result.observations:
-            actions.append(self._make_action(
-                AgentActionType.RECORD_OBSERVATION,
-                obs,
-                reasoning="Recorded via agentic tool call",
-            ))
-
-        # Record each claim as an action
-        for claim in result.claims:
-            actions.append(self._make_action(
-                AgentActionType.RECORD_CLAIM,
-                claim,
-                reasoning="Proposed via agentic tool call",
-            ))
-
-        # Map decision to action type
-        decision_map = {
-            "continue": AgentActionType.LOG_MESSAGE,
-            "replan": AgentActionType.PROPOSE_GOAL_CHANGE,
-            "audit": AgentActionType.REQUEST_AUDIT,
-            "done": AgentActionType.TERMINATE,
-            "follow_up": AgentActionType.TRIGGER_FOLLOWUP,
-        }
-        action_type = decision_map.get(result.decision, AgentActionType.LOG_MESSAGE)
-        actions.append(self._make_action(
-            action_type,
-            {
-                "decision": result.decision,
-                "summary": result.final_text[:500],
-                "tool_calls_count": len(result.tool_calls),
-                "turns": result.turns,
-            },
-            reasoning=result.final_text[:300],
-        ))
-
-        return actions

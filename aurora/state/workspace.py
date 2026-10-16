@@ -7,13 +7,13 @@ JSONL trajectory log records every significant event for post-hoc analysis.
 
 Directory layout::
 
-    {workspace_root}/{campaign_id}/
+    {workspace.root}/{campaign_id}/
     ├── campaign.json                        # Campaign config snapshot
     ├── artifacts.json                       # Shared state
     ├── mental_model.json
     │
     ├── phases/
-    │   ├── roundtable/
+    │   ├── ideation/
     │   │   ├── transcript.jsonl
     │   │   └── proposal.json
     │   │
@@ -70,7 +70,7 @@ class WorkspaceManager:
     def __init__(self, config: WorkspaceConfig, campaign_id: str) -> None:
         self._config = config
         self._campaign_id = campaign_id
-        self._root = Path(config.workspace_root).resolve() / campaign_id
+        self._root = Path(config.root).expanduser().resolve() / campaign_id
 
     # ------------------------------------------------------------------
     # Root paths
@@ -136,10 +136,10 @@ class WorkspaceManager:
 
     @property
     def roundtable_dir(self) -> Path:
-        return self.phases_dir / "roundtable"
+        return self.phases_dir / "ideation"
 
     def proposal_path(self, proposal_id: str, round_n: int = 0) -> Path:
-        return self.phase_round_dir("roundtable", round_n) / f"{proposal_id}.json"
+        return self.phase_round_dir("ideation", round_n) / f"{proposal_id}.json"
 
     # -- Screening --
 
@@ -269,7 +269,7 @@ class WorkspaceManager:
         (self._root / "backups").mkdir(exist_ok=True)
         (self._root / "audit_records").mkdir(exist_ok=True)
 
-        for phase in ("roundtable", "screening", "planning", "research",
+        for phase in ("ideation", "screening", "planning", "research",
                        "analysis", "writing"):
             (self.phases_dir / phase).mkdir(exist_ok=True)
 
@@ -390,8 +390,7 @@ class WorkspaceManager:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, dest)
 
-        lvl = logging.INFO if self._config.no_delete_policy else logging.DEBUG
-        logger.log(lvl, "Backed up %s → %s", path, dest)
+        logger.debug("Backed up %s → %s", path, dest)
         return dest
 
     # ------------------------------------------------------------------
@@ -441,8 +440,8 @@ class WorkspaceManager:
 
     def list_proposals(self) -> list[str]:
         proposals: list[str] = []
-        for rn in self._list_rounds("roundtable"):
-            rd = self.phase_round_dir("roundtable", rn)
+        for rn in self._list_rounds("ideation"):
+            rd = self.phase_round_dir("ideation", rn)
             for p in rd.glob("*.json"):
                 if p.name != "transcript.jsonl":
                     proposals.append(p.stem)

@@ -16,7 +16,6 @@ import subprocess
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from aurora.llm.tool_runner import ToolSchema
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +44,6 @@ class ExecutionBackend(Protocol):
         workdir: str | None = None,
     ) -> tuple[int, str, str]:
         """Run a command and return (exit_code, stdout, stderr)."""
-        ...
-
-    def get_tool_registry(self) -> list[ToolSchema]:
-        """Return the tool schemas this backend provides to agents."""
         ...
 
     async def read_file(self, path: str) -> bytes:
@@ -115,13 +110,6 @@ class LocalBackend:
             return 1, "", f"Command timed out after {timeout}s"
         except Exception as exc:
             return 1, "", f"Execution failed: {exc}"
-
-    def get_tool_registry(self) -> list[ToolSchema]:
-        from aurora.tools.shell import build_shell_tool
-        from aurora.tools.file_ops import build_all_file_tools
-        tools = [build_shell_tool(self._working_dir)]
-        tools.extend(build_all_file_tools(self._working_dir))
-        return tools
 
     async def read_file(self, path: str) -> bytes:
         full = Path(self._working_dir) / path.lstrip("/")

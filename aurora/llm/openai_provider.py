@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import time
-from typing import Callable, Type, TypeVar
+from typing import Any, Callable, Type, TypeVar
 
 from pydantic import BaseModel
 
@@ -174,6 +174,7 @@ class OpenAIProvider(LLMProvider):
             prompt_tokens=raw_usage.prompt_tokens if raw_usage else 0,
             completion_tokens=raw_usage.completion_tokens if raw_usage else 0,
             total_tokens=raw_usage.total_tokens if raw_usage else 0,
+            cost_usd=_reported_cost(raw_usage),
         )
         self._record_usage(model, usage)
 
@@ -231,6 +232,7 @@ class OpenAIProvider(LLMProvider):
                 prompt_tokens=raw_usage.prompt_tokens if raw_usage else 0,
                 completion_tokens=raw_usage.completion_tokens if raw_usage else 0,
                 total_tokens=raw_usage.total_tokens if raw_usage else 0,
+                cost_usd=_reported_cost(raw_usage),
             )
             self._record_usage(model, usage)
             return self._parse_structured_response(content, schema)
@@ -289,3 +291,12 @@ def _clean_schema_for_openai(schema: dict) -> None:
                 _clean_schema_for_openai(defn)
     if "items" in schema and isinstance(schema["items"], dict):
         _clean_schema_for_openai(schema["items"])
+
+
+def _reported_cost(usage: Any) -> float:
+    """Cost of a call as reported by OpenRouter in ``usage.cost``; 0 when absent."""
+    try:
+        extra = getattr(usage, "model_extra", None) or {}
+        return float(extra.get("cost") or getattr(usage, "cost", 0) or 0)
+    except (TypeError, ValueError):
+        return 0.0

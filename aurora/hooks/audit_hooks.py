@@ -25,7 +25,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from aurora.config import PipelineStage, ResourceLimits
+from aurora.config import PipelineStage
 from aurora.hooks.base import Hook, HookContext, HookPoint, HookResult
 from aurora.llm.base import Message
 from aurora.llm.router import LLMRouter
@@ -526,94 +526,6 @@ class GoalDriftHook(Hook):
 # 6. ResourceExhaustionHook
 # ===================================================================
 
-class ResourceExhaustionHook(Hook):
-    """Alerts when any resource budget exceeds 80 % utilisation.
-
-    Fires at :data:`HookPoint.POST_EXPERIMENT`.  Compares consumed
-    resources (from ``context.data``) against the configured
-    :class:`ResourceLimits`.
-
-    Expected ``context.data`` keys:
-
-    * ``wall_clock_hours`` — total wall-clock hours consumed so far.
-    * ``gpu_hours`` — total GPU-hours consumed so far.
-    * ``tokens_used`` — total tokens consumed so far.
-    """
-
-    EXHAUSTION_THRESHOLD: float = 0.80
-
-    def __init__(
-        self,
-        router: LLMRouter,
-        resource_limits: ResourceLimits,
-        *,
-        priority: int = 15,
-    ) -> None:
-        self.name = "resource_exhaustion"
-        self.hook_points = {HookPoint.POST_EXPERIMENT}
-        self.priority = priority
-        self.enabled = True
-        self._router = router
-        self._limits = resource_limits
-
-    async def execute(self, context: HookContext) -> HookResult:
-        wall_hours: float = context.data.get("wall_clock_hours", 0.0)
-        gpu_hours: float = context.data.get("gpu_hours", 0.0)
-        tokens: int = context.data.get("tokens_used", 0)
-
-        breaches: list[str] = []
-        utilisation: dict[str, float] = {}
-
-        if self._limits.max_wall_clock_hours > 0:
-            pct = wall_hours / self._limits.max_wall_clock_hours
-            utilisation["wall_clock"] = pct
-            if pct > self.EXHAUSTION_THRESHOLD:
-                breaches.append(
-                    f"Wall-clock: {pct:.0%} of {self._limits.max_wall_clock_hours}h"
-                )
-
-        if self._limits.max_gpu_hours > 0:
-            pct = gpu_hours / self._limits.max_gpu_hours
-            utilisation["gpu"] = pct
-            if pct > self.EXHAUSTION_THRESHOLD:
-                breaches.append(
-                    f"GPU-hours: {pct:.0%} of {self._limits.max_gpu_hours}h"
-                )
-
-        if self._limits.monthly_token_budget > 0:
-            pct = tokens / self._limits.monthly_token_budget
-            utilisation["tokens"] = pct
-            if pct > self.EXHAUSTION_THRESHOLD:
-                breaches.append(
-                    f"Tokens: {pct:.0%} of {self._limits.monthly_token_budget}"
-                )
-
-        if not breaches:
-            return HookResult(
-                hook_name=self.name,
-                passed=True,
-                message="All resource budgets within limits.",
-                severity="info",
-                data={"utilisation": utilisation},
-            )
-
-        # At least one resource near exhaustion
-        severity = "critical" if any(
-            v > 0.95 for v in utilisation.values()
-        ) else "warning"
-
-        return HookResult(
-            hook_name=self.name,
-            passed=False,
-            message=f"Resource exhaustion warning: {'; '.join(breaches)}.",
-            severity=severity,
-            human_intervention_required=(severity == "critical"),
-            data={
-                "breaches": breaches,
-                "utilisation": utilisation,
-                "recommended_outcome": AuditOutcome.ESCALATE.value if severity == "critical" else AuditOutcome.REPLAN.value,
-            },
-        )
 
 
 # ===================================================================

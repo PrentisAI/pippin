@@ -13,11 +13,8 @@ NoveltyChecker
     LLM comparison.
 """
 
-from aurora.screening.novelty import NoveltyChecker, NoveltyResult
 from aurora.screening.screener import IdeaScreener
 
 __all__ = [
     "IdeaScreener",
-    "NoveltyChecker",
-    "NoveltyResult",
 ]

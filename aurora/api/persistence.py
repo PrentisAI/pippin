@@ -15,7 +15,6 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "aurora"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS campaigns (
@@ -51,7 +50,10 @@ class Store:
     """Persistent store backed by SQLite + JSONL event files."""
 
     def __init__(self, data_dir: str | Path | None = None) -> None:
-        self._data_dir = Path(data_dir) if data_dir else _DEFAULT_DATA_DIR
+        if data_dir is None:
+            from aurora.paths import aurora_home
+            data_dir = aurora_home()
+        self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._events_dir = self._data_dir / "events"
         self._events_dir.mkdir(parents=True, exist_ok=True)
@@ -63,6 +65,10 @@ class Store:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         logger.info("Persistence store opened at %s", db_path)
+
+    @property
+    def data_dir(self) -> Path:
+        return self._data_dir
 
     def close(self) -> None:
         self._conn.close()

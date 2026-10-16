@@ -1,10 +1,17 @@
-"""Roundtable orchestrator — a research group meeting among heterogeneous model seats (Section 2.4).
+"""Multi-agent ideation among heterogeneous model seats (Section 3.4 of the paper).
 
-Protocol:
+Two configurations (``ideation.mode``):
+
+* ``roundtable`` — a research group meeting, described below.
+* ``independent`` — every seat prepares one idea on its own; the chair picks
+  one without any discussion and its author writes the proposal.  Cheaper,
+  and in the paper's evaluation the chair's picks were at least as good.
+
+Roundtable protocol:
   Preparation   — every seat looks into the literature and prepares a presentation with one main idea
   Agenda items  — one per presentation, in random order: the other seats make remarks (questions,
                   concerns, suggestions, evidence, build-ons, reasoned agreement) or pass; the presenter
-                  responds; seats that raised a hand may follow up; up to ``roundtable_item_rounds``
+                  responds; seats that raised a hand may follow up; up to ``ideation.rounds_per_item``
                   exchanges. The chair records the threads and their outcomes after each item.
   Open discussion — cross-cutting remarks and replies.
   Decision      — the chair decides the direction from the notes and transcript (no ranking or voting
@@ -42,13 +49,14 @@ class Roundtable:
         self.notes: list[ItemNotes] = []
         self.decision: Decision | None = None
 
-        prompts = ([sc.prompt or config.roundtable_seat_prompt for sc in config.roundtable_seats]
-                   or [config.roundtable_seat_prompt] * config.num_roundtable_seats)
+        ideation = config.ideation
+        prompts = ([sc.prompt or ideation.seat_prompt for sc in ideation.seats]
+                   or [ideation.seat_prompt] * len(config.models.ideation_seats))
         self._seats = [
-            RoundtableSeat(router, seat_index=i, custom_system_prompt=p, web_search=config.roundtable_web_search)
+            RoundtableSeat(router, seat_index=i, custom_system_prompt=p, web_search=ideation.web_search)
             for i, p in enumerate(prompts)
         ]
-        self._chair = RoundtableChair(router, custom_system_prompt=config.roundtable_system_prompt)
+        self._chair = RoundtableChair(router, custom_system_prompt=ideation.chair_prompt)
 
     @property
     def seat_ids(self) -> list[str]:
@@ -64,20 +72,46 @@ class Roundtable:
 
     # -- public interface ------------------------------------------------------
 
+    async def run(self, context: AgentContext, topic: str | None = None) -> RoundtableProposal:
+        """Run the configured ideation mode and return the proposal for the chosen direction."""
+        if self._config.ideation.mode == "independent":
+            return await self.select_independently(context, topic)
+        return await self.deliberate(context, topic)
+
+    async def select_independently(self, context: AgentContext, topic: str | None = None) -> RoundtableProposal:
+        topic = topic or context.current_goal
+        self._contributions, self.notes, self.decision = [], [], None
+        rnd = random.Random(int(hashlib.md5(topic.encode()).hexdigest(), 16))
+        drafts = await self._prepare_all(context, topic, rnd)
+        # anonymous, shuffled labels so the chair cannot favour a model or a position
+        order = drafts[:]
+        rnd.shuffle(order)
+        labels = {chr(ord("A") + k): c for k, c in enumerate(order)}
+        briefing = self._seats[0].briefing(context, topic)
+        selection = await self._chair.select(briefing, {lab: c.content for lab, c in labels.items()})
+        chosen = next((labels[x] for x in re.findall(r"[A-Z]", selection.chosen) if x in labels), order[0])
+        writer = next(s for s in self._seats if s.agent_id == chosen.seat_id)
+        final = await writer.write_proposal(
+            context, topic, f"### {chosen.seat_id} — presentation\n\n{chosen.content}", None)
+        self.decision = None
+        return self._proposal(final, topic, decision={
+            "mode": "independent", "chosen": chosen.seat_id,
+            "labels": {lab: c.seat_id for lab, c in labels.items()}, **selection.model_dump()})
+
     async def deliberate(self, context: AgentContext, topic: str | None = None) -> RoundtableProposal:
         topic = topic or context.current_goal
         self._contributions, self.notes, self.decision = [], [], None
         rnd = random.Random(int(hashlib.md5(topic.encode()).hexdigest(), 16))
         by_id = {s.agent_id: s for s in self._seats}
 
-        await self._parallel([s.prepare(context, topic) for s in self._seats], rnd)
+        await self._prepare_all(context, topic, rnd)
 
         agenda = self.seat_ids[:]
         rnd.shuffle(agenda)
         for presenter in agenda:
             start = len(self._contributions)
             speakers = [s for s in self._seats if s.agent_id != presenter]
-            for k in range(1, self._config.roundtable_item_rounds + 1):
+            for k in range(1, self._config.ideation.rounds_per_item + 1):
                 remarks = await self._parallel(
                     [s.remark(context, topic, self.transcript(), presenter, k) for s in speakers], rnd)
                 spoken = [r for r in remarks if not is_pass(r.content)]
@@ -90,7 +124,7 @@ class Roundtable:
             self.notes.append(await self._chair.notes(presenter, self.transcript(self._contributions[start:])))
 
         start = len(self._contributions)
-        for k in range(1, self._config.roundtable_item_rounds + 1):
+        for k in range(1, self._config.ideation.rounds_per_item + 1):
             remarks = await self._parallel(
                 [s.open_discussion(context, topic, self.transcript(), k) for s in self._seats], rnd)
             if all(is_pass(r.content) for r in remarks):
@@ -100,14 +134,16 @@ class Roundtable:
         briefing = self._seats[0].briefing(context, topic)
         try:
             self.decision = await self._chair.decide(briefing, self.notes, self.transcript())
-            # the chair sometimes writes a sentence instead of a bare seat ID
-            named = [x for x in re.findall(r"p\d{2}", self.decision.chosen) if x in by_id]
-            writer = by_id[named[0]] if named else self._seats[0]
-            decision_txt = json.dumps(self.decision.model_dump(), ensure_ascii=False, indent=1)
-            final = await writer.write_proposal(context, topic, self.transcript(), decision_txt)
         except Exception as exc:
-            logger.error("Roundtable decision/writing failed: %s", exc)
-            return self._build_fallback_proposal(topic)
+            raise RuntimeError(f"Ideation chair ({self._config.models.ideation_chair}) could not decide: {exc}") from exc
+        # the chair sometimes writes a sentence instead of a bare seat ID
+        named = [x for x in re.findall(r"p\d{2}", self.decision.chosen) if x in by_id]
+        writer = by_id[named[0]] if named else self._seats[0]
+        decision_txt = json.dumps(self.decision.model_dump(), ensure_ascii=False, indent=1)
+        final = await writer.write_proposal(context, topic, self.transcript(), decision_txt)
+        return self._proposal(final, topic, decision=self.decision.model_dump())
+
+    def _proposal(self, final, topic: str, decision: dict) -> RoundtableProposal:
         return RoundtableProposal(
             proposal_id=f"prop_{uuid.uuid4().hex[:8]}",
             title=final.title or topic[:100],
@@ -120,7 +156,7 @@ class Roundtable:
             falsification_check=final.falsification_check,
             unresolved_disagreements=final.unresolved_disagreements,
             meeting_notes=[n.model_dump() for n in self.notes],
-            decision=self.decision.model_dump(),
+            decision=decision,
             contributions=list(self._contributions),
             created_at=datetime.utcnow(),
         )
@@ -139,26 +175,26 @@ class Roundtable:
 
     # -- helpers ---------------------------------------------------------------
 
+    async def _prepare_all(self, context: AgentContext, topic: str, rnd: random.Random) -> list[SeatContribution]:
+        """Every seat prepares its idea; fail loudly when too few seats could take part."""
+        drafts = await self._parallel([s.prepare(context, topic) for s in self._seats], rnd)
+        if not drafts:
+            raise RuntimeError(
+                "Every ideation seat failed to prepare an idea; check the API key and the model IDs "
+                f"in models.ideation_seats ({[s.model_id for s in self._seats]}). See the log for the errors.")
+        if len(drafts) < len(self._seats):
+            logger.warning("Only %d of %d ideation seats prepared an idea", len(drafts), len(self._seats))
+        return drafts
+
     async def _parallel(self, coros: list, rnd: random.Random) -> list[SeatContribution]:
         """Run one round of turns in parallel; add them to the transcript in random order."""
         results = await asyncio.gather(*coros, return_exceptions=True)
         ok = []
         for res in results:
             if isinstance(res, Exception):
-                logger.warning("Roundtable turn failed: %s", res)
+                logger.error("Ideation turn failed: %s", res)
                 continue
             ok.append(res)
         rnd.shuffle(ok)
         self._contributions.extend(ok)
         return ok
-
-    def _build_fallback_proposal(self, topic: str) -> RoundtableProposal:
-        return RoundtableProposal(
-            proposal_id=f"prop_{uuid.uuid4().hex[:8]}",
-            title=f"Research Direction: {topic[:80]}",
-            description="Auto-generated from roundtable discussion (decision or writing failed)",
-            research_questions=[topic],
-            meeting_notes=[n.model_dump() for n in self.notes],
-            contributions=list(self._contributions),
-            created_at=datetime.utcnow(),
-        )

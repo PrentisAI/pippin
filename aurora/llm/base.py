@@ -93,6 +93,7 @@ class TokenUsage:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    cost_usd: float = 0.0   # as reported by the provider (OpenRouter), else 0
 
 
 @dataclass(slots=True)
@@ -120,6 +121,7 @@ class UsageTracker:
         self._usage: dict[str, dict[str, int]] = defaultdict(
             lambda: {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "call_count": 0}
         )
+        self._cost = 0.0
 
     def record(self, provider: str, model: str, usage: TokenUsage) -> None:
         """Record token usage for a single call."""
@@ -129,11 +131,17 @@ class UsageTracker:
         entry["completion_tokens"] += usage.completion_tokens
         entry["total_tokens"] += usage.total_tokens
         entry["call_count"] += 1
+        self._cost += usage.cost_usd
 
     @property
     def total_tokens(self) -> int:
         """Sum of all tokens across all providers and models."""
         return sum(e["total_tokens"] for e in self._usage.values())
+
+    @property
+    def total_cost(self) -> float:
+        """Sum of the provider-reported cost (USD) of all calls."""
+        return self._cost
 
     def summary(self) -> dict[str, dict[str, int]]:
         """Return a snapshot of accumulated usage per ``provider/model``."""
@@ -142,6 +150,7 @@ class UsageTracker:
     def reset(self) -> None:
         """Clear all accumulated usage."""
         self._usage.clear()
+        self._cost = 0.0
 
 
 # ---------------------------------------------------------------------------

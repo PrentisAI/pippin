@@ -10,8 +10,6 @@ from aurora.agents.base import (
     AgentContext,
     AgentRole,
 )
-from aurora.agents.researcher import ResearcherAgent
-from aurora.agents.auditor import AuditorAgent
 from aurora.agents.analyzer import AnalyzerAgent
 from aurora.agents.writer import WriterAgent
 from aurora.agents.roundtable import Roundtable, RoundtableChair, RoundtableSeat
@@ -24,8 +22,6 @@ __all__ = [
     "AgentContext",
     "AgentRole",
     # Agents
-    "ResearcherAgent",
-    "AuditorAgent",
     "AnalyzerAgent",
     "WriterAgent",
     # Roundtable

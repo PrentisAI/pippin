@@ -1,369 +1,344 @@
-"""Command-line interface for AURORA.
+"""Command-line interface: ``aurora <command>``.
 
-Subcommands
------------
-run     — Start a new research campaign from a YAML configuration file.
-status  — Print the current state of an existing campaign workspace.
-resume  — Resume execution from the last checkpoint.
-audit   — Manually trigger an audit of the current research trajectory.
+    aurora demo                 run the offline demo (no API key, no Docker)
+    aurora init [PATH]          write a commented starter config
+    aurora doctor [CONFIG]      check Claude Code, Docker and the API key
+    aurora run CONFIG           run a campaign
+    aurora run -o "objective"   run a campaign with the default settings
+    aurora status CAMPAIGN_DIR  show where a campaign is
+    aurora resume CAMPAIGN_DIR  continue a stopped campaign from its checkpoint
+    aurora serve                start the web console
+    aurora skills ...           list, add or remove skills in the skill library
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import logging
 import sys
 from pathlib import Path
 
 from aurora import __version__
 
+STARTER_CONFIG = """\
+# AURORA campaign configuration. Only `objective` is required; everything else
+# shows its default. Reference: docs/configuration.md
 
-def _cmd_run(args: argparse.Namespace) -> None:
-    """Start a research campaign."""
+objective: >
+  Replace this with your research question, in plain language. Say what you want
+  to find out, what data or code exists, and what a good result looks like.
+
+# inputs:                      # files or folders the agents should use
+#   - ./data
+# skip_phases: [writing]       # any of ideation, screening, planning, research, analysis, writing
+
+models:                        # OpenRouter model IDs; one OPENROUTER_API_KEY covers all
+  agent: anthropic/claude-sonnet-5.5
+  ideation_seats: [anthropic/claude-sonnet-5.5, openai/gpt-5.6-sol, google/gemini-3.1-pro-preview]
+  ideation_chair: moonshotai/kimi-k3
+  auditor: anthropic/claude-sonnet-5.5
+  supervisor: anthropic/claude-sonnet-5.5
+  frontdesk: anthropic/claude-haiku-5.5
+
+ideation:
+  mode: roundtable             # or: independent (cheaper, no discussion)
+
+sandbox:
+  docker: true
+  image: python:3.11-slim      # use an image with the libraries your task needs
+
+human:
+  autonomy: supervised         # supervised: escalations wait for you; autonomous: they don't
+
+budget:
+  max_hours: 24
+  # max_cost_usd: 50
+
+workspace:
+  root: ./workspace
+"""
+
+
+def _setup_logging(verbose: bool) -> None:
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    for noisy in ("httpx", "openai", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+def _run_engine(config, *, resume: bool = False) -> int:
     import asyncio
-    import logging
 
-    from aurora.config import load_config
     from aurora.core.engine import ResearchEngine
     from aurora.core.requirements import RuntimeRequirementError
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)s %(levelname)s %(message)s",
-    )
-
-    config = load_config(args.config)
-    print(f"[AURORA] Starting campaign '{config.campaign_id}'"
-          + ("  (mock mode)" if config.mock_mode else ""))
-    print(f"  Objective : {config.objective.strip()[:120]}")
-    print(f"  Domain    : {config.domain}")
-    print(f"  Workspace : {config.workspace.workspace_root}")
-    print(f"  Seats     : {config.num_roundtable_seats}")
+    print(flush=True)
+    print(f"AURORA {__version__} — campaign '{config.campaign_id}'" + ("  [mock mode]" if config.mock_mode else ""))
+    print(f"  objective : {' '.join(config.objective.split())[:150]}")
+    print(f"  workspace : {Path(config.workspace.root).resolve() / config.campaign_id}")
     print()
-
     engine = ResearchEngine(config)
+    engine.human_gate.interactive_console = sys.stdin.isatty()
     try:
-        result = asyncio.run(engine.run_campaign())
+        result = asyncio.run(engine.run_campaign(resume=resume))
     except RuntimeRequirementError as exc:
-        print(f"[AURORA] {exc}", file=sys.stderr)
-        sys.exit(2)
+        print(f"\n{exc}", file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        print("\nInterrupted. Continue later with: aurora resume "
+              f"{Path(config.workspace.root).resolve() / config.campaign_id}", file=sys.stderr)
+        return 130
 
     print()
-    print("=" * 60)
-    print(f"[AURORA] Campaign {result.status.upper()}")
-    print(f"  Iterations     : {len(result.iterations)}")
-    print(f"  Follow-up cycles: {result.research_cycles}")
-    print(f"  Wall time      : {result.total_wall_time_seconds:.2f}s")
-    if result.manuscript_path:
-        print(f"  Manuscript     : {result.manuscript_path}")
+    print("=" * 64)
+    print(f"Campaign {result.status.upper()}: {result.summary}")
     if result.proposal:
-        print(f"  Proposal       : {result.proposal.title}")
-    print(f"  Summary        : {result.summary}")
-    print("=" * 60)
+        print(f"  direction : {result.proposal.title}")
+    print(f"  jobs      : {sum(1 for r in result.iterations if r.job_result and r.job_result.success)}"
+          f"/{len(result.iterations)} succeeded")
+    if result.manuscript_path:
+        print(f"  report    : {result.manuscript_path}")
+    print(f"  workspace : {result.workspace}")
+    print(f"  time      : {result.total_wall_time_seconds / 60:.1f} min   API cost: ${result.cost_usd:.2f}")
+    print("=" * 64)
+    return 1 if result.status == "failed" else 0
 
-    if result.status != "completed":
-        sys.exit(1)
 
+# -- commands -------------------------------------------------------------------
 
-def _cmd_status(args: argparse.Namespace) -> None:
-    """Print current campaign status."""
-    workspace = Path(args.workspace)
-    if not workspace.exists():
-        print(f"[AURORA] Workspace not found: {workspace}", file=sys.stderr)
-        sys.exit(1)
+def cmd_run(args: argparse.Namespace) -> int:
+    from aurora.config import AuroraConfig, load_config
 
-    artifacts_path = workspace / "artifacts.json"
-    if artifacts_path.exists():
-        from aurora.models.artifacts import ResearchArtifacts
-
-        artifacts = ResearchArtifacts.model_validate_json(artifacts_path.read_text())
-        print(f"[AURORA] Campaign status")
-        print(f"  Objective    : {artifacts.initial_objective}")
-        print(f"  Current goal : {artifacts.current_goal}")
-        print(f"  Experiments  : {len(artifacts.experiments)} total")
-        print(f"  Observations : {len(artifacts.observations)} total")
-        print(f"  Claims       : {len(artifacts.claims)} total")
-        print(f"  Open questions: {len(artifacts.open_questions)}")
+    _setup_logging(args.verbose)
+    overrides = {"mock_mode": True if args.mock else None, "campaign_id": args.name,
+                 "objective": args.objective}
+    if args.config:
+        config = load_config(args.config, **overrides)
+    elif args.objective:
+        config = AuroraConfig.model_validate({k: v for k, v in overrides.items() if v is not None})
     else:
-        print(f"[AURORA] No artifacts found in {workspace}")
+        print("Give a config file (aurora run config.yaml) or an objective (aurora run -o '...').",
+              file=sys.stderr)
+        return 2
+    return _run_engine(config)
 
 
-def _cmd_resume(args: argparse.Namespace) -> None:
-    """Resume a campaign from its last checkpoint."""
-    import asyncio
-    import json
-    import logging
+def cmd_demo(args: argparse.Namespace) -> int:
+    from aurora.config import AuroraConfig
 
-    from aurora.config import load_config
-    from aurora.core.engine import ResearchEngine
-    from aurora.core.requirements import RuntimeRequirementError
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    _setup_logging(args.verbose)
+    config = AuroraConfig(
+        objective=("Investigate surface segregation of Zn in Cu(111) and its effect on CO adsorption, "
+                   "as a step towards Cu-Zn methanol synthesis catalysts."),
+        campaign_id=args.name,
+        mock_mode=True,
+        workspace={"root": args.workspace},
     )
+    print("Offline demo: scripted mock models and simulated tools replay a small materials study.\n")
+    return _run_engine(config)
 
-    workspace = Path(args.workspace)
-    if not workspace.exists():
-        print(f"[AURORA] Workspace not found: {workspace}", file=sys.stderr)
-        sys.exit(1)
 
-    # Load config from the workspace's checkpoint
-    checkpoint_path = workspace / "checkpoint.json"
-    if not checkpoint_path.exists():
-        print(f"[AURORA] No checkpoint found in {workspace}", file=sys.stderr)
-        sys.exit(1)
+def cmd_init(args: argparse.Namespace) -> int:
+    path = Path(args.path)
+    if path.exists() and not args.force:
+        print(f"{path} exists; use --force to overwrite.", file=sys.stderr)
+        return 1
+    path.write_text(STARTER_CONFIG)
+    print(f"Wrote {path}. Edit the objective, then: aurora doctor {path} && aurora run {path}")
+    return 0
 
-    config_path = args.config
-    if not config_path:
-        print("[AURORA] --config is required for resume", file=sys.stderr)
-        sys.exit(1)
 
-    config = load_config(config_path)
-    print(f"[AURORA] Resuming campaign '{config.campaign_id}' from {workspace}")
+def cmd_doctor(args: argparse.Namespace) -> int:
+    import shutil
+    import subprocess
 
-    engine = ResearchEngine(config)
+    from aurora.config import AuroraConfig, load_config
+    from aurora.core.requirements import RuntimeRequirementError, check_runtime_requirements
+    from aurora.env import load_dotenv
+    from aurora.paths import aurora_home
+
+    env_file = load_dotenv()
+
+    def line(good: bool, what: str, detail: str = "") -> None:
+        print(f"  [{'ok' if good else '!!'}] {what}" + (f" — {detail}" if detail else ""))
+
+    print(f"AURORA {__version__}, Python {sys.version.split()[0]}")
+    claude = shutil.which("claude")
+    version = ""
+    if claude:
+        try:
+            version = subprocess.run([claude, "--version"], capture_output=True, text=True,
+                                     timeout=20).stdout.strip()
+        except Exception:
+            version = "?"
+    line(bool(claude), "Claude Code CLI", version or "not found: npm install -g @anthropic-ai/claude-code")
+    docker = shutil.which("docker")
+    line(bool(docker), "Docker", docker or "not found (needed unless sandbox.docker is false)")
+    line(env_file is not None, ".env file", str(env_file) if env_file else "none found (optional)")
+    print(f"  [..] data directory — {aurora_home()}")
     try:
-        result = asyncio.run(engine.run_campaign(resume=True))
+        config = load_config(args.config) if args.config else AuroraConfig(objective="doctor")
+        check_runtime_requirements(config)
+        line(True, "requirements of " + (args.config or "the default config"))
     except RuntimeRequirementError as exc:
-        print(f"[AURORA] {exc}", file=sys.stderr)
-        sys.exit(2)
-
-    print()
-    print(f"[AURORA] Campaign {result.status.upper()}")
-    print(f"  Summary: {result.summary}")
-
-
-def _cmd_audit(args: argparse.Namespace) -> None:
-    """Manually trigger an audit."""
-    workspace = Path(args.workspace)
-    if not workspace.exists():
-        print(f"[AURORA] Workspace not found: {workspace}", file=sys.stderr)
-        sys.exit(1)
-    print(f"[AURORA] Triggering manual audit for {workspace}")
-    print("[AURORA] Manual audit not yet implemented.")
+        print("\n" + str(exc))
+        return 1
+    except Exception as exc:
+        line(False, f"config {args.config}", str(exc))
+        return 1
+    return 0
 
 
-def _cmd_lhtb(args: argparse.Namespace) -> None:
-    """Run an LHTB benchmark task."""
-    import asyncio
-    import logging
-    import os
+def cmd_status(args: argparse.Namespace) -> int:
+    campaign = Path(args.campaign_dir)
+    checkpoint = campaign / "checkpoint.json"
+    if not checkpoint.exists():
+        print(f"No campaign found at {campaign} (no checkpoint.json).", file=sys.stderr)
+        return 1
+    cp = json.loads(checkpoint.read_text())
+    print(f"Campaign   : {cp.get('campaign_id')}")
+    print(f"Next phase : {cp.get('phase')}   round: {cp.get('research_cycle', 0)}")
+    if cp.get("completed_jobs"):
+        print(f"Jobs done  : {', '.join(cp['completed_jobs'])}")
+    reports = sorted((campaign / "phases" / "writing").glob("**/draft_*.md"))
+    if reports:
+        print(f"Report     : {reports[-1]}")
+    gates = campaign / "human_gates.jsonl"
+    if gates.exists():
+        print(f"Human gates: {sum(1 for _ in gates.open())} (see {gates})")
+    audit_dir = campaign / "audit_records"
+    for a in sorted(audit_dir.glob("*.json"))[-3:] if audit_dir.exists() else []:
+        try:
+            verdict = json.loads(a.read_text()).get("verdict", "?")
+        except json.JSONDecodeError:
+            verdict = "?"
+        print(f"Audit      : {a.stem}: {verdict}")
+    return 0
 
-    from aurora.lhtb.task_loader import load_task
-    from aurora.lhtb.runner import LHTBRunner
-    from aurora.llm.tool_runner import StreamEvent
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(name)s %(levelname)s %(message)s",
-    )
+def cmd_resume(args: argparse.Namespace) -> int:
+    from aurora.config import load_config
 
-    api_key = (
-        args.api_key
-        or os.environ.get("OPENROUTER_API_KEY", "")
-        or os.environ.get("ANTHROPIC_API_KEY", "")
-        or os.environ.get("OPENAI_API_KEY", "")
-    )
-    if not api_key:
-        print("Error: No API key. Set --api-key, OPENROUTER_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY.", file=sys.stderr)
-        sys.exit(1)
+    _setup_logging(args.verbose)
+    campaign = Path(args.campaign_dir).resolve()
+    saved = campaign / "config.yaml"
+    if not saved.exists():
+        print(f"{saved} not found; is {campaign} a campaign directory?", file=sys.stderr)
+        return 1
+    config = load_config(saved, campaign_id=campaign.name)
+    config.workspace.root = str(campaign.parent)
+    return _run_engine(config, resume=True)
 
-    task = load_task(args.task_dir)
-    print(f"[AURORA LHTB] Task: {task.name}")
-    print(f"  Category   : {task.category}")
-    print(f"  Difficulty : {task.difficulty}")
-    print(f"  Artifacts  : {len(task.artifacts)} required")
-    print(f"  Docker     : {task.docker_image or '(none — local mode)'}")
-    print(f"  Timeout    : {args.timeout or task.agent_timeout_sec}s")
-    print(f"  Loop mode  : {'continue-until-timeout' if task.continue_until_timeout else 'single-shot'}")
-    print(f"  Driver     : {args.driver}")
-    print(f"  Model      : {args.model}")
-    print()
 
-    async def _stream(event: StreamEvent) -> None:
-        d = event.data
-        t = event.event_type
-        if t == "reasoning":
-            print(f"  [think] {d.get('text', '')[:200]}")
-        elif t == "tool_call_start":
-            print(f"  [tool]  {d.get('tool_name', '?')} ...", end="", flush=True)
-        elif t == "tool_call_result":
-            print(f" ({d.get('duration', 0):.1f}s)")
-        elif t == "agent_done":
-            print(f"  [done]  Agent finished")
-        elif t == "phase_started":
-            print(f"\n--- Phase {d.get('phase', 0)} "
-                  f"(elapsed {d.get('elapsed', 0):.0f}s, "
-                  f"remaining {d.get('remaining', 0):.0f}s) ---")
-        elif t == "verifier_started":
-            print(f"  [verify] Running verifier...")
-        elif t == "verifier_result":
-            status = "PASSED" if d.get("passed") else "FAILED"
-            print(f"  [verify] {status} (reward: {d.get('reward', 0):.2%})")
-        elif t == "docker_started":
-            print(f"  [docker] Container {d.get('container_id', '?')} started")
-        elif t == "error":
-            print(f"  [ERR]   {d.get('error', '?')}")
+def cmd_serve(args: argparse.Namespace) -> int:
+    import uvicorn
 
-    runner = LHTBRunner(
-        task,
-        model=args.model,
-        api_key=api_key,
-        base_url=args.base_url,
-        driver=args.driver,
-        use_docker=not args.no_docker,
-        working_dir=args.working_dir,
-        max_turns=args.max_turns,
-        timeout_sec=args.timeout,
-        stream_callback=_stream,
-        allow_host_bash=args.allow_host_bash,
-    )
+    url = f"http://{'localhost' if args.host in ('0.0.0.0', '127.0.0.1') else args.host}:{args.port}"
+    print(f"AURORA web console: {url}")
+    if args.host not in ("127.0.0.1", "localhost"):
+        print("Warning: the console has no login. Anyone who can reach this address can start "
+              "campaigns with your API key. Prefer --host 127.0.0.1 with an SSH tunnel.", file=sys.stderr)
+    uvicorn.run("aurora.api.app:app", host=args.host, port=args.port, log_level="info")
+    return 0
 
-    result = asyncio.run(runner.run())
 
-    print()
-    print("=" * 60)
-    print(f"[AURORA LHTB] {result.status.upper()}")
-    print(f"  Task       : {result.task_name}")
-    print(f"  Phases     : {len(result.phases)}")
-    print(f"  Turns      : {result.total_turns}")
-    print(f"  Tokens     : {result.total_tokens:,}")
-    print(f"  Wall time  : {result.wall_time_seconds:.1f}s")
-    print(f"  Reward     : {result.final_reward:.2%}")
-    print(f"  Artifacts  : {len(result.artifacts_found)}/{len(result.artifacts_found) + len(result.artifacts_missing)}")
-    if result.artifacts_missing:
-        print(f"  Missing    : {', '.join(result.artifacts_missing)}")
-    if result.error:
-        print(f"  Error      : {result.error}")
-    print("=" * 60)
+def cmd_skills(args: argparse.Namespace) -> int:
+    from aurora.paths import aurora_home
+    from aurora.skills.store import DistilledSkill, SkillStore
 
-    if result.status not in ("completed", "partial"):
-        sys.exit(1)
+    store = SkillStore(aurora_home() / "skills.db")
+    if args.skills_cmd == "list":
+        skills = store.list_all()
+        if not skills:
+            print("The skill library is empty. Add one with: aurora skills add NAME 'rule'")
+        for sk in skills:
+            print(f"- {sk.name} [{sk.scope}] {sk.description or ''}\n    {sk.rule}")
+    elif args.skills_cmd == "add":
+        rule = Path(args.rule[1:]).read_text() if args.rule.startswith("@") else args.rule
+        store.create(DistilledSkill(name=args.name, rule=rule, description=args.description,
+                                    scope="global", source_phase="human"))
+        print(f"Added skill '{args.name}'. Every new campaign can use it.")
+    elif args.skills_cmd == "remove":
+        sk = store.get_by_name(args.name)
+        if sk is None:
+            print(f"No skill named '{args.name}'.", file=sys.stderr)
+            return 1
+        store.delete(sk.id)
+        print(f"Removed skill '{args.name}'.")
+    return 0
 
+
+# -- parser -----------------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
-    """Construct the CLI argument parser."""
     parser = argparse.ArgumentParser(
         prog="aurora",
-        description=(
-            "AURORA — an agent harness for long-horizon open-ended "
-            "AutoResearch in computational materials science."
-        ),
+        description="AURORA — long-horizon, open-ended research with AI agents and a human in the loop.",
     )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {__version__}",
-    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    p = sub.add_parser("run", help="run a campaign")
+    p.add_argument("config", nargs="?", help="YAML configuration file")
+    p.add_argument("-o", "--objective", help="research objective (overrides the config's)")
+    p.add_argument("--name", help="campaign name (directory under the workspace root)")
+    p.add_argument("--mock", action="store_true", help="offline mock mode")
+    p.add_argument("-v", "--verbose", action="store_true")
+    p.set_defaults(func=cmd_run)
 
-    # --- run ---
-    run_parser = subparsers.add_parser("run", help="Start a new research campaign.")
-    run_parser.add_argument(
-        "--config",
-        required=True,
-        help="Path to the YAML campaign configuration file.",
-    )
-    run_parser.set_defaults(func=_cmd_run)
+    p = sub.add_parser("demo", help="run the offline demo (no API key, no Docker)")
+    p.add_argument("--workspace", default="./workspace", help="workspace root (default ./workspace)")
+    p.add_argument("--name", default="", help="campaign name")
+    p.add_argument("-v", "--verbose", action="store_true")
+    p.set_defaults(func=cmd_demo)
 
-    # --- status ---
-    status_parser = subparsers.add_parser("status", help="Show campaign status.")
-    status_parser.add_argument(
-        "--workspace",
-        required=True,
-        help="Path to the campaign workspace directory.",
-    )
-    status_parser.set_defaults(func=_cmd_status)
+    p = sub.add_parser("init", help="write a commented starter config")
+    p.add_argument("path", nargs="?", default="aurora.yaml")
+    p.add_argument("--force", action="store_true", help="overwrite an existing file")
+    p.set_defaults(func=cmd_init)
 
-    # --- resume ---
-    resume_parser = subparsers.add_parser("resume", help="Resume from checkpoint.")
-    resume_parser.add_argument(
-        "--workspace",
-        required=True,
-        help="Path to the campaign workspace directory.",
-    )
-    resume_parser.add_argument(
-        "--config",
-        required=True,
-        help="Path to the YAML campaign configuration file.",
-    )
-    resume_parser.set_defaults(func=_cmd_resume)
+    p = sub.add_parser("doctor", help="check that everything a campaign needs is installed")
+    p.add_argument("config", nargs="?", help="check the requirements of this config")
+    p.set_defaults(func=cmd_doctor)
 
-    # --- audit ---
-    audit_parser = subparsers.add_parser("audit", help="Trigger a manual audit.")
-    audit_parser.add_argument(
-        "--workspace",
-        required=True,
-        help="Path to the campaign workspace directory.",
-    )
-    audit_parser.set_defaults(func=_cmd_audit)
+    p = sub.add_parser("status", help="show where a campaign is")
+    p.add_argument("campaign_dir", help="the campaign directory, e.g. workspace/<campaign_id>")
+    p.set_defaults(func=cmd_status)
 
-    # --- lhtb ---
-    lhtb_parser = subparsers.add_parser(
-        "lhtb", help="Run an LHTB benchmark task.",
-    )
-    lhtb_parser.add_argument(
-        "--task-dir", required=True,
-        help="Path to the LHTB task directory.",
-    )
-    lhtb_parser.add_argument(
-        "--model", default="anthropic/claude-sonnet-4",
-        help="Model identifier (default: anthropic/claude-sonnet-4).",
-    )
-    lhtb_parser.add_argument(
-        "--api-key", default="",
-        help="API key (falls back to OPENROUTER_API_KEY / OPENAI_API_KEY).",
-    )
-    lhtb_parser.add_argument(
-        "--base-url", default="https://openrouter.ai/api/v1",
-        help="API base URL (default: OpenRouter).",
-    )
-    lhtb_parser.add_argument(
-        "--driver", default="auto",
-        choices=["auto", "claude-code", "openai"],
-        help="Agent driver: claude-code (Claude Code CLI), openai (OpenAI-compatible loop), auto.",
-    )
-    lhtb_parser.add_argument(
-        "--no-docker", action="store_true",
-        help="Run locally without Docker (default: use Docker if task has an image).",
-    )
-    lhtb_parser.add_argument(
-        "--allow-host-bash", action="store_true",
-        help="With --no-docker and the claude-code driver, let the agent run shell "
-             "commands on the host (by default it may only read/edit the working dir).",
-    )
-    lhtb_parser.add_argument(
-        "--working-dir", default=None,
-        help="Override working directory for local execution.",
-    )
-    lhtb_parser.add_argument(
-        "--max-turns", type=int, default=200,
-        help="Maximum agentic loop turns per phase.",
-    )
-    lhtb_parser.add_argument(
-        "--timeout", type=float, default=None,
-        help="Override task timeout in seconds.",
-    )
-    lhtb_parser.add_argument(
-        "--verbose", "-v", action="store_true",
-        help="Enable verbose logging.",
-    )
-    lhtb_parser.set_defaults(func=_cmd_lhtb)
+    p = sub.add_parser("resume", help="continue a campaign from its last checkpoint")
+    p.add_argument("campaign_dir", help="the campaign directory, e.g. workspace/<campaign_id>")
+    p.add_argument("-v", "--verbose", action="store_true")
+    p.set_defaults(func=cmd_resume)
 
+    p = sub.add_parser("serve", help="start the web console")
+    p.add_argument("--host", default="127.0.0.1", help="interface to listen on (default 127.0.0.1)")
+    p.add_argument("--port", type=int, default=8000)
+    p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser("skills", help="manage the skill library shared by all campaigns")
+    sk = p.add_subparsers(dest="skills_cmd", metavar="ACTION", required=True)
+    sk.add_parser("list", help="list skills")
+    a = sk.add_parser("add", help="add a skill written by you")
+    a.add_argument("name", help="kebab-case name")
+    a.add_argument("rule", help="the skill text, or @file.md to read it from a file")
+    a.add_argument("--description", default="", help="one-line description")
+    r = sk.add_parser("remove", help="remove a skill")
+    r.add_argument("name")
+    p.set_defaults(func=cmd_skills)
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
-    """CLI entry point."""
     from aurora.env import load_dotenv
 
     load_dotenv()
     parser = build_parser()
     args = parser.parse_args(argv)
-
-    if not hasattr(args, "func"):
+    if not getattr(args, "func", None):
         parser.print_help()
         sys.exit(0)
-
-    args.func(args)
+    sys.exit(args.func(args))

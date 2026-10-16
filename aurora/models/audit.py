@@ -29,16 +29,17 @@ class AuditTrigger(str, Enum):
 
 
 class AuditOutcome(str, Enum):
-    """Possible outcomes of a supervisor verdict.
+    """Verdicts of the live auditor (supervisor) about the research agent.
 
-    The supervisor is a *consultant*, not a controller:
-    - continue  — agent making reasonable progress, no action needed
-    - advise    — inject a suggestion message into the agent's conversation
-    - escalate  — supervisor can't handle this, escalate to human
+    - continue  — the agent makes reasonable progress; nothing to do
+    - advise    — a suggestion is sent to the agent, which keeps working
+    - interrupt — the agent's current action is stopped and the correction sent
+    - escalate  — a human gate opens: a decision only the human should make
     """
 
     CONTINUE = "continue"
     ADVISE = "advise"
+    INTERRUPT = "interrupt"
     ESCALATE = "escalate"
 
     # Legacy values kept for backward compatibility with old AuditorAgent

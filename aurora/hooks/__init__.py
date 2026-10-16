@@ -1,4 +1,4 @@
-"""JIT audit hooks and human checkpoint infrastructure (Section F.3, G).
+"""Lightweight audit hooks (used by mock mode and for periodic checks).
 
 Re-exports
 ----------
@@ -9,13 +9,10 @@ From :mod:`~aurora.hooks.base`:
 From :mod:`~aurora.hooks.audit_hooks`:
     :class:`EnergyAnomalyHook`, :class:`ConvergenceHook`,
     :class:`ConsistencyHook`, :class:`PeriodicAuditHook`,
-    :class:`GoalDriftHook`, :class:`ResourceExhaustionHook`,
+    :class:`GoalDriftHook`,
     :class:`RepeatedFailureHook`, :class:`NovelResultHook`,
     :class:`ClaimPromotionHook`, :class:`TerminationGuardHook`,
     :class:`MilestoneAuditHook`
-
-From :mod:`~aurora.hooks.checkpoint`:
-    :class:`HumanCheckpointHook`
 """
 
 from aurora.hooks.base import (
@@ -35,10 +32,8 @@ from aurora.hooks.audit_hooks import (
     NovelResultHook,
     PeriodicAuditHook,
     RepeatedFailureHook,
-    ResourceExhaustionHook,
     TerminationGuardHook,
 )
-from aurora.hooks.checkpoint import HumanCheckpointHook
 
 __all__ = [
     # Base
@@ -53,12 +48,9 @@ __all__ = [
     "ConsistencyHook",
     "PeriodicAuditHook",
     "GoalDriftHook",
-    "ResourceExhaustionHook",
     "RepeatedFailureHook",
     "NovelResultHook",
     "ClaimPromotionHook",
     "TerminationGuardHook",
     "MilestoneAuditHook",
-    # Checkpoint
-    "HumanCheckpointHook",
 ]

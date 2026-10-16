@@ -1,13 +1,10 @@
-"""General-purpose agent loop drivers.
+"""Claude Code as the agent driver.
 
-Three agent loop implementations for driving LLM agents:
-
-- ``ClaudeCodeLoop`` — drives Claude Code CLI via subprocess + stream-json
-- ``OpenAIAgenticLoop`` — OpenAI-compatible chat completions loop
-- ``AnthropicAgenticLoop`` — thin wrapper around Anthropic Messages API
-
-These are general LLM drivers, not LHTB-specific. Any task that needs
-an autonomous agent loop can use them.
+``ClaudeCodeLoop`` runs the Claude Code CLI as a subprocess with
+``--input-format stream-json``, so messages can be injected while it works
+(duplex interaction, supervisor advice) and SIGINT interrupts the current tool
+call.  Every phase agent, the milestone auditor and the research agent are
+Claude Code sessions driven by this class.
 """
 
 from __future__ import annotations
@@ -22,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from aurora.llm.tool_runner import ToolSchema, StreamEvent
+from aurora.llm.stream import StreamEvent
 
 logger = logging.getLogger(__name__)
 
@@ -54,284 +51,53 @@ class TrajectoryEntry:
 # OpenAI-compatible agentic loop
 # ---------------------------------------------------------------------------
 
-class OpenAIAgenticLoop:
-    """Agentic tool-use loop using the OpenAI chat completions API.
+def claude_code_env(api_key: str, base_url: str) -> dict[str, str]:
+    """Environment for a Claude Code subprocess that talks to *base_url* with *api_key*.
 
-    Compatible with OpenRouter, Together, and any OpenAI-format endpoint.
+    *base_url* is the Anthropic-compatible endpoint (for OpenRouter
+    ``https://openrouter.ai/api``).  Only variables Claude Code needs are
+    passed on, so other credentials in the parent environment do not leak
+    into agent sessions.
     """
+    keep = ("PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TMPDIR", "SHELL",
+            "DOCKER_HOST", "DOCKER_CONFIG", "XDG_CONFIG_HOME", "CLAUDE_CONFIG_DIR",
+            "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy")
+    env = {k: os.environ[k] for k in keep if k in os.environ}
+    if base_url:
+        env["ANTHROPIC_BASE_URL"] = base_url
+    if api_key:
+        env["ANTHROPIC_AUTH_TOKEN"] = api_key
+        env["ANTHROPIC_API_KEY"] = ""
+    return env
 
-    def __init__(
-        self,
-        api_key: str,
-        model: str,
-        tools: list[ToolSchema],
-        *,
-        base_url: str = "https://openrouter.ai/api/v1",
-        max_turns: int = 200,
-        max_tokens_per_turn: int = 16384,
-        stream_callback: Any = None,
-    ) -> None:
-        self._api_key = api_key
-        self._model = model
-        self._tools = {t.name: t for t in tools}
-        self._tool_defs = [
-            {
-                "type": "function",
-                "function": {
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.input_schema,
-                },
-            }
-            for t in tools
+
+def permission_args(cwd: str | Path, docker_container: str | None = None,
+                    allow_host_bash: bool = False) -> list[str]:
+    """Claude Code flags that confine a session to its working directory.
+
+    Files can be read and edited only under *cwd*.  With a container, Bash is
+    limited to ``docker exec`` into that container; without one, Bash is denied
+    unless *allow_host_bash* is set.  Anything else is refused without
+    prompting (``dontAsk``).
+    """
+    root = str(Path(cwd).resolve())
+    allowed = [
+        f"Read(/{root}/**)",
+        f"Edit(/{root}/**)",
+        "WebSearch", "WebFetch", "TodoWrite", "Skill",
+    ]
+    if docker_container:
+        c = docker_container
+        allowed += [
+            f"Bash(docker exec {c} *)",
+            f"Bash(docker exec -i {c} *)",
+            f"Bash(docker exec -w /app {c} *)",
+            f"Bash(docker exec -i -w /app {c} *)",
         ]
-        self._base_url = base_url
-        self._max_turns = max_turns
-        self._max_tokens = max_tokens_per_turn
-        self._stream = stream_callback
-        self._client: Any = None
-        self._pending_injections: list[str] = []
+    elif allow_host_bash:
+        allowed.append("Bash")
+    return ["--permission-mode", "dontAsk", "--allowedTools", *allowed]
 
-    async def inject_message(self, message: str) -> None:
-        """Queue a user message to be injected before the next API call."""
-        self._pending_injections.append(message)
-
-    def _get_client(self) -> Any:
-        if self._client is None:
-            import openai
-            self._client = openai.AsyncOpenAI(
-                api_key=self._api_key,
-                base_url=self._base_url,
-                max_retries=3,
-            )
-        return self._client
-
-    async def _emit(self, event_type: str, data: dict[str, Any] | None = None) -> None:
-        if self._stream is not None:
-            event = StreamEvent(event_type=event_type, data=data or {})
-            try:
-                await self._stream(event)
-            except Exception:
-                pass
-
-    async def run(
-        self,
-        system_prompt: str,
-        user_message: str,
-        *,
-        temperature: float = 0.3,
-    ) -> dict[str, Any]:
-        """Execute the agentic loop until the model stops calling tools."""
-        client = self._get_client()
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ]
-
-        total_prompt = 0
-        total_completion = 0
-        all_tool_calls: list[dict[str, Any]] = []
-        trajectory: list[TrajectoryEntry] = []
-        task_completed = False
-
-        await self._emit("loop_started", {"model": self._model})
-
-        for turn in range(self._max_turns):
-            while self._pending_injections:
-                injected = self._pending_injections.pop(0)
-                messages.append({"role": "user", "content": injected})
-
-            await self._emit("turn_start", {"turn": turn})
-
-            try:
-                response = await client.chat.completions.create(
-                    model=self._model,
-                    messages=messages,
-                    tools=self._tool_defs,
-                    temperature=temperature,
-                    max_tokens=self._max_tokens,
-                )
-            except Exception as exc:
-                logger.error("API call failed at turn %d: %s", turn, exc)
-                await self._emit("error", {"turn": turn, "error": str(exc)})
-                trajectory.append(TrajectoryEntry(
-                    timestamp=time.time(), turn=turn, event_type="error",
-                    data={"error": str(exc)},
-                ))
-                return {
-                    "final_text": f"API error at turn {turn}: {exc}",
-                    "tool_calls": all_tool_calls,
-                    "turns": turn,
-                    "tokens": {"prompt": total_prompt, "completion": total_completion},
-                    "task_completed": task_completed,
-                    "error": str(exc),
-                    "trajectory": trajectory,
-                }
-
-            choice = response.choices[0]
-            usage = response.usage
-            if usage:
-                total_prompt += usage.prompt_tokens
-                total_completion += usage.completion_tokens
-
-            text = choice.message.content or ""
-            if text:
-                await self._emit("reasoning", {"text": text[:500], "turn": turn})
-                logger.info("Turn %d text: %s", turn, text[:200])
-                trajectory.append(TrajectoryEntry(
-                    timestamp=time.time(), turn=turn, event_type="thinking",
-                    data={"text": text},
-                ))
-
-            tool_calls = choice.message.tool_calls
-            if not tool_calls:
-                await self._emit("agent_done", {"text": text[:500], "turn": turn})
-                return {
-                    "final_text": text,
-                    "tool_calls": all_tool_calls,
-                    "turns": turn + 1,
-                    "tokens": {"prompt": total_prompt, "completion": total_completion},
-                    "task_completed": task_completed,
-                    "trajectory": trajectory,
-                }
-
-            messages.append(choice.message.model_dump())
-
-            for tc in tool_calls:
-                fn = tc.function
-                tool_name = fn.name
-                try:
-                    tool_input = json.loads(fn.arguments) if isinstance(fn.arguments, str) else fn.arguments
-                except json.JSONDecodeError:
-                    tool_input = {"raw": fn.arguments}
-
-                await self._emit("tool_call_start", {"tool_name": tool_name, "turn": turn})
-                trajectory.append(TrajectoryEntry(
-                    timestamp=time.time(), turn=turn, event_type="tool_call",
-                    data={"tool_name": tool_name, "tool_input": _safe_serialize(tool_input)},
-                ))
-
-                call_start = time.time()
-                tool_output = await self._dispatch_tool(tool_name, tool_input)
-                duration = time.time() - call_start
-
-                if tool_name == "task_complete":
-                    task_completed = True
-
-                all_tool_calls.append({
-                    "tool_name": tool_name,
-                    "tool_input": tool_input,
-                    "result_preview": tool_output[:500],
-                    "duration": round(duration, 3),
-                })
-
-                await self._emit("tool_call_result", {
-                    "tool_name": tool_name,
-                    "duration": round(duration, 3),
-                    "turn": turn,
-                })
-                trajectory.append(TrajectoryEntry(
-                    timestamp=time.time(), turn=turn, event_type="tool_result",
-                    data={
-                        "tool_name": tool_name,
-                        "output": tool_output[:5000],
-                        "duration": round(duration, 3),
-                    },
-                ))
-
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": tool_output,
-                })
-
-            if task_completed:
-                await self._emit("agent_done", {"text": "task_complete called", "turn": turn})
-                return {
-                    "final_text": "Task completed by agent",
-                    "tool_calls": all_tool_calls,
-                    "turns": turn + 1,
-                    "tokens": {"prompt": total_prompt, "completion": total_completion},
-                    "task_completed": True,
-                    "trajectory": trajectory,
-                }
-
-        return {
-            "final_text": "Max turns reached",
-            "tool_calls": all_tool_calls,
-            "turns": self._max_turns,
-            "tokens": {"prompt": total_prompt, "completion": total_completion},
-            "task_completed": task_completed,
-            "trajectory": trajectory,
-        }
-
-    async def _dispatch_tool(self, name: str, input_data: dict[str, Any]) -> str:
-        tool = self._tools.get(name)
-        if tool is None:
-            return json.dumps({"error": f"Unknown tool: {name}"})
-        try:
-            return await tool.handler(input_data)
-        except Exception as exc:
-            logger.error("Tool '%s' failed: %s", name, exc)
-            return json.dumps({"error": str(exc)})
-
-    async def close(self) -> None:
-        if self._client is not None:
-            await self._client.close()
-            self._client = None
-
-
-# ---------------------------------------------------------------------------
-# Anthropic-native agentic loop
-# ---------------------------------------------------------------------------
-
-class AnthropicAgenticLoop:
-    """Thin wrapper around the existing AgenticLoop for Anthropic-native calls."""
-
-    def __init__(
-        self,
-        api_key: str,
-        model: str,
-        tools: list[ToolSchema],
-        *,
-        max_turns: int = 200,
-        max_tokens_per_turn: int = 16384,
-        stream_callback: Any = None,
-    ) -> None:
-        from aurora.llm.tool_runner import AgenticLoop
-        self._loop = AgenticLoop(
-            api_key=api_key,
-            model=model,
-            tools=tools,
-            max_turns=max_turns,
-            max_tokens_per_turn=max_tokens_per_turn,
-            stream_callback=stream_callback,
-        )
-
-    async def run(
-        self,
-        system_prompt: str,
-        user_message: str,
-        *,
-        temperature: float = 0.3,
-    ) -> dict[str, Any]:
-        result = await self._loop.run(system_prompt, user_message, temperature=temperature)
-        return {
-            "final_text": result.final_text,
-            "tool_calls": result.tool_calls,
-            "turns": result.turns,
-            "tokens": result.token_usage,
-            "decision": result.decision,
-            "task_completed": result.decision == "done",
-        }
-
-    async def close(self) -> None:
-        await self._loop.close()
-
-
-# ---------------------------------------------------------------------------
-# Claude Code driver
-# ---------------------------------------------------------------------------
 
 class ClaudeCodeLoop:
     """Agentic loop driven by Claude Code CLI via subprocess + stream-json.
@@ -377,30 +143,7 @@ class ClaudeCodeLoop:
         self._allow_host_bash = allow_host_bash
 
     def _permission_args(self) -> list[str]:
-        """Confine the session to its working directory instead of skipping permissions.
-
-        Files can be read and edited only under ``cwd``.  With a container,
-        Bash is limited to ``docker exec`` into that container; without one,
-        Bash is denied unless ``allow_host_bash`` is set.  Anything not allowed
-        is refused without prompting (``dontAsk``).
-        """
-        root = str(Path(self._cwd).resolve())
-        allowed = [
-            f"Read(/{root}/**)",
-            f"Edit(/{root}/**)",
-            "WebSearch", "WebFetch", "TodoWrite", "Skill",
-        ]
-        if self._docker_container:
-            c = self._docker_container
-            allowed += [
-                f"Bash(docker exec {c} *)",
-                f"Bash(docker exec -i {c} *)",
-                f"Bash(docker exec -w /app {c} *)",
-                f"Bash(docker exec -i -w /app {c} *)",
-            ]
-        elif self._allow_host_bash:
-            allowed.append("Bash")
-        return ["--permission-mode", "dontAsk", "--allowedTools", *allowed]
+        return permission_args(self._cwd, self._docker_container, self._allow_host_bash)
 
     async def inject_message(self, message: str) -> None:
         """Inject a user message into the running agent's conversation via stdin."""
@@ -481,12 +224,7 @@ class ClaudeCodeLoop:
 
         full_system = system_prompt + docker_preamble
 
-        env = os.environ.copy()
-        if self._base_url and "openrouter.ai" in self._base_url:
-            env["ANTHROPIC_BASE_URL"] = "https://openrouter.ai/api"
-        if self._api_key:
-            env["ANTHROPIC_AUTH_TOKEN"] = self._api_key
-            env["ANTHROPIC_API_KEY"] = ""
+        env = claude_code_env(self._api_key, self._base_url)
 
         cmd = [
             "claude", "-p",
@@ -524,6 +262,10 @@ class ClaudeCodeLoop:
         await self._emit("loop_started", {"model": self._model, "driver": "claude-code"})
 
         turns = 0
+        cost_usd = 0.0
+        result_error: str | None = None
+        hit_turn_limit = False
+        got_result = False
         final_text_parts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
         trajectory: list[TrajectoryEntry] = []
@@ -568,13 +310,21 @@ class ClaudeCodeLoop:
 
                 event_type = event.get("type")
 
-                if event_type == "system":
+                if event_type == "system" and event.get("subtype") != "permission_denied":
                     sid = event.get("session_id")
                     if sid:
                         self.session_id = sid
                     continue
 
-                if event_type == "assistant":
+                if event_type == "system" and event.get("subtype") == "permission_denied":
+                    await self._emit("permission_denied", {"turn": turns, "detail": _safe_serialize(event)})
+                    _track(TrajectoryEntry(
+                        timestamp=time.time(), turn=turns,
+                        event_type="permission_denied", data=_safe_serialize(event),
+                    ))
+                    continue
+
+                if event_type in ("assistant", "user"):
                     sid = event.get("session_id")
                     if sid and not self.session_id:
                         self.session_id = sid
@@ -585,7 +335,7 @@ class ClaudeCodeLoop:
                             if not isinstance(block, dict):
                                 continue
                             btype = block.get("type")
-                            if btype == "text":
+                            if btype == "text" and event_type == "assistant":
                                 t = block.get("text", "")
                                 final_text_parts.append(t)
                                 await self._emit("reasoning", {"text": t[:500], "turn": turns})
@@ -656,11 +406,23 @@ class ClaudeCodeLoop:
                                 ))
                                 pending_tool_name = None
                                 pending_tool_start = 0.0
-                    turns += 1
+                    if event_type == "assistant":
+                        turns += 1
+                        if turns == self._max_turns:
+                            await self.inject_message(
+                                "[Turn limit reached] Stop working now. Save what you have and reply "
+                                "with a short summary of what is done and what is left.")
+                        elif turns >= self._max_turns + 10:
+                            logger.warning("Claude Code session exceeded its turn limit; stopping it")
+                            hit_turn_limit = True
+                            break
 
                 elif event_type == "result":
                     result_text = event.get("result", "")
                     usage = event.get("usage") or {}
+                    cost_usd = float(event.get("total_cost_usd") or 0.0)
+                    if event.get("is_error"):
+                        result_error = f"{event.get('subtype', 'error')}: {result_text[:500]}"
                     logger.info(
                         "[claude-code result] subtype=%s stop_reason=%s is_error=%s num_turns=%s "
                         "empty_result=%s input=%s cache_read=%s output=%s",
@@ -679,6 +441,7 @@ class ClaudeCodeLoop:
                             await self._text_callback(result_text)
                         except Exception:
                             pass
+                    got_result = True
                     break
 
         except Exception as exc:
@@ -691,7 +454,7 @@ class ClaudeCodeLoop:
                 "final_text": f"Claude Code error: {exc}",
                 "tool_calls": tool_calls,
                 "turns": turns,
-                "tokens": {"prompt": 0, "completion": 0},
+                "cost_usd": cost_usd,
                 "task_completed": False,
                 "error": str(exc),
                 "trajectory": trajectory,
@@ -702,14 +465,19 @@ class ClaudeCodeLoop:
                 self._live_transcript_fd.close()
                 self._live_transcript_fd = None
 
-        await self._emit("agent_done", {"text": "Claude Code finished", "turn": turns})
+        if not got_result and not result_error:
+            result_error = ("turn limit exceeded" if hit_turn_limit
+                            else f"Claude Code exited without a result (exit code {self._process.returncode})")
+        await self._emit("agent_done", {"text": "Claude Code finished", "turn": turns,
+                                        "cost_usd": round(cost_usd, 4), "error": result_error})
 
         return {
             "final_text": "\n".join(final_text_parts),
             "tool_calls": tool_calls,
             "turns": turns,
-            "tokens": {"prompt": 0, "completion": 0},
-            "task_completed": True,
+            "cost_usd": cost_usd,
+            "task_completed": result_error is None,
+            "error": result_error,
             "trajectory": trajectory,
         }
 

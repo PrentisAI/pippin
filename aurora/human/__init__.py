@@ -1,16 +1,4 @@
-"""Human-in-the-loop interaction layer (Section G).
+"""Human interaction: the front desk agent (duplex conversation with the running campaign).
 
-Provides structured checkpoint approval and intervention logging
-with H_cap (capability-building) vs H_run (per-run) classification.
+Human gates, where the campaign waits for a decision, live in :mod:`aurora.core.human_gate`.
 """
-
-from aurora.human.checkpoint import HumanCheckpoint, CheckpointDecision
-from aurora.human.interaction import InteractionLogger
-from aurora.human.web_checkpoint import WebCheckpointHandler
-
-__all__ = [
-    "HumanCheckpoint",
-    "CheckpointDecision",
-    "InteractionLogger",
-    "WebCheckpointHandler",
-]

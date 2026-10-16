@@ -1,8 +1,8 @@
-"""Generic Claude Code agent session for pipeline phases.
+"""Claude Code session for one pipeline phase.
 
-Wraps the agent loop drivers (ClaudeCodeLoop, OpenAIAgenticLoop,
-AnthropicAgenticLoop) into a simple run-and-return interface for
-non-research phases like Planning, Analysis, and Writing.
+Wraps :class:`~aurora.llm.agent_loops.ClaudeCodeLoop` into a run-and-return
+interface for the phases other than research (screening, planning,
+analysis, writing) and for the milestone auditor.
 
 Unlike TerminalIteration (which handles verifier, retry, and job
 lifecycle), AgentSession is a single-shot executor: give it a
@@ -17,12 +17,11 @@ read them on demand.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 from aurora.config import AuroraConfig
 from aurora.core.events import Event, EventBus
-from aurora.llm.tool_runner import StreamEvent
+from aurora.llm.stream import StreamEvent
 
 logger = logging.getLogger(__name__)
 
@@ -120,8 +119,6 @@ class AgentSession:
         return result
 
     def _create_loop(self) -> Any:
-        driver = self._resolve_driver()
-
         async def stream_callback(event: StreamEvent) -> None:
             await self._bus.publish(Event(
                 name=event.event_type,
@@ -129,49 +126,26 @@ class AgentSession:
                 source=f"agent_session:{self._phase_name}",
             ))
 
-        if driver == "claude-code":
-            from aurora.llm.agent_loops import ClaudeCodeLoop
-            base_url = ""
-            if self._config.terminal_base_url and "openrouter.ai" in self._config.terminal_base_url:
-                base_url = "https://openrouter.ai/api"
-            return ClaudeCodeLoop(
-                model=self._model_override or self._config.terminal_model or self._config.llm_assignment.researcher,
-                api_key=self._config.terminal_api_key or os.environ.get("OPENROUTER_API_KEY", ""),
-                base_url=base_url,
-                max_turns=self._max_turns,
-                docker_container=self._docker_container,
-                cwd=self._cwd,
-                stream_callback=stream_callback,
-                live_transcript_path=self._live_transcript_path,
-                resume_session_id=self._resume_session_id,
-                allow_host_bash=self._config.allow_host_bash,
-            )
-        elif driver == "anthropic":
-            from aurora.llm.agent_loops import AnthropicAgenticLoop
-            return AnthropicAgenticLoop(
-                api_key=self._config.terminal_api_key or os.environ.get("ANTHROPIC_API_KEY", ""),
-                model=self._config.terminal_model or self._config.llm_assignment.researcher,
-                tools=[],
-                max_turns=self._max_turns,
-                stream_callback=stream_callback,
-            )
-        else:
-            from aurora.llm.agent_loops import OpenAIAgenticLoop
-            return OpenAIAgenticLoop(
-                api_key=self._config.terminal_api_key or os.environ.get("OPENROUTER_API_KEY", ""),
-                model=self._config.terminal_model or self._config.llm_assignment.researcher,
-                tools=[],
-                base_url=self._config.terminal_base_url,
-                max_turns=self._max_turns,
-                stream_callback=stream_callback,
-            )
+        return make_claude_code_loop(
+            self._config,
+            model=self._model_override or self._config.models.agent,
+            max_turns=self._max_turns,
+            docker_container=self._docker_container,
+            cwd=self._cwd,
+            stream_callback=stream_callback,
+            live_transcript_path=self._live_transcript_path,
+            resume_session_id=self._resume_session_id,
+        )
 
-    def _resolve_driver(self) -> str:
-        driver = self._config.terminal_driver
-        if driver != "auto":
-            return driver
-        base = self._config.terminal_base_url
-        if not base or "anthropic.com" in base:
-            return "anthropic"
-        # same resolution as the research loop (TerminalIteration)
-        return "claude-code"
+
+def make_claude_code_loop(config: AuroraConfig, *, model: str, max_turns: int, **kwargs: Any) -> Any:
+    """A :class:`ClaudeCodeLoop` that uses the campaign's endpoint, key and sandbox settings."""
+    from aurora.llm.agent_loops import ClaudeCodeLoop
+    return ClaudeCodeLoop(
+        model=model,
+        api_key=config.api_key_value,
+        base_url=config.claude_code_base_url,
+        max_turns=max_turns,
+        allow_host_bash=config.sandbox.allow_host_bash,
+        **kwargs,
+    )
