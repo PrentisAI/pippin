@@ -378,9 +378,12 @@ async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any,
             run.status = result.status
             run.error = None if result.status == "completed" else result.summary
             run.cost_usd = result.cost_usd
+            report = result.manuscript_path
+            if report and Path(report).is_relative_to(run.campaign_dir):
+                report = str(Path(report).relative_to(run.campaign_dir))
             await run.broadcast({"type": "experiment_event", "run_id": run.run_id, "event_type": "run_finished",
                                  "data": {"status": result.status, "summary": result.summary,
-                                          "report": result.manuscript_path, "cost_usd": result.cost_usd,
+                                          "report": report, "cost_usd": result.cost_usd,
                                           "wall_time": result.total_wall_time_seconds},
                                  "timestamp": time.time()})
         except Exception as exc:
@@ -449,7 +452,14 @@ def _gates_from_disk(run: ExperimentRunState) -> list[dict[str, Any]]:
     path = run.campaign_dir / "human_gates.jsonl"
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    out = []
+    for line in path.read_text().splitlines():
+        if line.strip():
+            entry = json.loads(line)
+            req, dec = entry.get("request", {}), entry.get("decision", {})
+            out.append({**dec, "source": req.get("source"), "title": req.get("title"),
+                        "timestamp": entry.get("resolved_at")})
+    return out
 
 
 @campaign_router.delete("/{campaign_id}/experiments/{exp_id}")
@@ -478,6 +488,8 @@ async def submit_decision(campaign_id: str, exp_id: str, req: DecisionRequest) -
     action = _GATE_ACTIONS.get(req.action.lower())
     if action is None:
         raise HTTPException(400, f"Unknown action {req.action!r}; use continue, instruct or stop")
+    if action == "continue" and req.message.strip():
+        action = "instruct"     # a continue with a message is an instruction
     if action == "instruct" and not req.message.strip():
         raise HTTPException(400, "An instruction needs a message")
     if not run.engine.human_gate.resolve(gate_id, action, req.message):

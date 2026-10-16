@@ -1,16 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api } from '../api/client'
-
-interface FileNode {
-  name: string
-  type: string
-  path?: string
-  children?: FileNode[]
-}
+import { api, describeError } from '../api/client'
+import type { FileNode } from '../types'
 
 interface WorkspacePanelProps {
   campaignId: string
   expId: string
+  /** Open this file when the request object changes (e.g. the "Report" button). */
+  openRequest?: { path: string } | null
 }
 
 interface OpenTab {
@@ -20,18 +16,14 @@ interface OpenTab {
   binary: boolean
   size: number
   truncated?: boolean
+  error?: string
 }
 
 const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico']
-const AGENT_OUTPUT_NAMES = new Set(['verifier_result.json', 'execution_log.txt', 'diff.patch', 'agent_output', 'result.json', 'stdout.log', 'stderr.log'])
 
 function isImageFile(path: string): boolean {
   const ext = path.split('.').pop()?.toLowerCase() ?? ''
   return IMAGE_EXTS.includes(ext)
-}
-
-function rawFileUrl(campaignId: string, expId: string, path: string): string {
-  return `/api/campaigns/${campaignId}/experiments/${expId}/workspace/raw?path=${encodeURIComponent(path)}`
 }
 
 function fileIconChar(name: string, type: string): string {
@@ -64,22 +56,7 @@ function fileIconColor(name: string, type: string): string {
   const n = name.toLowerCase()
   if (n === 'dockerfile') return '#2496ed'
   if (n.startsWith('requirements')) return 'var(--fg-dim)'
-  if (n === 'task.yaml') return 'var(--red)'
   return 'var(--fg-dim)'
-}
-
-function isAgentOutput(node: FileNode): boolean {
-  return AGENT_OUTPUT_NAMES.has(node.name)
-}
-
-function splitFiles(files: FileNode[]): { workspace: FileNode[]; agentOutput: FileNode[] } {
-  const workspace: FileNode[] = []
-  const agentOutput: FileNode[] = []
-  for (const f of files) {
-    if (isAgentOutput(f)) agentOutput.push(f)
-    else workspace.push(f)
-  }
-  return { workspace, agentOutput }
 }
 
 function fileName(path: string): string {
@@ -292,7 +269,7 @@ function EditorWithLines({ value, onChange }: { value: string; onChange: (v: str
   )
 }
 
-export function WorkspacePanel({ campaignId, expId }: WorkspacePanelProps) {
+export function WorkspacePanel({ campaignId, expId, openRequest }: WorkspacePanelProps) {
   const [files, setFiles] = useState<FileNode[]>([])
   const [openTabs, setOpenTabs] = useState<OpenTab[]>([])
   const [activeTab, setActiveTab] = useState<string | null>(null)
@@ -352,13 +329,21 @@ export function WorkspacePanel({ campaignId, expId }: WorkspacePanelProps) {
         truncated: data.truncated,
       }
       setOpenTabs(prev => [...prev, tab])
-    } catch {
-      const tab: OpenTab = { path, name: fileName(path), content: null, binary: false, size: 0 }
+    } catch (err) {
+      const tab: OpenTab = { path, name: fileName(path), content: null, binary: false, size: 0, error: describeError(err) }
       setOpenTabs(prev => [...prev, tab])
     } finally {
       setLoading(false)
     }
   }, [campaignId, expId, openTabs])
+
+  const handledRequest = useRef<{ path: string } | null>(null)
+  useEffect(() => {
+    if (openRequest && openRequest !== handledRequest.current) {
+      handledRequest.current = openRequest
+      openFile(openRequest.path)
+    }
+  }, [openRequest, openFile])
 
   const closeTab = useCallback((path: string, e?: React.MouseEvent) => {
     e?.stopPropagation()
@@ -389,10 +374,10 @@ export function WorkspacePanel({ campaignId, expId }: WorkspacePanelProps) {
         t.path === activeTab ? { ...t, content: editContent } : t
       ))
       setEditing(false)
-      setSaveStatus(result.synced_to_docker ? 'Saved & synced' : 'Saved')
+      setSaveStatus(result.synced_to_docker ? 'Saved in the container' : 'Saved')
       setTimeout(() => setSaveStatus(null), 3000)
-    } catch (e: any) {
-      setSaveStatus(`Error: ${e.message}`)
+    } catch (err) {
+      setSaveStatus(`Error: ${describeError(err)}`)
     } finally {
       setSaving(false)
     }
@@ -416,7 +401,6 @@ export function WorkspacePanel({ campaignId, expId }: WorkspacePanelProps) {
   }, [treeWidth])
 
   const showImage = activeTab && isImageFile(activeTab)
-  const { workspace, agentOutput } = splitFiles(files)
   const breadcrumb = activeTab ? `${expId.split('_').pop() || expId} / ${activeTab}` : null
 
   return (
@@ -451,14 +435,14 @@ export function WorkspacePanel({ campaignId, expId }: WorkspacePanelProps) {
             {editing ? (
               <>
                 <button className="ws-tbtn primary" onClick={handleSave} disabled={saving}>
-                  {saving ? 'Saving...' : 'Save & Push'}
+                  {saving ? 'Saving...' : 'Save'}
                 </button>
                 <button className="ws-tbtn" onClick={() => { setEditing(false); setEditContent(null) }}>
                   &times; Close
                 </button>
               </>
             ) : (
-              !currentTab?.binary && (
+              !currentTab?.binary && !currentTab?.error && (
                 <button className="ws-tbtn" onClick={() => { setEditing(true); setEditContent(currentTab?.content ?? '') }}>
                   &#9998; Edit
                 </button>
@@ -478,8 +462,10 @@ export function WorkspacePanel({ campaignId, expId }: WorkspacePanelProps) {
             <div className="ws-placeholder">Select a file to view</div>
           ) : showImage ? (
             <div className="ws-image-wrap">
-              <img src={rawFileUrl(campaignId, expId, activeTab)} alt={activeTab} />
+              <img src={api.workspace.rawUrl(campaignId, expId, activeTab)} alt={activeTab} />
             </div>
+          ) : currentTab.error ? (
+            <div className="ws-empty">Could not open the file: {currentTab.error}</div>
           ) : currentTab.binary ? (
             <div className="ws-empty">Binary file ({currentTab.size} bytes)</div>
           ) : editing ? (
@@ -508,10 +494,10 @@ export function WorkspacePanel({ campaignId, expId }: WorkspacePanelProps) {
             <div className="ws-section-tree">
               {treeLoading ? (
                 <div className="ws-empty">Loading...</div>
-              ) : workspace.length === 0 ? (
+              ) : files.length === 0 ? (
                 <div className="ws-empty">No files</div>
               ) : (
-                workspace.map((node, i) => (
+                files.map((node, i) => (
                   <TreeNode
                     key={node.name + i}
                     node={node}
@@ -523,34 +509,11 @@ export function WorkspacePanel({ campaignId, expId }: WorkspacePanelProps) {
               )}
             </div>
           </div>
-
-          {agentOutput.length > 0 && (
-            <div className="ws-explorer-section">
-              <div className="ws-section-label">AGENT OUTPUT</div>
-              <div className="ws-section-tree">
-                {agentOutput.map((node, i) => (
-                  <div key={node.name + i}>
-                    <button
-                      className={`ws-tree-item${node.path === activeTab ? ' selected' : ''}`}
-                      style={{ paddingLeft: 8 }}
-                      onClick={() => node.path && openFile(node.path)}
-                    >
-                      <span className="ws-icon" style={{ color: fileIconColor(node.name, node.type) }}>
-                        {fileIconChar(node.name, node.type)}
-                      </span>
-                      <span className="ws-tree-name">{node.name}</span>
-                      <span className="ws-agent-badge">agent</span>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
       {/* Info bar */}
-      {currentTab && !currentTab.binary && (
+      {currentTab && !currentTab.binary && !currentTab.error && (
         <div className="editor-info-bar">
           <span>{(activeTab?.split('.').pop() || 'txt').toUpperCase()}</span>
           <span>{(currentTab.content?.split('\n').length ?? 0)} lines</span>

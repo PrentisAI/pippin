@@ -1,332 +1,356 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { api, describeError } from '../api/client'
+import { clip, formatCost, formatDuration } from '../format'
+import { GATE_SOURCE_LABELS, phaseLabel, PHASES } from '../types'
 import type { StreamEvent } from '../types/chat'
 
 interface AgentStreamViewProps {
   events: StreamEvent[]
+  campaignId: string
+  experimentId: string
 }
 
 // ---------------------------------------------------------------------------
-// Classification helpers
+// What each event looks like
 // ---------------------------------------------------------------------------
 
-const SUPERVISOR_EVENTS = new Set([
-  'watchdog_interrupt', 'watchdog_cycle_start', 'watchdog_verdict',
-  'watchdog_tool_call', 'watchdog_escalation', 'watchdog_checkpoint',
-  'escalation', 'escalation_resolved', 'cerebellum_response',
-])
+type Tone = 'info' | 'success' | 'warning' | 'error' | 'muted'
 
-const SYSTEM_EVENTS = new Set([
-  'phase_started', 'phase_ended',
-  'iteration_started', 'iteration_complete',
-  'campaign_started', 'campaign_completed', 'campaign_failed',
-  'autonomy_changed', 'workspace_extracted',
-  'screening_complete', 'planning_complete', 'analysis_complete', 'writing_complete',
-])
+/**
+ * Where an event is shown:
+ * - `agent`: the research agent's column (reasoning, tool calls, tests),
+ * - `oversight`: the auditors' and human-gate column,
+ * - `system`: a full-width line (phase results, conversation, the end of the run),
+ * - `hidden`: not shown.
+ */
+type Lane = 'agent' | 'oversight' | 'system' | 'hidden'
 
-function isSupervisor(type: string): boolean {
-  return SUPERVISOR_EVENTS.has(type)
+interface Described {
+  lane: Lane
+  tone: Tone
+  /** One line. */
+  text: string
+  /** Headline of an oversight card. */
+  label?: string
+  /** Verdict or decision badge of an oversight card. */
+  badge?: string
+  /** Further lines (summaries, recommendations, error messages). */
+  detail?: string
 }
 
-function isSystemEvent(type: string): boolean {
-  return SYSTEM_EVENTS.has(type)
+const DECIDED_BY_LABELS: Record<string, string> = {
+  human: 'you',
+  frontdesk: 'the front desk (from your message)',
+  autonomous: 'autonomous mode',
+  timeout: 'timeout (no answer)',
+  system: 'the system',
 }
 
-// ---------------------------------------------------------------------------
-// Formatting
-// ---------------------------------------------------------------------------
-
-function formatTime(ts: number): string {
-  const d = new Date(ts * 1000)
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+const GATE_ACTION_LABELS: Record<string, string> = {
+  continue: 'Continue',
+  instruct: 'Continue with instruction',
+  stop: 'Stop',
 }
 
-function toolIconClass(toolName: string): string {
-  const t = toolName.toLowerCase()
-  if (t.includes('bash') || t.includes('shell') || t.includes('exec')) return 'bash'
-  if (t.includes('read') || t.includes('file')) return 'read'
-  if (t.includes('edit') || t.includes('write')) return 'edit'
-  if (t.includes('think') || t.includes('reason')) return 'think'
-  return 'bash'
+const AUDIT_VERDICT_TONES: Record<string, Tone> = {
+  pass: 'success',
+  reject: 'error',
+  escalate: 'warning',
+  missing: 'muted',
 }
 
-function toolIconChar(toolName: string): string {
-  const t = toolName.toLowerCase()
-  if (t.includes('bash') || t.includes('shell') || t.includes('exec')) return '$'
-  if (t.includes('read') || t.includes('file')) return '\u{1F4C4}'
-  if (t.includes('edit') || t.includes('write')) return '✎'
-  if (t.includes('think') || t.includes('reason')) return '\u{1F9E0}'
-  return '$'
+function str(value: unknown): string {
+  if (value == null) return ''
+  return typeof value === 'string' ? value : JSON.stringify(value)
 }
 
-function stageBadgeClass(phase: string): string {
-  const p = phase.toLowerCase().replace(/_/g, '')
-  if (p.includes('screen')) return 'screening'
-  if (p.includes('plan')) return 'planning'
-  if (p.includes('research') || p.includes('loop')) return 'research'
-  if (p.includes('analy')) return 'analysis'
-  if (p.includes('complet') || p.includes('done')) return 'completed'
-  if (p.includes('roundtable')) return 'roundtable'
-  return 'research'
+function lines(...parts: unknown[]): string | undefined {
+  const text = parts.map(str).filter(Boolean).join('\n')
+  return text || undefined
 }
 
-function stageLabel(phase: string): string {
-  const p = phase.replace(/_/g, ' ')
-  switch (p.toLowerCase()) {
-    case 'screening': return 'Task feasibility check'
-    case 'planning': return 'Execution DAG generation'
-    case 'research loop': case 'researcher': return 'Agent execution + verifier'
-    case 'analysis': return 'Results analysis'
-    case 'writing': return 'Manuscript generation'
-    case 'roundtable': return 'Multi-agent discussion'
-    case 'preflight': return 'Pre-condition checks'
-    default: return ''
-  }
+function bullets(items: unknown): string {
+  return Array.isArray(items) ? items.map((r) => `• ${str(r)}`).join('\n') : str(items)
 }
 
-function formatEventText(event: StreamEvent): string {
-  const d = event.data
+function statusTone(status: string): Tone {
+  if (status === 'completed') return 'success'
+  if (status === 'failed') return 'error'
+  return 'warning'
+}
+
+function describeEvent(event: StreamEvent): Described {
+  const d = event.data ?? {}
+  const system = (tone: Tone, text: string, detail?: string): Described => ({ lane: 'system', tone, text, detail })
+  const agent = (tone: Tone, text: string, detail?: string): Described => ({ lane: 'agent', tone, text, detail })
+  const oversight = (tone: Tone, label: string, text: string, badge?: string, detail?: string): Described =>
+    ({ lane: 'oversight', tone, label, text, badge, detail })
+
   switch (event.event_type) {
-    case 'loop_started':
-      return 'Agent started'
-    case 'turn_start':
-      return `Turn ${d.turn ?? '?'}`
-    case 'reasoning':
-      return d.text ?? ''
-    case 'tool_call_start': {
-      const tName = d.tool_name ?? '?'
-      const inputPreview = d.input_preview ? `: ${d.input_preview}` : ''
-      return `${tName}${inputPreview}`
-    }
-    case 'tool_call_result': {
-      const name = d.tool_name ?? '?'
-      const ok = d.success === false ? 'FAILED' : 'OK'
-      const dur = d.duration_seconds ? ` (${Number(d.duration_seconds).toFixed(1)}s)` : ''
-      const preview = d.result_preview ? ` — ${d.result_preview}` : ''
-      return `${name}: ${ok}${dur}${preview}`
-    }
-    case 'tool_progress': {
-      const name = d.tool_name ?? ''
-      const msg = d.message ?? ''
-      const pct = d.progress_pct != null ? ` ${d.progress_pct}%` : ''
-      return `${name}: ${msg}${pct}`
-    }
-    case 'agent_done':
-      return d.text ?? 'Agent finished'
-    case 'user_message_injected':
-      return `User message delivered: "${d.text ?? ''}"`
-    case 'agent_stderr':
-      return `[stderr] ${d.text ?? ''}`
-    case 'error':
-      return d.error ?? 'Unknown error'
-    case 'loop_finished':
-      return `Loop complete — ${d.turns ?? '?'} turns, ${d.tool_calls ?? '?'} tool calls`
-    case 'duplex_started':
-      return `Duplex mode — Cerebellum: ${d.cerebellum_model ?? '?'}, Brain: ${d.brain_model ?? '?'}`
-    case 'duplex_finished':
-      return `Duplex complete — ${d.tasks_completed ?? 0}/${d.tasks_total ?? 0} tasks`
-    case 'cerebellum_response':
-      return d.text ?? ''
-    case 'brain_task_started':
-      return `Brain task started: ${d.description ?? d.task_id ?? '?'}`
-    case 'brain_tool_call_start':
-      return `[Brain ${d.task_id ?? ''}] Calling ${d.tool_name ?? '?'}...`
-    case 'brain_tool_call_result': {
-      const name = d.tool_name ?? '?'
-      const ok = d.success ? 'OK' : 'FAILED'
-      const dur = d.duration_seconds ? ` (${Number(d.duration_seconds).toFixed(1)}s)` : ''
-      return `[Brain ${d.task_id ?? ''}] ${name}: ${ok}${dur}`
-    }
-    case 'brain_reasoning':
-      return `[Brain] ${d.text ?? ''}`
-    case 'brain_agent_done':
-      return `[Brain ${d.task_id ?? ''}] Task complete`
-    case 'brain_loop_finished':
-      return `[Brain ${d.task_id ?? ''}] ${d.turns ?? '?'} turns, ${d.tool_calls ?? '?'} tool calls`
-    case 'brain_progress':
-      return `[Brain ${d.task_id ?? ''}] ${d.tool_name ?? ''}: ${d.result_preview ?? '...'}`
-    case 'user_message_received':
-      return `User: "${d.text ?? ''}"`
-    case 'phase_started': {
-      const phaseName = typeof d.phase === 'string'
-        ? d.phase.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
-        : `Phase ${d.phase ?? '?'}`
-      return phaseName
-    }
-    case 'phase_ended': {
-      const phaseName = typeof d.phase === 'string'
-        ? d.phase.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
-        : `Phase ${d.phase ?? '?'}`
-      return `${phaseName} — ${d.turns ?? 0} turns, ${d.wall_time ?? 0}s`
-    }
-    case 'verifier_started':
-      return 'Running verifier...'
-    case 'verifier_result': {
-      const pct = d.reward != null ? `${(d.reward * 100).toFixed(1)}%` : '?'
-      return `Verifier: ${d.passed ? 'PASSED' : 'FAILED'} (reward: ${pct})`
-    }
-    case 'docker_started':
-      return `Docker container ${d.container_id ?? '?'} started`
-    case 'run_finished': {
-      const pct = d.final_reward != null ? `${(d.final_reward * 100).toFixed(1)}%` : '?'
-      return `Run complete — ${d.status ?? '?'}, reward: ${pct}, ${d.total_turns ?? 0} turns`
-    }
-    case 'workspace_extracted':
-      return `Workspace saved — ${(d.artifacts_found as string[] ?? []).length} artifacts found`
-    case 'run_error':
-      return `Run error: ${d.error ?? 'Unknown'}`
-    case 'watchdog_interrupt':
-      return `${d.message ?? 'Supervisor interrupted the agent'}`
-    case 'watchdog_cycle_start':
-      return `Cycle ${d.cycle ?? '?'} — analyzing ${d.events_in_window ?? '?'} events`
-    case 'watchdog_verdict': {
-      const lvl = (d.level ?? 'normal').toUpperCase()
-      const conf = d.confidence ?? ''
-      return `Verdict: ${lvl}${conf ? ` (${conf})` : ''} — ${d.reason ?? ''}`
-    }
-    case 'watchdog_tool_call':
-      return `Inspecting: ${d.tool_name ?? '?'}`
-    case 'watchdog_escalation':
-      return `Escalating to L2 (${d.l2_model ?? '?'}) — L1 was ${d.l1_confidence ?? '?'} on ${(d.l1_level ?? '').toUpperCase()}`
-    case 'watchdog_checkpoint': {
-      const lvl = (d.level ?? 'normal').toUpperCase()
-      return `Checkpoint [${d.checkpoint_context ?? ''}]: ${lvl} — ${d.reason ?? ''}`
-    }
-    case 'escalation':
-      return `AWAITING HUMAN DECISION — ${d.source ?? 'watchdog'}: ${d.context ?? ''}`
-    case 'escalation_resolved': {
-      const action = d.response?.action ?? 'unknown'
-      return `Human decided: ${action.toUpperCase()}${d.response?.message ? ` — "${d.response.message}"` : ''}`
-    }
-    case 'autonomy_changed':
-      return `Mode switched: ${d.old_mode ?? '?'} → ${d.new_mode ?? '?'}`
-    case 'frontdesk_response':
-      return d.text ?? ''
-    case 'frontdesk_tool_call':
-      return `Calling ${d.tool_name ?? '?'}...`
-    case 'frontdesk_tool_result':
-      return d.content ?? ''
-    case 'frontdesk_error':
-      return `Error: ${d.error ?? 'unknown'}`
+    // -- campaign lifecycle --------------------------------------------------
     case 'campaign_started':
-      return `Campaign started`
+      return system('info', 'Campaign started', d.workspace ? `Workspace: ${str(d.workspace)}` : undefined)
+    case 'phase_started':
+      return system('info', `${phaseLabel(d.phase)} phase`)
+    case 'agent_session_started':
+      return agent('muted', `${phaseLabel(d.phase) || 'Agent'} session started`)
+    case 'agent_session_complete':
+      return agent('muted', `${phaseLabel(d.phase) || 'Agent'} session finished — ${d.turns ?? '?'} turns`)
     case 'campaign_completed':
-      return `Campaign completed`
     case 'campaign_failed':
-      return `Campaign failed: ${d.error ?? 'unknown error'}`
-    case 'iteration_started':
-      return `Iteration ${d.iteration_id ?? ''} started (${d.mode ?? 'unknown'} mode)`
-    case 'iteration_complete':
-      return `Iteration complete — reward: ${d.reward != null ? (d.reward * 100).toFixed(1) + '%' : '?'}`
-    case 'screening_complete':
-      return `Screening complete — proposal ${d.selected ? 'accepted' : 'rejected'}`
+    case 'campaign_stopped':
+      return system(statusTone(d.status ?? event.event_type.replace('campaign_', '')),
+        `Campaign ${d.status ?? event.event_type.replace('campaign_', '')}`)
+    case 'run_finished': {
+      const status = str(d.status) || 'finished'
+      return system(statusTone(status),
+        `Run ${status} — ${formatCost(d.cost_usd)} · ${formatDuration(d.wall_time)}`,
+        lines(d.summary, d.report ? `Report: ${str(d.report)}` : ''))
+    }
+    case 'run_error':
+      return system('error', 'The run crashed', str(d.error))
+    case 'autonomy_changed':
+      return system('info', `Mode switched: ${d.old_mode ?? '?'} → ${d.new_mode ?? '?'}`)
+
+    // -- phase results -----------------------------------------------------------
+    case 'ideation_complete':
+      return system('success', `Idea: ${str(d.title) || 'untitled'}`, str(d.hypothesis) || undefined)
+    case 'screening_complete': {
+      const score = typeof d.score === 'number' ? ` (score ${d.score.toFixed(2)})` : ''
+      if (!d.selected) return system('warning', `Screening selected no idea${score}`)
+      const what = typeof d.selected === 'string' ? `"${d.selected}"` : 'an idea'
+      return system('success', `Screening selected ${what}${score}`)
+    }
     case 'planning_complete':
-      return `Planning complete — ${d.job_count ?? '?'} jobs planned`
+      return system('success', `Plan ready — ${d.num_jobs ?? '?'} job${d.num_jobs === 1 ? '' : 's'}`)
+    case 'planning_fallback':
+      return system('warning', 'Planning failed; falling back to a default plan', str(d.reason) || undefined)
+    case 'iteration_complete': {
+      const ok = d.decision === 'done'
+      const errors = Array.isArray(d.errors) && d.errors.length ? bullets(d.errors) : undefined
+      return system(ok ? 'success' : 'warning',
+        `Job ${str(d.job_id)} ${ok ? 'done' : `ended: ${str(d.decision) || '?'}`} · ${formatCost(d.cost_usd)}`, errors)
+    }
+    case 'experiment_started':
+      return system('muted', `Running ${str(d.skill) || str(d.job_id)}`)
+    case 'experiment_complete':
+    case 'experiment_failed': {
+      const n = Number(d.observations) || 0
+      return system(d.success ? 'success' : 'warning',
+        `Job ${d.success ? 'succeeded' : 'failed'} — ${n} observation${n === 1 ? '' : 's'}, next: ${str(d.decision) || '?'}`)
+    }
+    case 'research_loop_complete':
+      return system('success', 'Research loop finished')
     case 'analysis_complete':
       return d.loop_back_to
-        ? `Analysis complete — looping back to ${d.loop_back_to}`
-        : 'Analysis complete — results sufficient, proceeding to writing'
+        ? system('info', `Analysis: back to ${phaseLabel(d.loop_back_to)} for another round`)
+        : system('success', 'Analysis complete — results are sufficient')
+    case 'analysis_verdict_missing':
+      return system('warning', 'The analysis gave no verdict; continuing')
     case 'writing_complete':
-      return `Writing complete — manuscript v${d.version ?? '?'}`
+      return system('success', `Report written (v${d.version ?? '?'})`, d.path ? str(d.path) : undefined)
+    case 'report_missing':
+      return system('warning', 'No report was written', d.path ? str(d.path) : undefined)
+    case 'skill_suggestion':
+      return system('info', `Skill suggested: ${str(d.name)}`, str(d.rule) || undefined)
+
+    // -- the research agent ----------------------------------------------------------
+    case 'loop_started':
+      return agent('muted', 'Agent started')
+    case 'reasoning':
+      return agent('info', str(d.text))
+    case 'tool_call_start':
+      return agent('info', `${d.tool_name ?? 'tool'}${d.input_preview ? `: ${str(d.input_preview)}` : ''}`)
+    case 'tool_call_result':
+      return agent(d.success === false ? 'warning' : 'info',
+        `${d.tool_name ?? 'tool'}: ${d.success === false ? 'failed' : 'ok'}`)
+    case 'permission_denied':
+      return agent('warning', 'Permission denied — the agent tried something outside its sandbox',
+        d.detail ? clip(str(d.detail), 400) : undefined)
+    case 'agent_stderr':
+      return agent('muted', `stderr: ${str(d.text)}`)
+    case 'agent_done':
+      return d.error
+        ? agent('error', `Agent stopped with an error · ${formatCost(d.cost_usd)}`, str(d.error))
+        : agent('success', `Agent finished · ${formatCost(d.cost_usd)}`)
+    case 'verifier_started':
+      return agent('muted', 'Running the acceptance tests…')
+    case 'verifier_result': {
+      const score = typeof d.score === 'number' ? ` (score ${d.score.toFixed(2)})` : ''
+      return agent(d.passed ? 'success' : 'warning', `Acceptance tests ${d.passed ? 'passed' : 'failed'}${score}`)
+    }
+
+    // -- oversight ----------------------------------------------------------------
+    case 'milestone_audit_started':
+      return oversight('muted', 'Milestone auditor',
+        `Reviewing ${phaseLabel(d.completed_phase)} before ${phaseLabel(d.next_phase)}` +
+        (Number(d.attempt) > 1 ? ` (attempt ${d.attempt})` : ''))
+    case 'milestone_audit': {
+      const verdict = str(d.verdict) || 'missing'
+      const summary = str(d.summary) || (verdict === 'missing' ? 'The auditor wrote no report; proceeding.' : '')
+      const recs = Array.isArray(d.recommendations) && d.recommendations.length ? bullets(d.recommendations) : ''
+      return oversight(AUDIT_VERDICT_TONES[verdict] ?? 'info',
+        `Milestone auditor · ${phaseLabel(d.completed_phase)} → ${phaseLabel(d.next_phase)}`,
+        summary, verdict, lines(recs))
+    }
+    case 'supervisor_continue':
+      return oversight('muted', 'Live auditor', str(d.reason) || 'On track', 'continue')
+    case 'supervisor_advise':
+      return oversight('info', 'Live auditor · advice', str(d.suggestion) || str(d.reason), 'advise',
+        d.suggestion ? str(d.reason) || undefined : undefined)
+    case 'supervisor_interrupt':
+      return oversight('error', 'Live auditor · interrupted the agent', str(d.suggestion) || str(d.reason), 'interrupt',
+        d.suggestion ? str(d.reason) || undefined : undefined)
+    case 'supervisor_escalate':
+      return oversight('warning', 'Live auditor · asks for your decision', str(d.reason), 'escalate',
+        str(d.suggestion) || undefined)
+    case 'human_gate_opened':
+      return oversight('warning', `Decision needed · ${GATE_SOURCE_LABELS[d.source] ?? str(d.source)}`,
+        str(d.title), 'waiting', str(d.detail) || undefined)
+    case 'human_gate_resolved': {
+      const action = str(d.action)
+      const by = DECIDED_BY_LABELS[d.decided_by] ?? str(d.decided_by)
+      return oversight(action === 'stop' ? 'error' : 'success',
+        `Decision · ${GATE_SOURCE_LABELS[d.source] ?? str(d.source)}`,
+        `${GATE_ACTION_LABELS[action] ?? action}, decided by ${by}`, action,
+        lines(d.title, d.message ? `“${str(d.message)}”` : ''))
+    }
+
+    // -- the researcher and the front desk -------------------------------------------
+    case 'chat_message':
+      return system('info', `${d.role === 'user' ? 'You' : 'Assistant'}: ${str(d.text)}`)
+    case 'frontdesk_response':
+      return system('info', `Front desk: ${str(d.text)}`)
+    case 'frontdesk_tool_call':
+      return system('muted', `Front desk → ${str(d.tool_name)}`)
+    case 'frontdesk_tool_result':
+      return { lane: 'hidden', tone: 'muted', text: '' }
+    case 'frontdesk_error':
+      return system('error', 'Front desk error', str(d.error))
+    case 'instruction_relayed':
+      return system('info', `Relayed to the agent: “${clip(str(d.message), 300)}”`)
+    case 'agent_interrupted':
+      return system('warning', 'Agent interrupted', str(d.reason) || undefined)
+    case 'agent_reply_to_human':
+      return system('info', `Agent replied: ${str(d.text)}`)
+
     default:
-      return event.event_type
+      return system('muted', event.event_type.replace(/_/g, ' '))
   }
 }
 
 // ---------------------------------------------------------------------------
-// Timeline row model
+// Timeline rows
 // ---------------------------------------------------------------------------
 
 type TimelineRow =
-  | { kind: 'stage'; phase: string; label: string }
-  | { kind: 'round'; iteration: string; label: string }
-  | { kind: 'event-row'; ts: number; mainEvents: StreamEvent[]; supEvents: StreamEvent[]; isLatest: boolean; hasAlert: boolean; streamingText?: string; streamingDone?: boolean }
-  | { kind: 'system'; event: StreamEvent; ts: number }
+  | { kind: 'stage'; phase: string }
+  | { kind: 'job'; badge: string; title: string }
+  | { kind: 'system'; event: StreamEvent; info: Described }
+  | { kind: 'skill'; event: StreamEvent }
+  | { kind: 'event-row'; ts: number; agentEvents: StreamEvent[]; oversightEvents: StreamEvent[]; isLatest: boolean; hasAlert: boolean }
 
 function buildTimeline(events: StreamEvent[]): TimelineRow[] {
   const rows: TimelineRow[] = []
-  let currentMainBatch: StreamEvent[] = []
-  let currentSupBatch: StreamEvent[] = []
-  let currentTs = 0
-  let deltaBuffer: string[] = []
-  let deltaDone = false
+  let agentBatch: StreamEvent[] = []
+  let oversightBatch: StreamEvent[] = []
+  let batchTs = 0
 
-  function flushRow(isLatest: boolean) {
-    if (currentMainBatch.length === 0 && currentSupBatch.length === 0 && deltaBuffer.length === 0) return
-    const hasAlert = [...currentMainBatch, ...currentSupBatch].some(e =>
-      e.event_type === 'escalation' || e.event_type === 'error' || e.event_type === 'run_error' ||
-      (e.event_type === 'verifier_result' && !e.data?.passed)
-    )
-    rows.push({
-      kind: 'event-row',
-      ts: currentTs,
-      mainEvents: [...currentMainBatch],
-      supEvents: [...currentSupBatch],
-      isLatest,
-      hasAlert,
-      streamingText: deltaBuffer.length > 0 ? deltaBuffer.join('') : undefined,
-      streamingDone: deltaDone,
+  function flush(isLatest: boolean) {
+    if (agentBatch.length === 0 && oversightBatch.length === 0) return
+    const hasAlert = [...agentBatch, ...oversightBatch].some((e) => {
+      const tone = describeEvent(e).tone
+      return tone === 'error' || tone === 'warning'
     })
-    currentMainBatch = []
-    currentSupBatch = []
-    deltaBuffer = []
-    deltaDone = false
+    rows.push({ kind: 'event-row', ts: batchTs, agentEvents: agentBatch, oversightEvents: oversightBatch, isLatest, hasAlert })
+    agentBatch = []
+    oversightBatch = []
   }
 
-  for (let i = 0; i < events.length; i++) {
-    const evt = events[i]
-    const evtTs = evt.timestamp || 0
+  for (const evt of events) {
+    const ts = evt.timestamp || 0
 
     if (evt.event_type === 'phase_started') {
-      flushRow(false)
-      const phase = typeof evt.data?.phase === 'string' ? evt.data.phase : `phase_${evt.data?.phase ?? '?'}`
-      rows.push({ kind: 'stage', phase, label: stageLabel(phase) })
+      flush(false)
+      rows.push({ kind: 'stage', phase: str(evt.data?.phase) })
+      continue
+    }
+    if (evt.event_type === 'job_started') {
+      flush(false)
+      const d = evt.data ?? {}
+      const badge = d.index != null ? `Job ${d.index}/${d.total ?? '?'}` : 'Job'
+      rows.push({ kind: 'job', badge, title: str(d.title) || str(d.job_id) })
       continue
     }
 
-    if (evt.event_type === 'iteration_started') {
-      flushRow(false)
-      const iterId = evt.data?.iteration_id ?? ''
-      const mode = evt.data?.mode ?? ''
-      rows.push({ kind: 'round', iteration: iterId, label: mode ? `${mode} mode` : '' })
+    if (evt.event_type === 'skill_suggestion') {
+      flush(false)
+      rows.push({ kind: 'skill', event: evt })
       continue
     }
 
-    if (isSystemEvent(evt.event_type)) {
-      flushRow(false)
-      rows.push({ kind: 'system', event: evt, ts: evtTs })
+    const info = describeEvent(evt)
+    if (info.lane === 'hidden') continue
+    if (info.lane === 'system') {
+      flush(false)
+      rows.push({ kind: 'system', event: evt, info })
       continue
     }
 
-    if (evt.event_type === 'reasoning_delta' || evt.event_type === 'brain_reasoning_delta') {
-      deltaBuffer.push(evt.data?.text ?? '')
-      currentTs = evtTs || currentTs
-      continue
-    }
-
-    if (evt.event_type === 'reasoning' || evt.event_type === 'brain_reasoning') {
-      deltaBuffer = []
-      deltaDone = true
-    }
-
-    // Decide if we need a new row (timestamp gap > 30s or turn change)
-    const prevTurn = currentMainBatch.length > 0 ? currentMainBatch[0].turn : currentSupBatch.length > 0 ? currentSupBatch[0].turn : undefined
+    // Start a new row when the agent's turn changes or after a pause of more than 30 s
+    const prevTurn = agentBatch[0]?.turn
     const newTurn = evt.turn !== undefined && prevTurn !== undefined && evt.turn !== prevTurn
-    const tsGap = evtTs > 0 && currentTs > 0 && (evtTs - currentTs) > 30
-    if ((newTurn || tsGap) && (currentMainBatch.length > 0 || currentSupBatch.length > 0)) {
-      flushRow(false)
-    }
+    const gap = ts > 0 && batchTs > 0 && ts - batchTs > 30
+    if (newTurn || gap) flush(false)
 
-    currentTs = evtTs || currentTs
-
-    if (isSupervisor(evt.event_type)) {
-      currentSupBatch.push(evt)
-    } else {
-      currentMainBatch.push(evt)
-    }
+    batchTs = ts || batchTs
+    if (info.lane === 'oversight') oversightBatch.push(evt)
+    else agentBatch.push(evt)
   }
 
-  flushRow(true)
+  flush(true)
   return rows
+}
+
+// ---------------------------------------------------------------------------
+// Formatting helpers
+// ---------------------------------------------------------------------------
+
+function formatClock(ts: number): string {
+  return new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+function toolIcon(toolName: string): { cls: string; char: string } {
+  const t = toolName.toLowerCase()
+  if (t.includes('read') || t.includes('glob') || t.includes('grep')) return { cls: 'read', char: '\u{1F4C4}' }
+  if (t.includes('edit') || t.includes('write')) return { cls: 'edit', char: '✎' }
+  if (t.includes('think') || t.includes('todo')) return { cls: 'think', char: '\u{1F9E0}' }
+  return { cls: 'bash', char: '$' }
+}
+
+const TONE_ICONS: Record<Tone, { cls: string; char: string }> = {
+  success: { cls: 'green', char: '✓' },
+  info: { cls: 'blue', char: '▶' },
+  warning: { cls: 'amber', char: '⚠' },
+  error: { cls: 'red', char: '✕' },
+  muted: { cls: 'blue', char: '·' },
+}
+
+/** Pair each tool_call_result with its tool_call_start; starts without a result are still running. */
+function pairToolCalls(events: StreamEvent[]): StreamEvent[] {
+  const out: StreamEvent[] = []
+  const pending = new Map<string, StreamEvent[]>()
+  for (const e of events) {
+    const name = str(e.data?.tool_name)
+    if (e.event_type === 'tool_call_start') {
+      pending.set(name, [...(pending.get(name) ?? []), e])
+    } else {
+      pending.get(name)?.shift()
+      out.push(e)
+    }
+  }
+  for (const starts of pending.values()) out.push(...starts)
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -336,235 +360,178 @@ function buildTimeline(events: StreamEvent[]): TimelineRow[] {
 function ToolCallRow({ event }: { event: StreamEvent }) {
   const [open, setOpen] = useState(false)
   const d = event.data
-  const toolName = d.tool_name ?? '?'
-  const iconCls = toolIconClass(toolName)
-  const iconChar = toolIconChar(toolName)
-
-  if (event.event_type === 'tool_call_start') {
-    return (
-      <div className={`tool-call${open ? ' open' : ''}`} onClick={(e) => { e.stopPropagation(); setOpen(!open) }}>
-        <div className="tool-call-header">
-          <span className={`tool-icon ${iconCls}`}>{iconChar}</span>
-          <span className="tool-name">{toolName}</span>
-          <span className="tool-summary">{d.input_preview ?? ''}</span>
-          <span className="tool-dur"><span className="spinner" /></span>
-        </div>
-      </div>
-    )
-  }
-
-  const dur = d.duration_seconds ? `${Number(d.duration_seconds).toFixed(1)}s` : ''
-  const preview = d.result_preview ?? ''
+  const toolName = str(d.tool_name) || 'tool'
+  const icon = toolIcon(toolName)
+  const running = event.event_type === 'tool_call_start'
+  const failed = d.success === false
 
   return (
     <div className={`tool-call${open ? ' open' : ''}`} onClick={(e) => { e.stopPropagation(); setOpen(!open) }}>
       <div className="tool-call-header">
-        <span className={`tool-icon ${iconCls}`}>{iconChar}</span>
+        <span className={`tool-icon ${icon.cls}`}>{icon.char}</span>
         <span className="tool-name">{toolName}</span>
-        <span className="tool-summary">{d.success === false ? 'FAILED' : preview}</span>
-        <span className="tool-dur">{dur}</span>
+        <span className="tool-summary">
+          {running ? str(d.input_preview) : failed ? `failed${d.result_preview ? ` — ${str(d.result_preview)}` : ''}` : str(d.result_preview)}
+        </span>
+        <span className="tool-dur">
+          {running ? <span className="spinner" /> : d.duration_seconds ? `${Number(d.duration_seconds).toFixed(1)}s` : ''}
+        </span>
       </div>
-      {d.result_preview && (
-        <div className="tool-output">{d.result_preview}</div>
-      )}
+      {!running && d.result_preview && <div className="tool-output">{str(d.result_preview)}</div>}
     </div>
   )
 }
 
-function AgentBlock({ events, streamingText, streamingDone }: {
-  events: StreamEvent[]
-  streamingText?: string
-  streamingDone?: boolean
-}) {
+function AgentBlock({ events }: { events: StreamEvent[] }) {
   const [open, setOpen] = useState(false)
 
-  const reasoningEvents = events.filter(e => e.event_type === 'reasoning' || e.event_type === 'brain_reasoning')
-  const toolEvents = events.filter(e => e.event_type === 'tool_call_start' || e.event_type === 'tool_call_result' || e.event_type === 'tool_progress')
-  const otherEvents = events.filter(e =>
-    e.event_type !== 'reasoning' && e.event_type !== 'brain_reasoning' &&
-    e.event_type !== 'tool_call_start' && e.event_type !== 'tool_call_result' && e.event_type !== 'tool_progress' &&
-    e.event_type !== 'turn_start'
-  )
+  const isTool = (e: StreamEvent) => e.event_type === 'tool_call_start' || e.event_type === 'tool_call_result'
+  const reasoning = events.filter((e) => e.event_type === 'reasoning')
+  const tools = pairToolCalls(events.filter(isTool))
+  const others = events.filter((e) => e.event_type !== 'reasoning' && !isTool(e))
 
-  const lastEvent = events[events.length - 1]
-  const isRunning = lastEvent?.event_type === 'tool_call_start' || !!streamingText && !streamingDone
-
-  // Find a good label
-  let label = ''
-  if (reasoningEvents.length > 0) {
-    const text = reasoningEvents[0].data?.text ?? ''
-    label = text.length > 60 ? text.slice(0, 57) + '...' : text
-  } else if (toolEvents.length > 0) {
-    const first = toolEvents[0]
-    label = `${first.data?.tool_name ?? 'tool'}: ${first.data?.input_preview ?? ''}`
-    if (label.length > 60) label = label.slice(0, 57) + '...'
-  } else if (otherEvents.length > 0) {
-    label = formatEventText(otherEvents[0])
-  } else if (streamingText) {
-    label = streamingText.length > 60 ? streamingText.slice(0, 57) + '...' : streamingText
-  }
-  if (!label) label = 'Agent activity'
-
-  const totalDur = events.reduce((sum, e) => {
-    if (e.event_type === 'tool_call_result' && e.data?.duration_seconds) {
-      return sum + Number(e.data.duration_seconds)
-    }
-    return sum
-  }, 0)
-
-  // Pair tool_call_start with tool_call_result
-  const pairedTools: StreamEvent[] = []
-  const startMap = new Map<string, StreamEvent>()
-  for (const e of toolEvents) {
-    if (e.event_type === 'tool_call_start') {
-      startMap.set(e.data?.tool_name ?? '', e)
-    } else if (e.event_type === 'tool_call_result') {
-      startMap.delete(e.data?.tool_name ?? '')
-      pairedTools.push(e)
-    } else {
-      pairedTools.push(e)
-    }
-  }
-  // Any unmatched starts are still in-progress
-  for (const e of startMap.values()) {
-    pairedTools.push(e)
-  }
+  const running = events[events.length - 1]?.event_type === 'tool_call_start'
+  const first = reasoning[0] ?? events.find(isTool) ?? others[0]
+  const label = first ? clip(describeEvent(first).text, 80) : 'Agent activity'
+  const totalSeconds = events.reduce(
+    (sum, e) => sum + (e.event_type === 'tool_call_result' ? Number(e.data?.duration_seconds) || 0 : 0), 0)
 
   return (
     <div className={`agent-block${open ? ' open' : ''}`}>
       <div className="agent-block-header" onClick={() => setOpen(!open)}>
         <span className="agent-label">{label}</span>
-        <span className={`agent-status ${isRunning ? 'running' : 'done'}`}>
-          {isRunning ? <span className="spinner" /> : totalDur > 0 ? `${totalDur.toFixed(0)}s` : ''}
+        <span className={`agent-status ${running ? 'running' : 'done'}`}>
+          {running ? <span className="spinner" /> : totalSeconds > 0 ? `${totalSeconds.toFixed(0)}s` : ''}
         </span>
         <span className="agent-chevron">{'▶'}</span>
       </div>
       <div className="agent-block-body">
-        {streamingText && (
-          <div className="agent-text thinking">
-            {streamingText}
-            {!streamingDone && <span className="streaming-cursor" />}
-          </div>
-        )}
-        {reasoningEvents.map((e, i) => (
-          <div key={`r-${i}`} className="agent-text thinking">{e.data?.text ?? ''}</div>
+        {reasoning.map((e, i) => (
+          <div key={`r-${i}`} className="agent-text thinking">{str(e.data?.text)}</div>
         ))}
-        {pairedTools.map((e, i) => (
-          <ToolCallRow key={`t-${i}`} event={e} />
-        ))}
-        {otherEvents.map((e, i) => (
-          <div key={`o-${i}`} className="agent-text">{formatEventText(e)}</div>
-        ))}
+        {tools.map((e, i) => <ToolCallRow key={`t-${i}`} event={e} />)}
+        {others.map((e, i) => {
+          const info = describeEvent(e)
+          return (
+            <div key={`o-${i}`} className={`agent-text tone-${info.tone}`}>
+              {info.text}
+              {info.detail && <div className="tl-detail">{info.detail}</div>}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
 }
 
-function SupervisorBlock({ events }: { events: StreamEvent[] }) {
-  if (events.length === 0) return null
-
+function OversightCard({ event }: { event: StreamEvent }) {
+  const info = describeEvent(event)
   return (
-    <>
-      {events.map((evt, i) => {
-        const d = evt.data
-        let label = 'Observation'
-        let borderColor = ''
-
-        if (evt.event_type === 'watchdog_verdict') {
-          const lvl = (d.level ?? 'normal').toLowerCase()
-          label = lvl === 'normal' ? 'Observation' : lvl === 'warning' ? 'Warning' : 'Analysis'
-        } else if (evt.event_type === 'watchdog_escalation') {
-          label = 'Escalation → Front Desk'
-          borderColor = 'var(--amber)'
-        } else if (evt.event_type === 'escalation') {
-          label = 'Escalation → Human'
-          borderColor = 'var(--amber)'
-        } else if (evt.event_type === 'escalation_resolved') {
-          label = 'Resolved'
-          borderColor = 'var(--green)'
-        } else if (evt.event_type === 'watchdog_interrupt') {
-          label = 'Interrupt'
-          borderColor = 'var(--red)'
-        } else if (evt.event_type === 'cerebellum_response') {
-          label = 'Cerebellum'
-        } else {
-          label = 'Review'
-        }
-
-        const text = formatEventText(evt)
-        const meta = evt.event_type === 'watchdog_verdict' ? `confidence: ${d.confidence ?? 'high'}` :
-          evt.event_type === 'escalation' ? 'awaiting human' :
-          evt.event_type === 'escalation_resolved' ? 'resolved' : ''
-
-        return (
-          <div
-            key={i}
-            className="auditor-verdict"
-            style={borderColor ? { borderLeftColor: borderColor } : undefined}
-          >
-            <div className="auditor-content">
-              <div className="auditor-label" style={borderColor ? { color: borderColor } : undefined}>{label}</div>
-              <div className="auditor-text">{text}</div>
-              {meta && <div className="auditor-meta">{meta}</div>}
-            </div>
-          </div>
-        )
-      })}
-    </>
+    <div className={`auditor-verdict tone-${info.tone}`}>
+      <div className="auditor-content">
+        <div className="auditor-label">
+          {info.label}
+          {info.badge && <span className={`verdict-badge tone-${info.tone}`}>{info.badge}</span>}
+        </div>
+        {info.text && <div className="auditor-text">{info.text}</div>}
+        {info.detail && <div className="auditor-meta tl-detail">{info.detail}</div>}
+      </div>
+    </div>
   )
 }
 
-function SystemEventRow({ event }: { event: StreamEvent }) {
-  const d = event.data
-  const text = formatEventText(event)
-  const isSuccess = event.event_type.includes('complete') || event.event_type === 'campaign_completed'
-  const isError = event.event_type === 'campaign_failed'
-  const iconClass = isError ? 'amber' : isSuccess ? 'green' : 'blue'
-  const iconChar = isError ? '⚠' : isSuccess ? '✓' : '▶'
-
-  // Check if it's a phase_ended that should show as a stage row
-  if (event.event_type === 'phase_ended') {
-    const phase = typeof d.phase === 'string' ? d.phase : 'phase'
-    return (
-      <div className="tl-stage-row">
-        <span className={`tl-stage-badge ${stageBadgeClass(phase)}`}>
-          {phase.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())} ✓
-        </span>
-        <span className="tl-stage-label">{d.turns ?? 0} turns, {d.wall_time ?? 0}s</span>
+function SystemEventRow({ info }: { info: Described }) {
+  const icon = TONE_ICONS[info.tone]
+  return (
+    <div className="tl-stage-row">
+      <div className={`sys-event tl-sys tone-${info.tone}`}>
+        <div className={`ev-icon ${icon.cls}`}>{icon.char}</div>
+        <div className="tl-sys-body">
+          <span>{info.text}</span>
+          {info.detail && <div className="tl-detail">{info.detail}</div>}
+        </div>
       </div>
-    )
+    </div>
+  )
+}
+
+type SkillOutcome =
+  | { state: 'open' }
+  | { state: 'saving' }
+  | { state: 'added'; where: string }
+  | { state: 'dismissed' }
+  | { state: 'error'; message: string }
+
+/** A rule the engine distilled from a phase: add it to the skill library, to this project only, or dismiss it. */
+function SkillSuggestionCard({ event, campaignId, experimentId }: {
+  event: StreamEvent
+  campaignId: string
+  experimentId: string
+}) {
+  const [outcome, setOutcome] = useState<SkillOutcome>({ state: 'open' })
+  const d = event.data ?? {}
+
+  const add = async (scope: 'global' | 'campaign') => {
+    setOutcome({ state: 'saving' })
+    try {
+      await api.skills.suggest({
+        name: str(d.name),
+        rule: str(d.rule),
+        description: str(d.description),
+        source_phase: str(d.source_phase),
+        source_experiment: str(d.source_experiment) || experimentId,
+        ...(scope === 'campaign' ? { source_campaign: campaignId } : {}),
+        scope,
+      })
+      setOutcome({ state: 'added', where: scope === 'global' ? 'the skill library' : 'this project' })
+    } catch (err) {
+      setOutcome({ state: 'error', message: describeError(err) })
+    }
   }
 
-  // Check if it's iteration_complete
-  if (event.event_type === 'iteration_complete') {
-    const reward = d.reward != null ? `${(d.reward * 100).toFixed(1)}%` : '?'
-    return (
-      <div className="tl-round-row">
-        <span className="tl-round-badge">Complete</span>
-        <span className="tl-round-label">reward: {reward}</span>
-      </div>
-    )
+  if (outcome.state === 'dismissed') {
+    return <SystemEventRow info={{ lane: 'system', tone: 'muted', text: `Skill suggestion dismissed: ${str(d.name)}` }} />
   }
 
   return (
     <div className="tl-stage-row">
-      <div className="sys-event" style={{ fontSize: 10, padding: '4px 8px' }}>
-        <div className={`ev-icon ${iconClass}`} style={{ width: 14, height: 14, fontSize: 8 }}>{iconChar}</div>
-        <span>{text}</span>
+      <div className="skill-suggest" style={{ flex: 1 }}>
+        <div className="skill-suggest-header">
+          <span className="ss-icon">✦</span>
+          Suggested skill: {str(d.name)}
+          {d.source_phase && <span className="ss-phase">{phaseLabel(d.source_phase)}</span>}
+        </div>
+        <div className="skill-suggest-body">
+          <div className="skill-suggest-rule">{str(d.rule)}</div>
+          {outcome.state === 'added' ? (
+            <div className="skill-suggest-source" style={{ color: 'var(--green)', marginBottom: 0 }}>✓ Added to {outcome.where}</div>
+          ) : (
+            <div className="skill-suggest-actions">
+              <button className="ss-accept" disabled={outcome.state === 'saving'} onClick={() => add('global')}>Add to library</button>
+              <button className="ss-edit" disabled={outcome.state === 'saving'} onClick={() => add('campaign')}>Only this project</button>
+              <button className="ss-dismiss" disabled={outcome.state === 'saving'} onClick={() => setOutcome({ state: 'dismissed' })}>Dismiss</button>
+            </div>
+          )}
+          {outcome.state === 'error' && <div className="tl-detail tone-error">Could not add the skill: {outcome.message}</div>}
+        </div>
       </div>
     </div>
   )
+}
+
+function stageDescription(phase: string): string {
+  return PHASES.find((p) => p.key === phase)?.desc ?? ''
 }
 
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
-export function AgentStreamView({ events }: AgentStreamViewProps) {
+export function AgentStreamView({ events, campaignId, experimentId }: AgentStreamViewProps) {
   const endRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const [timeWidth, setTimeWidth] = useState(44)
-  const [mainPct, setMainPct] = useState(50)
+  const [mainPct, setMainPct] = useState(55)
   const timelineRows = useMemo(() => buildTimeline(events), [events])
 
   useEffect(() => {
@@ -573,15 +540,8 @@ export function AgentStreamView({ events }: AgentStreamViewProps) {
 
   const gridCols = `${timeWidth}px ${mainPct}fr ${100 - mainPct}fr`
 
-  const handleTimeResize = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    const wrap = wrapRef.current
-    if (!wrap) return
-    const wrapLeft = wrap.getBoundingClientRect().left
+  const startDrag = useCallback((onMove: (ev: MouseEvent) => void) => {
     document.body.classList.add('resizing')
-    const onMove = (ev: MouseEvent) => {
-      setTimeWidth(Math.max(36, Math.min(120, ev.clientX - wrapLeft)))
-    }
     const onUp = () => {
       document.body.classList.remove('resizing')
       document.removeEventListener('mousemove', onMove)
@@ -591,27 +551,23 @@ export function AgentStreamView({ events }: AgentStreamViewProps) {
     document.addEventListener('mouseup', onUp)
   }, [])
 
+  const handleTimeResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const left = wrap.getBoundingClientRect().left
+    startDrag((ev) => setTimeWidth(Math.max(36, Math.min(120, ev.clientX - left))))
+  }, [startDrag])
+
   const handleColResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     const wrap = wrapRef.current
     if (!wrap) return
-    const wrapRect = wrap.getBoundingClientRect()
-    const flexStart = wrapRect.left + timeWidth
-    const flexWidth = wrapRect.width - timeWidth
-
-    document.body.classList.add('resizing')
-    const onMove = (ev: MouseEvent) => {
-      const pct = ((ev.clientX - flexStart) / flexWidth) * 100
-      setMainPct(Math.max(15, Math.min(85, pct)))
-    }
-    const onUp = () => {
-      document.body.classList.remove('resizing')
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
-    }
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-  }, [timeWidth])
+    const rect = wrap.getBoundingClientRect()
+    const start = rect.left + timeWidth
+    const width = rect.width - timeWidth
+    startDrag((ev) => setMainPct(Math.max(15, Math.min(85, ((ev.clientX - start) / width) * 100))))
+  }, [startDrag, timeWidth])
 
   if (events.length === 0) {
     return (
@@ -630,19 +586,15 @@ export function AgentStreamView({ events }: AgentStreamViewProps) {
           <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--fg-dim)' }}>Time</span>
         </div>
         <div className="tl-main-h" style={{ padding: '6px 10px', borderLeft: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span className="agent-tag main" style={{ fontSize: 9 }}>Main Agent</span>
+          <span className="agent-tag main" style={{ fontSize: 9 }}>Research agent</span>
         </div>
         <div className="tl-sup-h" style={{ padding: '6px 10px', borderLeft: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span className="agent-tag auditor" style={{ fontSize: 9 }}>Supervisor</span>
+          <span className="agent-tag auditor" style={{ fontSize: 9 }}>Auditors &amp; decisions</span>
         </div>
       </div>
 
-      {/* Draggable column border overlays */}
-      <div
-        className="tl-col-resize"
-        style={{ left: timeWidth }}
-        onMouseDown={handleTimeResize}
-      />
+      {/* Draggable column borders */}
+      <div className="tl-col-resize" style={{ left: timeWidth }} onMouseDown={handleTimeResize} />
       <div
         className="tl-col-resize"
         style={{ left: `calc(${timeWidth}px + (100% - ${timeWidth}px) * ${mainPct / 100})` }}
@@ -653,52 +605,49 @@ export function AgentStreamView({ events }: AgentStreamViewProps) {
       <div style={{ flex: 1, overflowY: 'auto' }}>
         <div className="timeline-grid" style={{ gridTemplateColumns: gridCols }}>
           {timelineRows.map((row, i) => {
-            if (row.kind === 'stage') {
-              return (
-                <div key={`stage-${i}`} className="tl-stage-row">
-                  <span className={`tl-stage-badge ${stageBadgeClass(row.phase)}`}>
-                    {row.phase.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}
-                  </span>
-                  {row.label && <span className="tl-stage-label">{row.label}</span>}
-                </div>
-              )
+            switch (row.kind) {
+              case 'stage':
+                return (
+                  <div key={i} className="tl-stage-row">
+                    <span className={`tl-stage-badge ${row.phase}`}>{phaseLabel(row.phase) || 'Phase'}</span>
+                    <span className="tl-stage-label">{stageDescription(row.phase)}</span>
+                  </div>
+                )
+              case 'job':
+                return (
+                  <div key={i} className="tl-round-row">
+                    <span className="tl-round-badge">{row.badge}</span>
+                    <span className="tl-round-label">{row.title}</span>
+                  </div>
+                )
+              case 'system':
+                return <SystemEventRow key={i} info={row.info} />
+              case 'skill':
+                return (
+                  <SkillSuggestionCard
+                    key={`skill-${row.event.timestamp}-${str(row.event.data?.name)}`}
+                    event={row.event}
+                    campaignId={campaignId}
+                    experimentId={experimentId}
+                  />
+                )
+              case 'event-row': {
+                const timeClass = `tl-time${row.isLatest ? ' active' : ''}${row.hasAlert ? ' alert' : ''}`
+                const hasAgent = row.agentEvents.length > 0
+                const hasOversight = row.oversightEvents.length > 0
+                return (
+                  <Fragment key={i}>
+                    <div className={timeClass}>{row.ts > 0 ? formatClock(row.ts) : ''}</div>
+                    <div className={`tl-cell${hasAgent ? '' : ' empty'}`}>
+                      {hasAgent && <AgentBlock events={row.agentEvents} />}
+                    </div>
+                    <div className={`tl-cell${hasOversight ? '' : ' empty'}`}>
+                      {row.oversightEvents.map((e, j) => <OversightCard key={j} event={e} />)}
+                    </div>
+                  </Fragment>
+                )
+              }
             }
-
-            if (row.kind === 'round') {
-              return (
-                <div key={`round-${i}`} className="tl-round-row">
-                  <span className="tl-round-badge">{row.iteration || 'Iter'}</span>
-                  {row.label && <span className="tl-round-label">{row.label}</span>}
-                </div>
-              )
-            }
-
-            if (row.kind === 'system') {
-              return <SystemEventRow key={`sys-${i}`} event={row.event} />
-            }
-
-            // event-row: 3-column grid row
-            const timeClass = `tl-time${row.isLatest ? ' active' : ''}${row.hasAlert ? ' alert' : ''}`
-            const hasMain = row.mainEvents.length > 0 || row.streamingText
-            const hasSup = row.supEvents.length > 0
-
-            return (
-              <Fragment key={`row-${i}`}>
-                <div className={timeClass}>{row.ts > 0 ? formatTime(row.ts) : ''}</div>
-                <div className={`tl-cell${!hasMain ? ' empty' : ''}`}>
-                  {hasMain && (
-                    <AgentBlock
-                      events={row.mainEvents}
-                      streamingText={row.streamingText}
-                      streamingDone={row.streamingDone}
-                    />
-                  )}
-                </div>
-                <div className={`tl-cell${!hasSup ? ' empty' : ''}`}>
-                  {hasSup && <SupervisorBlock events={row.supEvents} />}
-                </div>
-              </Fragment>
-            )
           })}
           <div ref={endRef} />
         </div>
@@ -706,4 +655,3 @@ export function AgentStreamView({ events }: AgentStreamViewProps) {
     </div>
   )
 }
-

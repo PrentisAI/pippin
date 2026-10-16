@@ -1,0 +1,3 @@
+# Extra dependencies of the paper-reproduction experiments (the `aurora` package itself: pip install -e ..)
+httpx>=0.27
+huggingface_hub>=0.24   # scripts/download_data.py (AutoResearchEval)

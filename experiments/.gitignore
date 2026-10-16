@@ -1,0 +1,4 @@
+# downloaded data and new results stay out of git
+data/
+runs/
+__pycache__/

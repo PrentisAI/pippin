@@ -368,6 +368,8 @@ class ResearchEngine:
                 elif current == CampaignPhase.WRITING:
                     manuscript_path = await self._run_writing()
                     following = CampaignPhase.COMPLETED
+                    # the report is audited first, then the human decides whether to finish
+                    guidance = await self._fire_milestone(current, following, len(all_iterations)) or guidance
                     if self._config.human.approve_termination:
                         decision = await self.human_gate.request(
                             "termination", "The campaign is ready to finish",
@@ -381,7 +383,7 @@ class ResearchEngine:
                 else:
                     raise RuntimeError(f"Unknown phase {current}")
 
-                if following != CampaignPhase.COMPLETED or current == CampaignPhase.WRITING:
+                if current != CampaignPhase.WRITING and following != CampaignPhase.COMPLETED:
                     guidance = await self._fire_milestone(current, following, len(all_iterations)) or guidance
                 self._save_checkpoint(following, research_cycle,
                                       proposal_id=proposal.proposal_id if proposal else None,

@@ -1,95 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { api } from '../api/client'
+import { api, describeError } from '../api/client'
 import { AgentStreamView } from '../components/AgentStreamView'
 import { WorkspacePanel } from '../components/WorkspacePanel'
+import { formatCost, formatDuration } from '../format'
+import {
+  GATE_SOURCE_LABELS,
+  isActiveStatus,
+  phaseLabel,
+  PHASE_PRESETS,
+  PHASES,
+  type CampaignSummary,
+  type ConversationMessage,
+  type ExperimentDetail,
+  type ExperimentEventRecord,
+  type ExperimentSummary,
+  type GateAction,
+  type PendingDecision,
+  type Phase,
+  type Proposal,
+  type Skill,
+} from '../types'
 import type { StreamEvent } from '../types/chat'
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface CampaignSummary {
-  campaign_id: string
-  name: string
-  objective: string
-  created_at: number
-  updated_at: number
-  experiment_count: number
-  active_experiments: number
-  completed_experiments: number
-  best_reward: number
-  needs_attention: boolean
-}
-
-interface ProposalData {
-  proposal_id: string
-  kind: 'predefined' | 'custom'
-  params: Record<string, any>
-  skip_phases: string[]
-  active_phases: string[]
-  summary: string
-  confirmed?: boolean
-  superseded?: boolean
-}
-
-interface ChatMessage {
-  role: 'user' | 'assistant' | 'system'
-  text: string
-  timestamp: number
-  type?: string
-  proposal?: ProposalData
-}
-
-interface ExperimentInfo {
-  run_id: string
-  task_name: string
-  status: string
-  reward?: number
-}
-
-interface RunDetail {
-  run_id: string
-  campaign_id?: string
-  task_name: string
-  model: string
-  autonomy_mode: string
-  status: string
-  phase: number
-  campaign_phase?: string
-  turn: number
-  reward: number
-  started_at: number
-  finished_at: number | null
-  event_count: number
-  error: string | null
-  watchdog_active: boolean
-  watchdog_verdicts: number
-  watchdog_cycles: number
-  pending_decision: {
-    decision_id: string
-    source: string
-    context: string
-    detail: Record<string, any>
-    options: string[]
-    created_at: number
-    resolved: boolean
-  } | null
-  decisions_made: number
-}
-
-interface Skill {
-  skill_id: string
-  name: string
-  rule: string
-  description: string
-  source_phase: string
-  source_experiment: string
-  scope: string
-  tags: string[]
-  created_at: string
-  updated_at: string
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -115,18 +47,11 @@ function formatTime(ts: number): string {
   return `${diffDays}d ago`
 }
 
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = Math.floor(seconds % 60)
-  return m > 0 ? `${m}m ${s}s` : `${s}s`
-}
-
 function expDotColor(status: string): string {
   switch (status) {
     case 'running': case 'starting': return 'var(--green)'
     case 'awaiting_human': return 'var(--amber)'
-    case 'completed': return 'var(--fg-dim)'
-    case 'error': case 'stopped': return 'var(--red)'
+    case 'failed': case 'stopped': return 'var(--red)'
     default: return 'var(--fg-dim)'
   }
 }
@@ -135,9 +60,38 @@ function expBadgeClass(status: string): string {
   switch (status) {
     case 'running': case 'starting': return 'running'
     case 'awaiting_human': return 'attention'
-    case 'error': case 'stopped': return 'error'
-    default: return 'reward'
+    case 'failed': case 'stopped': return 'error'
+    default: return 'done'
   }
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  starting: 'starting',
+  running: 'running',
+  awaiting_human: 'needs input',
+  completed: 'completed',
+  failed: 'failed',
+  stopped: 'stopped',
+}
+
+function statusLabel(status: string): string {
+  return STATUS_LABELS[status] ?? status
+}
+
+/** The last path segment of an experiment's name (falls back to its id). */
+function experimentName(exp: Pick<ExperimentSummary, 'task_name' | 'run_id'> | undefined | null): string {
+  if (!exp) return ''
+  return (exp.task_name || exp.run_id).split('/').pop() || exp.run_id
+}
+
+function ErrorBanner({ message, onDismiss }: { message: string | null; onDismiss: () => void }) {
+  if (!message) return null
+  return (
+    <div className="error-banner" role="alert">
+      <span>{message}</span>
+      <button title="Dismiss" onClick={onDismiss}>{'×'}</button>
+    </div>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -280,7 +234,7 @@ function SidebarPanel({
   campaigns: CampaignSummary[]
   activeCampaignId: string | null
   activeExperimentId: string | null
-  experiments: ExperimentInfo[]
+  experiments: ExperimentSummary[]
   collapsed: boolean
   sidebarRef: React.RefObject<HTMLDivElement | null>
   onSelectCampaign: (id: string) => void
@@ -322,10 +276,7 @@ function SidebarPanel({
               {isActive && experiments.length > 0 && (
                 <div className="exp-list show">
                   {experiments.map((exp) => {
-                    const slug = (exp.task_name || exp.run_id).split('/').pop()
-                    const isRunning = ['running', 'starting'].includes(exp.status)
-                    const isAttention = exp.status === 'awaiting_human'
-                    const reward = exp.reward != null ? `${(exp.reward * 100).toFixed(0)}%` : null
+                    const isActive = isActiveStatus(exp.status)
                     const isExpActive = exp.run_id === activeExperimentId
                     return (
                       <div
@@ -334,17 +285,15 @@ function SidebarPanel({
                         onClick={(e) => { e.stopPropagation(); onSelectExperiment(exp.run_id) }}
                       >
                         <div className="exp-dot" style={{ background: expDotColor(exp.status) }} />
-                        <div className="exp-name">{slug}</div>
-                        <span className={`exp-badge ${expBadgeClass(exp.status)}`}>
-                          {isRunning ? 'running' : isAttention ? 'needs input' : reward || exp.status}
-                        </span>
+                        <div className="exp-name">{experimentName(exp)}</div>
+                        <span className={`exp-badge ${expBadgeClass(exp.status)}`}>{statusLabel(exp.status)}</span>
                         <div className="exp-actions">
-                          {isRunning && (
+                          {isActive && (
                             <span className="exp-action-btn stop" title="Stop" onClick={(e) => { e.stopPropagation(); onStopExperiment(c.campaign_id, exp.run_id) }}>
                               &#9632;
                             </span>
                           )}
-                          <span className="exp-action-btn resume" title="Rerun" onClick={(e) => { e.stopPropagation(); onRerunExperiment(c.campaign_id, exp.run_id) }}>
+                          <span className="exp-action-btn resume" title="Re-run with the same settings" onClick={(e) => { e.stopPropagation(); onRerunExperiment(c.campaign_id, exp.run_id) }}>
                             &#8635;
                           </span>
                         </div>
@@ -365,9 +314,10 @@ function SidebarPanel({
 // Welcome View
 // ---------------------------------------------------------------------------
 
-function WelcomeView({ onSend }: { onSend: (text: string) => void }) {
+function WelcomeView({ onSend }: { onSend: (text: string) => Promise<void> }) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => { textareaRef.current?.focus() }, [])
@@ -382,7 +332,14 @@ function WelcomeView({ onSend }: { onSend: (text: string) => void }) {
   const handleSubmit = async () => {
     if (!input.trim() || sending) return
     setSending(true)
-    try { await onSend(input.trim()) } finally { setSending(false) }
+    setError(null)
+    try {
+      await onSend(input.trim())
+    } catch (err) {
+      setError(`Could not create the project: ${describeError(err)}`)
+    } finally {
+      setSending(false)
+    }
   }
 
   return (
@@ -398,15 +355,16 @@ function WelcomeView({ onSend }: { onSend: (text: string) => void }) {
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
             }}
-            placeholder="e.g. Run the LHTB benchmark on the latest model..."
+            placeholder="e.g. Investigate why the model's accuracy drops on longer inputs..."
             rows={1}
           />
           <button className="send-btn" disabled={!input.trim() || sending} onClick={handleSubmit}>
             {sending ? <span className="spinner" /> : <SendSvgIcon />}
           </button>
         </div>
+        <ErrorBanner message={error} onDismiss={() => setError(null)} />
         <div className="hint-chips">
-          {['Run LHTB benchmark', 'Analyze experiment data', 'Debug failing task'].map((hint) => (
+          {['Compare two methods on my dataset', 'Reproduce a result from a paper', 'Investigate why training diverges'].map((hint) => (
             <button key={hint} className="hint-chip" onClick={() => setInput(hint)}>{hint}</button>
           ))}
         </div>
@@ -427,15 +385,14 @@ function ChatArea({
 }: {
   campaignId: string
   experimentId: string | null
-  experiments: ExperimentInfo[]
+  experiments: ExperimentSummary[]
   onSelectExperiment: (expId: string | null) => void
 }) {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [messages, setMessages] = useState<ConversationMessage[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
-  const [pendingApprovals, setPendingApprovals] = useState<string[]>([])
-  const [approvalMessage, setApprovalMessage] = useState('')
-  const [submittingApproval, setSubmittingApproval] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
+  const [pendingDecisions, setPendingDecisions] = useState<(PendingDecision & { experiment_id: string })[]>([])
   const [activeTab, setActiveTab] = useState<string>('project')
   const [showSkillForm, setShowSkillForm] = useState(false)
   const [skillName, setSkillName] = useState('')
@@ -472,11 +429,8 @@ function ChatArea({
 
   const fetchStatus = useCallback(async () => {
     try {
-      await api.chat.status(campaignId)
-    } catch {}
-    try {
-      const d = await api.chat.pendingApprovals(campaignId)
-      setPendingApprovals(d.pending || [])
+      const status = await api.chat.status(campaignId)
+      setPendingDecisions(status.pending_decisions ?? [])
     } catch {}
   }, [campaignId])
 
@@ -503,6 +457,7 @@ function ChatArea({
     const text = input.trim()
     setInput('')
     setSending(true)
+    setSendError(null)
     setMessages((prev) => [...prev, { role: 'user', text, timestamp: Date.now() / 1000 }])
     try {
       if (!isProjectTab) {
@@ -521,23 +476,9 @@ function ChatArea({
       }
       setTimeout(fetchHistory, 1000)
     } catch (err) {
-      console.error('Failed to send:', err)
+      setSendError(`Message not sent: ${describeError(err)}`)
     } finally {
       setSending(false)
-    }
-  }
-
-  const handleApproval = async (approvalId: string, decision: string) => {
-    setSubmittingApproval(true)
-    try {
-      await api.chat.approve(campaignId, approvalId, decision, approvalMessage)
-      setApprovalMessage('')
-      fetchStatus()
-      setTimeout(fetchHistory, 1000)
-    } catch (err) {
-      console.error('Failed to approve:', err)
-    } finally {
-      setSubmittingApproval(false)
     }
   }
 
@@ -565,8 +506,8 @@ function ChatArea({
     }
   }
 
-  const activeExpTab = !isProjectTab ? experiments.find((e) => e.run_id === activeTab) : null
-  const tabTaskName = activeExpTab ? (activeExpTab.task_name || '').split('/').pop() : ''
+  const tabTaskName = isProjectTab ? '' : experimentName(experiments.find((e) => e.run_id === activeTab))
+  const pendingDecision = pendingDecisions[0]
 
   return (
     <div className="camp-content">
@@ -578,17 +519,16 @@ function ChatArea({
         >
           <span className="tab-dot" style={{ background: isProjectTab ? 'var(--accent)' : 'var(--fg-dim)' }} />
           Project Chat
-          {pendingApprovals.length > 0 && (
+          {pendingDecisions.length > 0 && (
             <span style={{
               fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 10,
               background: 'var(--amber-dim)', color: 'var(--amber)', marginLeft: 2,
             }}>
-              {pendingApprovals.length}
+              {pendingDecisions.length}
             </span>
           )}
         </div>
         {experiments.map((exp) => {
-          const slug = (exp.task_name || exp.run_id).split('/').pop()
           const isActive = activeTab === exp.run_id
           return (
             <div
@@ -597,7 +537,7 @@ function ChatArea({
               onClick={() => { setActiveTab(exp.run_id); setMessages([]); onSelectExperiment(exp.run_id) }}
             >
               <span className="tab-dot" style={{ background: expDotColor(exp.status) }} />
-              {slug}
+              {experimentName(exp)}
             </div>
           )
         })}
@@ -612,8 +552,8 @@ function ChatArea({
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <span style={{ fontSize: 12, color: 'var(--fg-dim)' }}>
               {isProjectTab
-                ? 'Send a message to interact with running experiments.'
-                : `Chatting with ${tabTaskName}. Messages go directly to this experiment's agent.`}
+                ? 'Describe the experiment you want; the front desk drafts a proposal for you to confirm.'
+                : `Talking to ${tabTaskName}. Its front desk answers and passes instructions on to the agent.`}
             </span>
           </div>
         )}
@@ -659,32 +599,19 @@ function ChatArea({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Approval bar */}
-      {isProjectTab && pendingApprovals.length > 0 && (
-        <div className="approval-bar show">
-          <div className="approval-label">
-            <span style={{ fontSize: 14 }}>{'⚠'}</span>
-            Approval Required
-          </div>
-          <div className="approval-actions">
-            <textarea
-              value={approvalMessage}
-              onChange={(e) => setApprovalMessage(e.target.value)}
-              placeholder="Optional: add guidance for the agent..."
-              rows={2}
-            />
-            <button className="btn-sm btn-approve" disabled={submittingApproval} onClick={() => handleApproval(pendingApprovals[0], 'approve')}>
-              {'✓'} Approve
-            </button>
-            <button className="btn-sm btn-modify" disabled={submittingApproval || !approvalMessage.trim()} onClick={() => handleApproval(pendingApprovals[0], 'modify')}>
-              {'✎'} Modify
-            </button>
-            <button className="btn-sm btn-reject" disabled={submittingApproval} onClick={() => handleApproval(pendingApprovals[0], 'reject')}>
-              {'✕'} Reject
-            </button>
-          </div>
-        </div>
+      {/* A decision one of the project's experiments is waiting for */}
+      {isProjectTab && pendingDecision && (
+        <ApprovalBar
+          campaignId={campaignId}
+          experimentId={pendingDecision.experiment_id}
+          experimentLabel={experimentName(experiments.find((e) => e.run_id === pendingDecision.experiment_id))
+            || pendingDecision.experiment_id}
+          decision={pendingDecision}
+          onResolved={fetchStatus}
+        />
       )}
+
+      <ErrorBanner message={sendError} onDismiss={() => setSendError(null)} />
 
       {/* Skill form */}
       {showSkillForm && (
@@ -733,8 +660,8 @@ function ChatArea({
         <div className="input-hint" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button className="add-skill-btn" onClick={() => setShowSkillForm(!showSkillForm)}>+ Skill</button>
           <span>
-            Chatting with <span className="target">{isProjectTab ? 'Front Desk' : tabTaskName}</span>
-            {isProjectTab && ' · switch to an experiment tab to see agent activity'}
+            Talking to <span className="target">{isProjectTab ? 'the project front desk' : tabTaskName}</span>
+            {isProjectTab && ' · open an experiment tab to see its activity'}
           </span>
         </div>
       </div>
@@ -743,8 +670,15 @@ function ChatArea({
 }
 
 // ---------------------------------------------------------------------------
-// Experiment View (embedded, replaces ExperimentMonitor page)
+// Experiment View
 // ---------------------------------------------------------------------------
+
+/** Events after which the experiment summary (status, phase, pending decision, report) is refetched. */
+const REFRESH_EVENTS = new Set([
+  'phase_started', 'human_gate_opened', 'human_gate_resolved', 'autonomy_changed',
+  'writing_complete', 'run_finished', 'run_error',
+])
+const MAX_STREAM_EVENTS = 2000
 
 function ExperimentView({
   campaignId,
@@ -757,39 +691,24 @@ function ExperimentView({
 }: {
   campaignId: string
   experimentId: string
-  experiments: ExperimentInfo[]
+  experiments: ExperimentSummary[]
   onSelectExperiment: (expId: string | null) => void
   streamRef: React.RefObject<HTMLDivElement | null>
   rightPanel: string
   setRightPanel: (v: string) => void
 }) {
-  const [run, setRun] = useState<RunDetail | null>(null)
-  const [liveEvents, setLiveEvents] = useState<StreamEvent[]>([])
+  const [run, setRun] = useState<ExperimentDetail | null>(null)
+  const [events, setEvents] = useState<StreamEvent[]>([])
+  // Bumped to reconnect the event stream (after a resume, the experiment has a new live state)
+  const [connection, setConnection] = useState(0)
   const [streamCollapsed, setStreamCollapsed] = useState(false)
-  const wsRef = useRef<WebSocket | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [openRequest, setOpenRequest] = useState<{ path: string } | null>(null)
+
   const fetchRun = useCallback(async () => {
     try {
-      const data = await api.experiments.get(campaignId, experimentId)
-      if (!data.error) {
-        setRun(data)
-        if (data.events?.length) {
-          setLiveEvents(prev => {
-            if (prev.length > 0) return prev
-            return data.events.map((e: any) => ({
-              event_type: e.event_type,
-              data: e.data || {},
-              timestamp: e.timestamp || 0,
-              turn: e.data?.turn,
-            }))
-          })
-        }
-      }
+      setRun(await api.experiments.get(campaignId, experimentId))
     } catch {}
-  }, [campaignId, experimentId])
-
-  useEffect(() => {
-    setLiveEvents([])
-    setRun(null)
   }, [campaignId, experimentId])
 
   useEffect(() => {
@@ -798,65 +717,85 @@ function ExperimentView({
     return () => clearInterval(interval)
   }, [fetchRun])
 
+  // The WebSocket replays the experiment's events, then streams new ones.
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/api/campaigns/${campaignId}/experiments/${experimentId}/ws`
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
+    const ws = new WebSocket(`${protocol}//${window.location.host}/api/campaigns/${campaignId}/experiments/${experimentId}/ws`)
 
-    ws.onmessage = (evt) => {
+    ws.onmessage = (msg) => {
+      let record: ExperimentEventRecord
       try {
-        const data = JSON.parse(evt.data)
-        const streamEvent: StreamEvent = {
-          event_type: data.event_type,
-          data: data.data || {},
-          timestamp: data.timestamp || Date.now() / 1000,
-          turn: data.data?.turn,
-        }
-        setLiveEvents((prev) => {
-          const next = [...prev, streamEvent]
-          return next.length > 2000 ? next.slice(-2000) : next
-        })
-        if (['escalation', 'escalation_resolved', 'autonomy_changed'].includes(data.event_type)) {
-          fetchRun()
-        }
-      } catch {}
+        record = JSON.parse(msg.data)
+      } catch {
+        return
+      }
+      if (!record.event_type) return
+      const event: StreamEvent = {
+        event_type: record.event_type,
+        source: record.source,
+        data: record.data ?? {},
+        timestamp: record.timestamp ?? Date.now() / 1000,
+        turn: record.data?.turn,
+      }
+      setEvents((prev) => {
+        const next = [...prev, event]
+        return next.length > MAX_STREAM_EVENTS ? next.slice(-MAX_STREAM_EVENTS) : next
+      })
+      if (REFRESH_EVENTS.has(event.event_type)) fetchRun()
     }
-    ws.onclose = () => { wsRef.current = null }
-    return () => { ws.close(); wsRef.current = null }
-  }, [campaignId, experimentId, fetchRun])
+    return () => ws.close()
+  }, [campaignId, experimentId, connection, fetchRun])
 
-  const handleStop = async () => {
+  /** Run a control action, showing its error (e.g. a missing Docker or API key) instead of failing silently. */
+  const act = async (what: string, action: () => Promise<void>) => {
+    setActionError(null)
+    try {
+      await action()
+    } catch (err) {
+      setActionError(`${what} failed: ${describeError(err)}`)
+    }
+  }
+
+  const handleStop = () => act('Stop', async () => {
     await api.experiments.stop(campaignId, experimentId)
-    fetchRun()
-  }
+    await fetchRun()
+  })
 
-  const handleRerun = async () => {
-    try {
-      const result = await api.experiments.rerun(campaignId, experimentId)
-      if (result.error) return
-      onSelectExperiment(result.run_id)
-    } catch {}
-  }
+  const handleRerun = () => act('Re-run', async () => {
+    const started = await api.experiments.rerun(campaignId, experimentId)
+    onSelectExperiment(started.run_id)
+  })
 
-  const handleResume = async () => {
-    try {
-      const result = await api.experiments.resume(campaignId, experimentId)
-      if (result.error) return
-      onSelectExperiment(result.run_id)
-    } catch {}
-  }
+  const handleResume = () => act('Resume', async () => {
+    await api.experiments.resume(campaignId, experimentId)
+    setEvents([])
+    setConnection((n) => n + 1)
+    await fetchRun()
+  })
 
-  const handleToggleAutonomy = async () => {
+  const handleToggleAutonomy = () => act('Switching mode', async () => {
     if (!run) return
-    const newMode = run.autonomy_mode === 'autonomous' ? 'supervised' : 'autonomous'
-    await api.experiments.setAutonomyMode(campaignId, experimentId, newMode)
-    fetchRun()
+    await api.experiments.setAutonomyMode(campaignId, experimentId,
+      run.autonomy_mode === 'autonomous' ? 'supervised' : 'autonomous')
+    await fetchRun()
+  })
+
+  const handleOpenReport = () => {
+    if (!run?.report) return
+    setRightPanel('files')
+    setStreamCollapsed(false)
+    setOpenRequest({ path: run.report })
   }
 
-  const elapsed = run ? ((run.finished_at || Date.now() / 1000) - run.started_at) : 0
-  const isRunning = run?.status === 'running' || run?.status === 'starting' || run?.status === 'awaiting_human'
-  const isFinished = run?.status === 'completed' || run?.status === 'stopped' || run?.status === 'error'
+  const isActive = isActiveStatus(run?.status)
+  const [now, setNow] = useState(() => Date.now() / 1000)
+  useEffect(() => {
+    if (!isActive) return
+    const timer = setInterval(() => setNow(Date.now() / 1000), 1000)
+    return () => clearInterval(timer)
+  }, [isActive])
+  const elapsed = run ? (run.finished_at || now) - run.started_at : 0
+  const canResume = run?.status === 'failed' || run?.status === 'stopped'
 
   return (
     <div className="exp-content">
@@ -864,12 +803,16 @@ function ExperimentView({
       <div className="status-strip">
         <div className="stat">
           <div className="stat-label">Status</div>
-          <div className="stat-value" style={{ color: isRunning ? 'var(--green)' : isFinished ? 'var(--fg-muted)' : 'var(--fg)' }}>
-            {run?.status || '—'}
+          <div className="stat-value" style={{ color: isActive ? 'var(--green)' : run?.status === 'failed' ? 'var(--red)' : 'var(--fg-muted)' }}>
+            {run ? statusLabel(run.status) : '—'}
           </div>
         </div>
         <div className="stat">
-          <div className="stat-label">Iteration</div>
+          <div className="stat-label">Phase</div>
+          <div className="stat-value">{phaseLabel(run?.phase) || '—'}</div>
+        </div>
+        <div className="stat">
+          <div className="stat-label">Tool calls</div>
           <div className="stat-value mono">{run?.turn ?? 0}</div>
         </div>
         <div className="stat">
@@ -877,13 +820,8 @@ function ExperimentView({
           <div className="stat-value mono">{formatDuration(elapsed)}</div>
         </div>
         <div className="stat">
-          <div className="stat-label">Reward</div>
-          <div className="stat-value mono">
-            {((run?.reward || 0) * 100).toFixed(1)}%
-            <span className="reward-bar">
-              <span className="reward-fill" style={{ width: `${(run?.reward || 0) * 100}%` }} />
-            </span>
-          </div>
+          <div className="stat-label">Cost</div>
+          <div className="stat-value mono">{formatCost(run?.cost_usd)}</div>
         </div>
         <div className="stat">
           <div className="stat-label">Model</div>
@@ -891,33 +829,50 @@ function ExperimentView({
         </div>
         <div className="stat">
           <div className="stat-label">Mode</div>
-          <div className="stat-value" style={{ cursor: 'pointer', color: run?.autonomy_mode === 'supervised' ? 'var(--amber)' : 'var(--green)' }} onClick={handleToggleAutonomy}>
-            {run?.autonomy_mode || 'autonomous'}
+          <div
+            className="stat-value"
+            title={isActive ? 'Click to switch between supervised and autonomous' : undefined}
+            style={{ cursor: isActive ? 'pointer' : 'default', color: run?.autonomy_mode === 'supervised' ? 'var(--amber)' : 'var(--green)' }}
+            onClick={isActive ? handleToggleAutonomy : undefined}
+          >
+            {run?.autonomy_mode || '—'}
           </div>
         </div>
         <div className="exp-controls">
-          {isRunning && (
+          {run?.report && (
+            <button className="exp-ctrl-btn rerun" title={run.report} onClick={handleOpenReport}>
+              <FilesSvg /> Report
+            </button>
+          )}
+          {isActive && (
             <button className="exp-ctrl-btn stop" onClick={handleStop}>
               <StopSvg /> Stop
             </button>
           )}
-          {isFinished && (
-            <>
-              <button className="exp-ctrl-btn resume" onClick={handleResume}>
-                <PlaySvg /> Resume
-              </button>
-              <button className="exp-ctrl-btn rerun" onClick={handleRerun}>
-                <RerunSvg /> Re-run
-              </button>
-            </>
+          {canResume && (
+            <button className="exp-ctrl-btn resume" title="Continue from the last checkpoint" onClick={handleResume}>
+              <PlaySvg /> Resume
+            </button>
+          )}
+          {run && !isActive && (
+            <button className="exp-ctrl-btn rerun" title="Start a new experiment with the same settings" onClick={handleRerun}>
+              <RerunSvg /> Re-run
+            </button>
           )}
         </div>
       </div>
 
-      {/* Approval bar (experiment-level escalation) */}
+      {run?.status === 'failed' && run.error && (
+        <div className="error-banner">Failed: {run.error}</div>
+      )}
+      <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />
+
+      {/* A human gate the experiment is waiting at */}
       {run?.pending_decision && !run.pending_decision.resolved && (
-        <ExperimentApprovalBar
+        <ApprovalBar
+          key={run.pending_decision.decision_id}
           campaignId={campaignId}
+          experimentId={experimentId}
           decision={run.pending_decision}
           onResolved={fetchRun}
         />
@@ -925,7 +880,7 @@ function ExperimentView({
 
       {/* Dual-column body */}
       <div className="exp-body" style={{ position: 'relative' }}>
-        {/* Front Desk chat (center) */}
+        {/* Front desk chat (center) */}
         <div className="fd-col">
           <ChatArea
             campaignId={campaignId}
@@ -935,23 +890,21 @@ function ExperimentView({
           />
         </div>
 
-        {/* Resize handle between fd-col and tl-wrap */}
         {!streamCollapsed && <ResizeHandle targetRef={streamRef} side="left" minWidth={200} maxWidth={900} />}
 
-        {/* Timeline Stream / Workspace (right) */}
+        {/* Event stream / files (right) */}
         <div className={`tl-wrap${streamCollapsed ? ' collapsed' : ''}`} ref={streamRef}>
           {rightPanel === 'files' ? (
             <div style={{ flex: 1, overflow: 'auto', padding: 0 }}>
-              <WorkspacePanel campaignId={campaignId} expId={experimentId} />
+              <WorkspacePanel campaignId={campaignId} expId={experimentId} openRequest={openRequest} />
             </div>
           ) : (
             <div style={{ flex: 1, overflowY: 'auto' }}>
-              <AgentStreamView events={liveEvents} />
+              <AgentStreamView events={events} campaignId={campaignId} experimentId={experimentId} />
             </div>
           )}
         </div>
 
-        {/* Stream restore button when collapsed */}
         {streamCollapsed && (
           <button className="stream-restore" style={{ display: 'flex' }} onClick={() => setStreamCollapsed(false)}>
             STREAM & FILE
@@ -980,31 +933,42 @@ function ExperimentView({
 }
 
 // ---------------------------------------------------------------------------
-// Experiment Approval Bar
+// Approval Bar: answer a human gate (continue / send instruction / stop)
 // ---------------------------------------------------------------------------
 
-function ExperimentApprovalBar({
+function ApprovalBar({
   campaignId,
+  experimentId,
+  experimentLabel,
   decision,
   onResolved,
 }: {
   campaignId: string
-  decision: RunDetail['pending_decision']
+  experimentId: string
+  /** Shown when the bar is outside the experiment's own view. */
+  experimentLabel?: string
+  decision: PendingDecision
   onResolved: () => void
 }) {
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  if (!decision) return null
+  const source = GATE_SOURCE_LABELS[decision.source] ?? decision.source
+  const title = decision.detail?.title || decision.context.split('\n')[0]
+  const body = decision.detail?.detail ?? ''
+  const gateId = decision.detail?.gate_id || decision.decision_id
+  const offers = (action: GateAction) => decision.options.includes(action)
 
-  const handleDecide = async (action: string) => {
+  const decide = async (action: GateAction) => {
     setSubmitting(true)
+    setError(null)
     try {
-      await api.experiments.decide(campaignId, decision.decision_id, action, message)
+      await api.experiments.decide(campaignId, experimentId, action, message.trim(), gateId)
       setMessage('')
       onResolved()
     } catch (err) {
-      console.error('Decision failed:', err)
+      setError(describeError(err))
     } finally {
       setSubmitting(false)
     }
@@ -1014,25 +978,35 @@ function ExperimentApprovalBar({
     <div className="approval-bar show">
       <div className="approval-label">
         <span style={{ fontSize: 14 }}>{'⚠'}</span>
-        {decision.source} needs your decision
+        {source} needs your decision{experimentLabel ? ` · ${experimentLabel}` : ''}
       </div>
-      <div className="approval-desc">{decision.context}</div>
+      <div className="approval-title">{title}</div>
+      {body && <div className="approval-desc">{body}</div>}
       <div className="approval-actions">
         <textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          placeholder="Optional: add guidance..."
+          placeholder="Instruction for the agent (required for “Send instruction”)"
           rows={2}
         />
-        {decision.options.map((opt) => {
-          const cls = opt === 'approve' ? 'btn-approve' : opt === 'reject' ? 'btn-reject' : 'btn-modify'
-          return (
-            <button key={opt} className={`btn-sm ${cls}`} disabled={submitting} onClick={() => handleDecide(opt)}>
-              {opt}
-            </button>
-          )
-        })}
+        {offers('continue') && (
+          <button className="btn-sm btn-approve" disabled={submitting} title="Go on as planned" onClick={() => decide('continue')}>
+            {'✓'} Continue
+          </button>
+        )}
+        {offers('instruct') && (
+          <button className="btn-sm btn-modify" disabled={submitting || !message.trim()} title="Go on, following your instruction" onClick={() => decide('instruct')}>
+            {'✎'} Send instruction
+          </button>
+        )}
+        <span className="approval-spacer" />
+        {offers('stop') && (
+          <button className="btn-sm btn-reject" disabled={submitting} title="End the experiment" onClick={() => decide('stop')}>
+            {'■'} Stop experiment
+          </button>
+        )}
       </div>
+      {error && <div className="tl-detail tone-error">Could not send the decision: {error}</div>}
     </div>
   )
 }
@@ -1222,56 +1196,31 @@ function SkillsPanel({ collapsed, panelRef }: { collapsed: boolean; panelRef: Re
 }
 
 // ---------------------------------------------------------------------------
-// Campaign Chat View (header + chat area, no experiment)
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Phase Pipeline Selector
 // ---------------------------------------------------------------------------
-
-const ALL_PHASES: readonly { key: string; label: string; desc: string; required?: boolean }[] = [
-  { key: 'roundtable', label: 'Roundtable', desc: 'Multi-agent brainstorming' },
-  { key: 'screening', label: 'Screening', desc: 'Feasibility evaluation' },
-  { key: 'planning', label: 'Planning', desc: 'Structured execution plan' },
-  { key: 'research_loop', label: 'Research', desc: 'Agent executes the task', required: true },
-  { key: 'analysis', label: 'Analysis', desc: 'Result analysis & follow-up' },
-  { key: 'writing', label: 'Writing', desc: 'Report generation' },
-]
-
-const PRESETS: Record<string, { label: string; skip: string[]; desc: string }> = {
-  quick: { label: 'Quick', skip: ['roundtable', 'screening', 'planning', 'analysis', 'writing'], desc: 'Direct execution only' },
-  standard: { label: 'Standard', skip: ['roundtable', 'writing'], desc: 'Screen → Plan → Execute → Analyze' },
-  full: { label: 'Full', skip: [], desc: 'Complete research pipeline' },
-}
 
 function PhasePipelineSelector({
   skipPhases,
   onChange,
-  onClose,
 }: {
-  skipPhases: string[]
-  onChange: (skip: string[]) => void
-  onClose: () => void
+  skipPhases: Phase[]
+  onChange: (skip: Phase[]) => void
 }) {
-  const togglePhase = (key: string) => {
-    if (key === 'research_loop') return
-    if (skipPhases.includes(key)) {
-      onChange(skipPhases.filter((p) => p !== key))
-    } else {
-      onChange([...skipPhases, key])
-    }
+  const togglePhase = (key: Phase) => {
+    if (PHASES.find((p) => p.key === key)?.required) return
+    onChange(skipPhases.includes(key) ? skipPhases.filter((p) => p !== key) : [...skipPhases, key])
   }
 
-  const activePreset = Object.entries(PRESETS).find(
-    ([, v]) => v.skip.length === skipPhases.length && v.skip.every((p) => skipPhases.includes(p))
-  )?.[0] || null
+  const activePreset = Object.entries(PHASE_PRESETS).find(
+    ([, preset]) => preset.skip.length === skipPhases.length && preset.skip.every((p) => skipPhases.includes(p)),
+  )?.[0]
 
   return (
     <div className="phase-selector">
       <div className="phase-selector-header">
         <span className="phase-selector-title">Pipeline Phases</span>
         <div className="phase-presets">
-          {Object.entries(PRESETS).map(([key, preset]) => (
+          {Object.entries(PHASE_PRESETS).map(([key, preset]) => (
             <button
               key={key}
               className={`phase-preset-btn${activePreset === key ? ' active' : ''}`}
@@ -1282,27 +1231,22 @@ function PhasePipelineSelector({
             </button>
           ))}
         </div>
-        <button className="phase-selector-close" onClick={onClose}>{'×'}</button>
       </div>
       <div className="phase-chips">
-        {ALL_PHASES.map((phase) => {
-          const active = !skipPhases.includes(phase.key)
-          const isRequired = phase.required
-          return (
-            <button
-              key={phase.key}
-              className={`phase-chip${active ? ' active' : ''}${isRequired ? ' required' : ''}`}
-              onClick={() => togglePhase(phase.key)}
-              title={phase.desc}
-            >
-              <span className="phase-chip-dot" />
-              <span className="phase-chip-label">{phase.label}</span>
-            </button>
-          )
-        })}
+        {PHASES.map((phase) => (
+          <button
+            key={phase.key}
+            className={`phase-chip${skipPhases.includes(phase.key) ? '' : ' active'}${phase.required ? ' required' : ''}`}
+            onClick={() => togglePhase(phase.key)}
+            title={phase.required ? `${phase.desc} (always runs)` : phase.desc}
+          >
+            <span className="phase-chip-dot" />
+            <span className="phase-chip-label">{phase.label}</span>
+          </button>
+        ))}
       </div>
       <div className="phase-flow">
-        {ALL_PHASES.filter((p) => !skipPhases.includes(p.key)).map((p, i, arr) => (
+        {PHASES.filter((p) => !skipPhases.includes(p.key)).map((p, i, arr) => (
           <span key={p.key} className="phase-flow-item">
             {p.label}{i < arr.length - 1 ? ' → ' : ''}
           </span>
@@ -1312,38 +1256,34 @@ function PhasePipelineSelector({
   )
 }
 
+// ---------------------------------------------------------------------------
+// Proposal Card: an experiment the front desk drafted, to confirm and start
+// ---------------------------------------------------------------------------
 
 function ProposalCard({
   proposal,
   campaignId,
   onConfirmed,
 }: {
-  proposal: ProposalData
+  proposal: Proposal
   campaignId: string
   onConfirmed: (expId: string) => void
 }) {
-  const [skipPhases, setSkipPhases] = useState<string[]>(proposal.skip_phases)
+  const [skipPhases, setSkipPhases] = useState<Phase[]>(proposal.skip_phases)
   const [confirming, setConfirming] = useState(false)
-  const [confirmed, setConfirmed] = useState(proposal.confirmed || false)
+  const [confirmed, setConfirmed] = useState(proposal.confirmed)
+  const [error, setError] = useState<string | null>(null)
   const [showInstruction, setShowInstruction] = useState(false)
 
   const handleConfirm = async () => {
     setConfirming(true)
+    setError(null)
     try {
-      const resp = await fetch(`/api/lhtb/campaigns/${campaignId}/proposals/${proposal.proposal_id}/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ skip_phases: skipPhases }),
-      })
-      const data = await resp.json()
-      if (data.error) {
-        console.error('Confirm failed:', data.error)
-      } else {
-        setConfirmed(true)
-        if (data.experiment_id) onConfirmed(data.experiment_id)
-      }
+      const result = await api.proposals.confirm(campaignId, proposal.proposal_id, { skip_phases: skipPhases })
+      setConfirmed(true)
+      onConfirmed(result.experiment_id)
     } catch (err) {
-      console.error('Confirm failed:', err)
+      setError(describeError(err))
     } finally {
       setConfirming(false)
     }
@@ -1365,52 +1305,34 @@ function ProposalCard({
     )
   }
 
-  const instruction = proposal.params.instruction || ''
-  const taskDir = proposal.params.task_dir || ''
+  const { instruction, model, inputs } = proposal.params
 
   return (
     <div className="proposal-card">
       <div className="proposal-header">
         <span className="proposal-icon">{'⟡'}</span>
         <span className="proposal-title">Experiment Proposal</span>
-        <span className="proposal-kind">{proposal.kind === 'predefined' ? 'Benchmark' : 'Custom'}</span>
       </div>
       <div className="proposal-summary">{proposal.summary}</div>
 
-      {/* Show instruction or task path */}
       {instruction && (
         <div className="proposal-detail">
-          <button
-            className="proposal-detail-toggle"
-            onClick={() => setShowInstruction(!showInstruction)}
-          >
+          <button className="proposal-detail-toggle" onClick={() => setShowInstruction(!showInstruction)}>
             {showInstruction ? '▾' : '▸'} Instruction
           </button>
-          {showInstruction && (
-            <div className="proposal-instruction">{instruction}</div>
-          )}
+          {showInstruction && <div className="proposal-instruction">{instruction}</div>}
         </div>
       )}
-      {taskDir && (
-        <div className="proposal-meta">Task: {taskDir}</div>
-      )}
-      {proposal.params.model && (
-        <div className="proposal-meta">Model: {proposal.params.model}</div>
-      )}
+      {inputs && inputs.length > 0 && <div className="proposal-meta">Inputs: {inputs.join(', ')}</div>}
+      {model && <div className="proposal-meta">Model: {model}</div>}
 
-      <PhasePipelineSelector
-        skipPhases={skipPhases}
-        onChange={setSkipPhases}
-        onClose={() => {}}
-      />
+      <PhasePipelineSelector skipPhases={skipPhases} onChange={setSkipPhases} />
+
+      {error && <div className="error-banner" style={{ margin: '0 0 8px' }}>Could not start the experiment: {error}</div>}
 
       <div className="proposal-actions">
-        <div className="proposal-hint">Adjust phases above, or tell Front Desk what to change</div>
-        <button
-          className="proposal-confirm"
-          disabled={confirming}
-          onClick={handleConfirm}
-        >
+        <div className="proposal-hint">Adjust phases above, or tell the front desk what to change</div>
+        <button className="proposal-confirm" disabled={confirming} onClick={handleConfirm}>
           {confirming ? 'Starting...' : 'Confirm & Start'}
         </button>
       </div>
@@ -1418,6 +1340,9 @@ function ProposalCard({
   )
 }
 
+// ---------------------------------------------------------------------------
+// Campaign Chat View (header + chat area, no experiment)
+// ---------------------------------------------------------------------------
 
 function CampaignChatView({
   campaignId,
@@ -1427,7 +1352,7 @@ function CampaignChatView({
 }: {
   campaignId: string
   campaign: CampaignSummary | null
-  experiments: ExperimentInfo[]
+  experiments: ExperimentSummary[]
   onSelectExperiment: (expId: string | null) => void
 }) {
   return (
@@ -1471,7 +1396,8 @@ export default function Home() {
   const [campaigns, setCampaigns] = useState<CampaignSummary[]>([])
   const [activeCampaignId, setActiveCampaignId] = useState<string | null>(urlCampaignId)
   const [activeExperimentId, setActiveExperimentId] = useState<string | null>(urlExperimentId)
-  const [experiments, setExperiments] = useState<ExperimentInfo[]>([])
+  const [experiments, setExperiments] = useState<ExperimentSummary[]>([])
+  const [notice, setNotice] = useState<string | null>(null)
   const [activePanel, setActivePanel] = useState<string>('projects')
   const [rightPanel, setRightPanel] = useState<string>('stream')
 
@@ -1528,14 +1454,7 @@ export default function Home() {
     if (!activeCampaignId) return
     try {
       const data = await api.campaigns.get(activeCampaignId)
-      if (data.experiments) {
-        setExperiments(data.experiments.map((e: any) => ({
-          run_id: e.run_id,
-          task_name: e.task_name,
-          status: e.status,
-          reward: e.reward,
-        })))
-      }
+      setExperiments(data.experiments ?? [])
     } catch {}
   }, [activeCampaignId])
 
@@ -1571,14 +1490,19 @@ export default function Home() {
     try {
       await api.experiments.stop(campaignId, expId)
       fetchExperiments()
-    } catch (err) { console.error('Failed to stop:', err) }
+    } catch (err) {
+      setNotice(`Stop failed: ${describeError(err)}`)
+    }
   }
 
   const handleRerunExperiment = async (campaignId: string, expId: string) => {
     try {
-      await api.experiments.rerun(campaignId, expId)
-      fetchExperiments()
-    } catch (err) { console.error('Failed to rerun:', err) }
+      const started = await api.experiments.rerun(campaignId, expId)
+      await fetchExperiments()
+      selectExperiment(started.run_id)
+    } catch (err) {
+      setNotice(`Re-run failed: ${describeError(err)}`)
+    }
   }
 
   const activeCampaign = campaigns.find((c) => c.campaign_id === activeCampaignId) || null
@@ -1614,6 +1538,7 @@ export default function Home() {
       {showSkills && <ResizeHandle targetRef={skillsPanelRef} side="right" />}
 
       <div className="main" style={{ position: 'relative' }}>
+        <ErrorBanner message={notice} onDismiss={() => setNotice(null)} />
         {view === 'welcome' && (
           <WelcomeView onSend={handleNewProject} />
         )}
@@ -1634,7 +1559,7 @@ export default function Home() {
               <div className="header-title">
                 {activeCampaign?.name || activeCampaignId}
                 <div className="header-sub">
-                  <span className="chat-target">{experiments.find(e => e.run_id === activeExperimentId)?.task_name?.split('/').pop() || activeExperimentId}</span>
+                  <span className="chat-target">{experimentName(experiments.find((e) => e.run_id === activeExperimentId)) || activeExperimentId}</span>
                   <span className="back-link" onClick={() => selectExperiment(null)}>{'←'} back to project</span>
                 </div>
               </div>
