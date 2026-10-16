@@ -14,7 +14,6 @@ This skill is the primary consumer of the ``hpc`` and ``mock_dft`` /
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from aurora.skills.base import (

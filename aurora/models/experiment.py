@@ -8,7 +8,7 @@ outputs and resource consumption.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -87,6 +87,6 @@ class ExperimentPlan(BaseModel):
     proposal_id: str = Field(description="ID of the roundtable proposal this plan implements.")
     jobs: list[ExperimentJob] = Field(default_factory=list)
     dependency_edges: list[DependencyEdge] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     revision: int = Field(default=0, description="Monotonically increasing revision counter.")
     revision_reason: str = Field(default="", description="Reason for the latest revision.")

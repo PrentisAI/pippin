@@ -7,10 +7,10 @@ Analysis may loop back to research if more data is needed.
 
 from __future__ import annotations
 
-from aurora.core.events import EventBus, Event, EventHandler
+from aurora.core.engine import CampaignResult, ResearchEngine
+from aurora.core.events import Event, EventBus, EventHandler
+from aurora.core.lifecycle import IterationResult, ResearchIteration
 from aurora.core.registry import ComponentRegistry
-from aurora.core.engine import ResearchEngine, CampaignResult
-from aurora.core.lifecycle import ResearchIteration, IterationResult
 
 __all__ = [
     "EventBus",

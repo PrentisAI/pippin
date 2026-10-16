@@ -1,319 +1,172 @@
-"""Campaign and experiment routes for the web console.
+"""Projects and experiments of the web console.
 
-A campaign groups experiments and has its own chat with the front desk agent;
-each experiment runs the research pipeline (``ResearchEngine``) and streams its
-events over a WebSocket.  When the pipeline escalates (supervisor, milestone
-auditor), the experiment waits for a human decision posted to ``/decide``.
+A *project* (``/api/campaigns``, for historical reasons) groups experiments
+and has a conversation with the project front desk, which drafts experiment
+proposals for the researcher to confirm.  An *experiment* is one research
+campaign run by :class:`~aurora.core.engine.ResearchEngine`; its events stream
+over a WebSocket, and while it runs the researcher can
+
+* talk to it (the campaign's front desk answers and relays instructions),
+* answer human gates (``/decide``), switch between supervised and
+  autonomous mode, stop it, and browse or edit its files.
+
+Experiments are configured by the server's base configuration
+(``aurora serve --config``) plus the options given when they start.
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
+import mimetypes
 import os
+import re
 import time
 import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import yaml
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from aurora.api.persistence import Store
+from aurora.config import PHASES
 
 logger = logging.getLogger(__name__)
 
 store = Store()
+campaign_router = APIRouter(prefix="/api/campaigns", tags=["projects"])
+
+# Answers the approval bar sends, mapped to human-gate actions
+_GATE_ACTIONS = {"continue": "continue", "approve": "continue", "instruct": "instruct",
+                 "override": "instruct", "modify": "instruct", "stop": "stop", "abort": "stop",
+                 "reject": "stop"}
+_SAFE_PATH = re.compile(r"^[\w .@+=,%-]+(/[\w .@+=,%-]+)*$")
+
+
+def base_config() -> dict[str, Any]:
+    """The server's base campaign configuration (``aurora serve --config``), as a dict."""
+    path = os.environ.get("AURORA_SERVER_CONFIG")
+    if not path:
+        return {}
+    with open(path, encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    data.pop("objective", None)
+    data.pop("campaign_id", None)
+    return data
+
+
+def _projects_root() -> Path:
+    return store.data_dir / "projects"
 
 
 # ---------------------------------------------------------------------------
-# In-memory run registry
+# Live state
 # ---------------------------------------------------------------------------
-
-class PendingDecision:
-    """A decision escalated to the human, blocking the agent until resolved."""
-
-    def __init__(
-        self,
-        decision_id: str,
-        source: str,
-        context: str,
-        detail: dict[str, Any],
-        options: list[str],
-    ) -> None:
-        self.decision_id = decision_id
-        self.source = source
-        self.context = context
-        self.detail = detail
-        self.options = options
-        self.created_at: float = time.time()
-        self.event: asyncio.Event = asyncio.Event()
-        self.response: dict[str, Any] | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "decision_id": self.decision_id,
-            "source": self.source,
-            "context": self.context,
-            "detail": self.detail,
-            "options": self.options,
-            "created_at": self.created_at,
-            "resolved": self.event.is_set(),
-        }
-
 
 class ExperimentRunState:
-    """Live state of one experiment (status, events, pending human decision)."""
+    """Live state of one experiment: status, event log, subscribers and its engine."""
 
-    def __init__(self, run_id: str, task_name: str, model: str, autonomy_mode: str = "autonomous", campaign_id: str = "") -> None:
+    def __init__(self, run_id: str, campaign_id: str, name: str, model: str,
+                 autonomy_mode: str = "supervised") -> None:
         self.run_id = run_id
         self.campaign_id = campaign_id
-        self.task_name = task_name
+        self.task_name = name
         self.model = model
         self.autonomy_mode = autonomy_mode
-        self.status: str = "starting"  # starting | running | completed | error | awaiting_human
-        self.phase: int = 0
-        self.turn: int = 0
-        self.reward: float = 0.0
-        self.started_at: float = time.time()
+        self.status = "starting"   # starting | running | awaiting_human | completed | failed | stopped
+        self.phase = ""
+        self.turn = 0
+        self.cost_usd = 0.0
+        self.started_at = time.time()
         self.finished_at: float | None = None
+        self.error: str | None = None
         self.events: list[dict[str, Any]] = []
         self.subscribers: list[WebSocket] = []
-        self.error: str | None = None
-        self._task: asyncio.Task[Any] | None = None
-        self.pending_decision: PendingDecision | None = None
-        self.decision_history: list[dict[str, Any]] = []
         self.chat_history: list[dict[str, Any]] = []
-        self.runner: Any = None
+        self.decision_history: list[dict[str, Any]] = []
+        self.engine: Any = None
+        self.task: asyncio.Task | None = None
+
+    @property
+    def campaign_dir(self) -> Path:
+        return _projects_root() / self.campaign_id / self.run_id
 
     async def broadcast(self, event: dict[str, Any]) -> None:
         self.events.append(event)
-        if self.campaign_id:
-            store.append_event(self.campaign_id, self.run_id, event)
-        stale: list[WebSocket] = []
+        store.append_event(self.campaign_id, self.run_id, event)
         payload = json.dumps(event, default=str)
-        for ws in self.subscribers:
+        for ws in list(self.subscribers):
             try:
                 await ws.send_text(payload)
             except Exception:
-                stale.append(ws)
-        for ws in stale:
-            self.subscribers.remove(ws)
+                self.subscribers.remove(ws)
 
-    async def escalate_to_human(
-        self,
-        source: str,
-        context: str,
-        detail: dict[str, Any],
-        options: list[str] | None = None,
-        timeout: float = 600.0,
-    ) -> dict[str, Any]:
-        """Block until the human responds or timeout.
-
-        Returns the human's decision dict, or a timeout-default.
-        """
-        if options is None:
-            options = ["approve", "override", "abort"]
-
-        decision_id = f"dec_{int(time.time())}_{len(self.decision_history)}"
-        decision = PendingDecision(
-            decision_id=decision_id,
-            source=source,
-            context=context,
-            detail=detail,
-            options=options,
-        )
-        self.pending_decision = decision
-        prev_status = self.status
-        self.status = "awaiting_human"
-
-        await self.broadcast({
-            "type": "experiment_event",
-            "run_id": self.run_id,
-            "event_type": "escalation",
-            "data": decision.to_dict(),
-            "timestamp": time.time(),
-        })
-
-        logger.info("Run %s: escalated to human — %s: %s", self.run_id, source, context[:200])
-
-        try:
-            await asyncio.wait_for(decision.event.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
-            logger.warning("Run %s: escalation %s timed out after %.0fs", self.run_id, decision_id, timeout)
-            decision.response = {
-                "action": "timeout",
-                "message": f"No human response after {timeout:.0f}s — auto-continuing",
-            }
-
-        self.pending_decision = None
-        self.status = prev_status if prev_status != "awaiting_human" else "running"
-
-        response = decision.response or {"action": "timeout"}
-        self.decision_history.append({
-            "decision_id": decision_id,
-            "source": source,
-            "context": context,
-            "response": response,
-            "wait_time": time.time() - decision.created_at,
-            "timestamp": time.time(),
-        })
-
-        await self.broadcast({
-            "type": "experiment_event",
-            "run_id": self.run_id,
-            "event_type": "escalation_resolved",
-            "data": {
-                "decision_id": decision_id,
-                "response": response,
-            },
-            "timestamp": time.time(),
-        })
-
-        return response
+    def pending_decision(self) -> dict[str, Any] | None:
+        gates = self.engine.human_gate.pending if self.engine is not None else []
+        if not gates:
+            return None
+        g = gates[0]
+        return {"decision_id": g.gate_id, "source": g.source, "context": f"{g.title}\n\n{g.detail}",
+                "detail": g.to_dict(), "options": list(g.options), "created_at": g.created_at,
+                "resolved": False}
 
     def to_summary(self) -> dict[str, Any]:
-        summary = {
+        return {
             "run_id": self.run_id,
+            "campaign_id": self.campaign_id,
             "task_name": self.task_name,
             "model": self.model,
             "autonomy_mode": self.autonomy_mode,
             "status": self.status,
             "phase": self.phase,
             "turn": self.turn,
-            "reward": self.reward,
+            "cost_usd": round(self.cost_usd, 4),
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "event_count": len(self.events),
             "error": self.error,
-            "pending_decision": self.pending_decision.to_dict() if self.pending_decision else None,
+            "pending_decision": self.pending_decision(),
             "decisions_made": len(self.decision_history),
         }
-        return summary
 
-
-# ---------------------------------------------------------------------------
-# Request / response models
-# ---------------------------------------------------------------------------
-
-class StartCustomRunRequest(BaseModel):
-    """Start a free-form experiment from user instruction (no predefined task)."""
-    instruction: str
-    name: str = ""
-    model: str = "deepseek/deepseek-v4-flash"
-    driver: str = "claude-code"
-    base_url: str = "https://openrouter.ai/api/v1"
-    max_turns: int = 200
-    no_docker: bool = True
-    autonomy_mode: str = "autonomous"
-    watchdog_mode: str = "disabled"
-    data_paths: list[str] = []
-    docker_image: str = "python:3.11-slim"
-    skip_phases: list[str] | None = None  # None = use complexity-based defaults
-
-
-# ---------------------------------------------------------------------------
-# Phase pipeline presets
-# ---------------------------------------------------------------------------
-
-PHASE_PRESET_QUICK = ["roundtable", "screening", "planning", "analysis", "writing"]
-PHASE_PRESET_STANDARD = ["roundtable", "writing"]
-PHASE_PRESET_FULL: list[str] = []
-
-PHASE_PRESETS = {
-    "quick": PHASE_PRESET_QUICK,
-    "standard": PHASE_PRESET_STANDARD,
-    "full": PHASE_PRESET_FULL,
-}
-
-
-def suggest_skip_phases(instruction: str, has_data: bool = False) -> list[str]:
-    """Suggest skip_phases based on task complexity heuristics.
-
-    Returns a default skip list. Users can override via explicit skip_phases.
-    """
-    text = instruction.lower()
-    complexity_signals = [
-        "research", "investigate", "compare", "benchmark", "systematic",
-        "evaluate multiple", "literature", "survey", "hypothesis",
-        "experiment design", "ablation", "comprehensive",
-    ]
-    complex_count = sum(1 for s in complexity_signals if s in text)
-
-    if complex_count >= 2 or len(instruction) > 1000:
-        return list(PHASE_PRESET_STANDARD)
-    if has_data or complex_count == 1 or len(instruction) > 400:
-        return list(PHASE_PRESET_STANDARD)
-    return list(PHASE_PRESET_QUICK)
-
-
-class DecisionRequest(BaseModel):
-    """Human decision in response to an escalation."""
-    action: str  # "approve" | "override" | "abort" | "instruct"
-    message: str = ""
-
-
-class RunSummary(BaseModel):
-    run_id: str
-    task_name: str
-    model: str
-    status: str
-    phase: int
-    turn: int
-    reward: float
-    started_at: float
-    finished_at: float | None
-    event_count: int
-    error: str | None
-
-
-
-# ---------------------------------------------------------------------------
-# Campaign → Experiment unified hierarchy
-# ---------------------------------------------------------------------------
 
 class ExperimentProposal:
-    """A pending experiment proposal awaiting user confirmation."""
+    """An experiment drafted by the project front desk, waiting for the researcher to confirm."""
 
-    def __init__(
-        self, proposal_id: str, kind: str, params: dict[str, Any],
-        suggested_skip: list[str], summary: str,
-    ) -> None:
-        self.proposal_id = proposal_id
-        self.kind = kind  # "predefined" | "custom"
+    def __init__(self, params: dict[str, Any], skip_phases: list[str], summary: str) -> None:
+        self.proposal_id = f"prop_{uuid.uuid4().hex[:8]}"
+        self.kind = "custom"
         self.params = params
-        self.suggested_skip = suggested_skip
+        self.suggested_skip = skip_phases
         self.summary = summary
-        self.created_at: float = time.time()
-        self.confirmed: bool = False
-        self.superseded: bool = False
+        self.created_at = time.time()
+        self.confirmed = False
+        self.superseded = False
 
     def to_dict(self) -> dict[str, Any]:
-        all_phases = ["roundtable", "screening", "planning",
-                      "research_loop", "analysis", "writing"]
         return {
-            "proposal_id": self.proposal_id,
-            "kind": self.kind,
-            "params": self.params,
+            "proposal_id": self.proposal_id, "kind": self.kind, "params": self.params,
             "skip_phases": self.suggested_skip,
-            "active_phases": [p for p in all_phases if p not in self.suggested_skip],
-            "summary": self.summary,
-            "created_at": self.created_at,
-            "confirmed": self.confirmed,
-            "superseded": self.superseded,
+            "active_phases": [p for p in PHASES if p not in self.suggested_skip],
+            "summary": self.summary, "created_at": self.created_at,
+            "confirmed": self.confirmed, "superseded": self.superseded,
         }
 
 
 class CampaignState:
-    """A research campaign containing multiple experiments."""
+    """A project: experiments, the project conversation and pending proposals."""
 
     def __init__(self, campaign_id: str, name: str, objective: str = "") -> None:
         self.campaign_id = campaign_id
         self.name = name
         self.objective = objective
-        self.created_at: float = time.time()
-        self.updated_at: float = time.time()
+        self.created_at = time.time()
+        self.updated_at = time.time()
         self.experiments: dict[str, ExperimentRunState] = {}
         self.chat_history: list[dict[str, Any]] = []
         self.frontdesk: Any = None
@@ -323,65 +176,57 @@ class CampaignState:
         exps = list(self.experiments.values())
         active = sum(1 for e in exps if e.status in ("running", "starting", "awaiting_human"))
         return {
-            "campaign_id": self.campaign_id,
-            "name": self.name,
-            "objective": self.objective,
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
-            "experiment_count": len(exps),
-            "active_experiments": active,
+            "campaign_id": self.campaign_id, "name": self.name, "objective": self.objective,
+            "created_at": self.created_at, "updated_at": self.updated_at,
+            "experiment_count": len(exps), "active_experiments": active,
             "completed_experiments": len(exps) - active,
-            "best_reward": max((e.reward for e in exps), default=0.0),
             "needs_attention": any(e.status == "awaiting_human" for e in exps),
         }
+
+    def note(self, text: str) -> None:
+        self.chat_history.append({"role": "system", "text": text, "timestamp": time.time()})
 
 
 _campaigns: dict[str, CampaignState] = {}
 
 
-def _ensure_campaign(campaign_id: str) -> CampaignState | None:
-    """Get campaign from memory, restoring from DB if needed."""
+def _ensure_campaign(campaign_id: str) -> CampaignState:
+    """The project, from memory or restored from the database; 404 if unknown."""
     if campaign_id in _campaigns:
         return _campaigns[campaign_id]
-    db_camp = store.get_campaign(campaign_id)
-    if not db_camp:
-        return None
-    campaign = CampaignState(
-        campaign_id=campaign_id,
-        name=db_camp.get("name", ""),
-        objective=db_camp.get("objective", ""),
-    )
-    campaign.created_at = db_camp.get("created_at", campaign.created_at)
-    campaign.updated_at = db_camp.get("updated_at", campaign.updated_at)
-    # Restore finished experiments as lightweight run states
-    for db_exp in store.list_experiments(campaign_id):
-        rs = ExperimentRunState(
-            run_id=db_exp["run_id"],
-            task_name=db_exp.get("task_name", ""),
-            model=db_exp.get("model", ""),
-            autonomy_mode=db_exp.get("autonomy_mode", "autonomous"),
-            campaign_id=campaign_id,
-        )
-        rs.status = db_exp.get("status", "completed")
-        rs.reward = db_exp.get("reward", 0.0)
-        rs.started_at = db_exp.get("started_at", 0.0)
-        rs.finished_at = db_exp.get("finished_at")
-        campaign.experiments[db_exp["run_id"]] = rs
+    row = store.get_campaign(campaign_id)
+    if not row:
+        raise HTTPException(404, f"Project {campaign_id} not found")
+    campaign = CampaignState(campaign_id, row.get("name", ""), row.get("objective", ""))
+    campaign.created_at = row.get("created_at", campaign.created_at)
+    campaign.updated_at = row.get("updated_at", campaign.updated_at)
+    for e in store.list_experiments(campaign_id):
+        rs = ExperimentRunState(e["run_id"], campaign_id, e.get("task_name", ""), e.get("model", ""),
+                                e.get("autonomy_mode", "supervised"))
+        rs.status = e.get("status", "completed")
+        rs.started_at = e.get("started_at", 0.0)
+        rs.finished_at = e.get("finished_at")
+        rs.error = e.get("error")
+        campaign.experiments[e["run_id"]] = rs
     _campaigns[campaign_id] = campaign
     return campaign
 
 
-def _campaign_sys_event(campaign: CampaignState, text: str) -> None:
-    """Append a system event to campaign chat history."""
-    campaign.chat_history.append({
-        "role": "system",
-        "text": text,
-        "timestamp": time.time(),
-    })
+def _get_run(campaign_id: str, exp_id: str) -> ExperimentRunState:
+    run = _ensure_campaign(campaign_id).experiments.get(exp_id)
+    if run is None:
+        raise HTTPException(404, f"Experiment {exp_id} not found")
+    return run
 
 
-campaign_router = APIRouter(prefix="/api/campaigns", tags=["campaigns"])
+def _touch(campaign: CampaignState) -> None:
+    campaign.updated_at = time.time()
+    store.update_campaign_ts(campaign.campaign_id, campaign.updated_at)
 
+
+# ---------------------------------------------------------------------------
+# Projects
+# ---------------------------------------------------------------------------
 
 class CreateCampaignRequest(BaseModel):
     name: str
@@ -393,1165 +238,602 @@ class QuickCreateRequest(BaseModel):
     auto_start: bool = True
 
 
-class SetAutonomyRequest(BaseModel):
-    autonomy_mode: str  # "autonomous" | "supervised"
-
-
-# ---------------------------------------------------------------------------
-# Campaign CRUD
-# ---------------------------------------------------------------------------
-
 @campaign_router.post("/quick")
 async def quick_create_campaign(req: QuickCreateRequest) -> dict[str, Any]:
-    """Create a campaign from a single prompt — like typing in Claude Code."""
-    import hashlib
-    slug = hashlib.sha256(req.prompt.encode()).hexdigest()[:8]
-    campaign_id = f"c_{slug}_{int(time.time()) % 100000}"
+    """Create a project from the first message the researcher types."""
+    campaign_id = f"p_{time.strftime('%Y%m%d')}_{uuid.uuid4().hex[:6]}"
     name = req.prompt[:60] + ("..." if len(req.prompt) > 60 else "")
-    campaign = CampaignState(campaign_id=campaign_id, name=name, objective=req.prompt)
+    campaign = CampaignState(campaign_id, name, req.prompt)
     _campaigns[campaign_id] = campaign
-    _campaign_sys_event(campaign, "Project created")
+    campaign.note("Project created")
     store.save_campaign(campaign_id, name, req.prompt, campaign.created_at, campaign.updated_at)
-    return {
-        "campaign_id": campaign_id,
-        "name": name,
-        "objective": req.prompt,
-        "status": "created",
-    }
+    return {"campaign_id": campaign_id, "name": name, "objective": req.prompt, "status": "created"}
 
 
 @campaign_router.post("/")
 async def create_campaign(req: CreateCampaignRequest) -> dict[str, Any]:
-    campaign_id = f"c_{int(time.time())}"
-    campaign = CampaignState(campaign_id=campaign_id, name=req.name, objective=req.objective)
+    campaign_id = f"p_{time.strftime('%Y%m%d')}_{uuid.uuid4().hex[:6]}"
+    campaign = CampaignState(campaign_id, req.name, req.objective)
     _campaigns[campaign_id] = campaign
-    _campaign_sys_event(campaign, "Project created")
+    campaign.note("Project created")
     store.save_campaign(campaign_id, req.name, req.objective, campaign.created_at, campaign.updated_at)
     return campaign.to_summary()
 
 
 @campaign_router.get("/")
 async def list_campaigns() -> list[dict[str, Any]]:
-    live_ids = set(_campaigns.keys())
-    results = [c.to_summary() for c in _campaigns.values()]
-    for db_campaign in store.list_campaigns():
-        cid = db_campaign["campaign_id"]
-        if cid not in live_ids:
-            db_exps = store.list_experiments(cid)
-            active = sum(1 for e in db_exps if e["status"] in ("running", "starting", "awaiting_human"))
-            results.append({
-                "campaign_id": cid,
-                "name": db_campaign["name"],
-                "objective": db_campaign["objective"],
-                "created_at": db_campaign["created_at"],
-                "updated_at": db_campaign["updated_at"],
-                "experiment_count": len(db_exps),
-                "active_experiments": active,
-                "completed_experiments": len(db_exps) - active,
-                "best_reward": max((e["reward"] for e in db_exps), default=0.0),
-                "needs_attention": False,
-            })
+    results = [_ensure_campaign(row["campaign_id"]).to_summary() for row in store.list_campaigns()]
     return sorted(results, key=lambda c: c["updated_at"], reverse=True)
 
 
 @campaign_router.get("/{campaign_id}")
 async def get_campaign(campaign_id: str) -> dict[str, Any]:
     campaign = _ensure_campaign(campaign_id)
-    if campaign:
-        summary = campaign.to_summary()
-        summary["experiments"] = sorted(
-            [e.to_summary() for e in campaign.experiments.values()],
-            key=lambda e: e["started_at"],
-            reverse=True,
-        )
-        return summary
-    db_campaign = store.get_campaign(campaign_id)
-    if not db_campaign:
-        return {"error": "Campaign not found"}
-    db_exps = store.list_experiments(campaign_id)
-    exp_summaries = []
-    for e in db_exps:
-        exp_summaries.append({
-            "run_id": e["run_id"],
-            "task_name": e["task_name"],
-            "model": e["model"],
-            "autonomy_mode": e["autonomy_mode"],
-            "status": e["status"],
-            "phase": e["phase"],
-            "turn": e["turn"],
-            "reward": e["reward"],
-            "started_at": e["started_at"],
-            "finished_at": e["finished_at"],
-            "event_count": len(store.load_events(campaign_id, e["run_id"])),
-            "error": e["error"],
-            "pending_decision": None,
-            "decisions_made": 0,
-        })
-    active = sum(1 for e in db_exps if e["status"] in ("running", "starting", "awaiting_human"))
-    return {
-        "campaign_id": campaign_id,
-        "name": db_campaign["name"],
-        "objective": db_campaign["objective"],
-        "created_at": db_campaign["created_at"],
-        "updated_at": db_campaign["updated_at"],
-        "experiment_count": len(db_exps),
-        "active_experiments": active,
-        "completed_experiments": len(db_exps) - active,
-        "best_reward": max((e["reward"] for e in db_exps), default=0.0),
-        "needs_attention": False,
-        "experiments": sorted(exp_summaries, key=lambda e: e["started_at"], reverse=True),
-    }
+    summary = campaign.to_summary()
+    summary["experiments"] = sorted((e.to_summary() for e in campaign.experiments.values()),
+                                    key=lambda e: e["started_at"], reverse=True)
+    return summary
 
 
 @campaign_router.delete("/{campaign_id}")
 async def delete_campaign(campaign_id: str) -> dict[str, Any]:
     campaign = _ensure_campaign(campaign_id)
-    if campaign:
-        for exp in campaign.experiments.values():
-            if exp.pending_decision and not exp.pending_decision.event.is_set():
-                exp.pending_decision.response = {"action": "abort", "message": "Campaign deleted"}
-                exp.pending_decision.event.set()
-            if exp._task and not exp._task.done():
-                exp._task.cancel()
-                exp.status = "stopped"
-                exp.finished_at = time.time()
-        del _campaigns[campaign_id]
+    for run in campaign.experiments.values():
+        if run.engine is not None:
+            run.engine.request_stop("project deleted")
+    _campaigns.pop(campaign_id, None)
     store.delete_campaign(campaign_id)
     return {"ok": True, "campaign_id": campaign_id}
 
 
 # ---------------------------------------------------------------------------
-# Experiment lifecycle (within campaigns)
+# Experiments
 # ---------------------------------------------------------------------------
 
-@campaign_router.post("/{campaign_id}/experiments/custom")
-async def start_custom_experiment(campaign_id: str, req: StartCustomRunRequest) -> dict[str, Any]:
-    """Start a free-form experiment routed through the core Engine pipeline."""
-    campaign = _ensure_campaign(campaign_id)
-    if not campaign:
-        return {"error": "Campaign not found"}
+class StartExperimentRequest(BaseModel):
+    """Start an experiment. Every field except the instruction falls back to the server's base config."""
 
-    exp_name = req.name or req.instruction[:30].strip().replace(" ", "-").lower()
-    exp_name = "".join(c for c in exp_name if c.isalnum() or c in "-_")[:30] or "custom"
-    exp_id = f"{int(time.time())}_{exp_name}"
+    instruction: str
+    name: str = ""
+    skip_phases: list[str] | None = None
+    model: str = ""                    # models.agent
+    docker_image: str = ""             # sandbox.image
+    inputs: list[str] = []             # paths on the server
+    data_paths: list[str] = []         # older name of inputs
+    autonomy_mode: str = ""            # supervised | autonomous
+    ideation_mode: str = ""            # roundtable | independent
+    max_cost_usd: float | None = None
+    mock_mode: bool | None = None
 
-    run_state = ExperimentRunState(
-        run_id=exp_id, task_name=exp_name, model=req.model,
-        autonomy_mode=req.autonomy_mode, campaign_id=campaign_id,
-    )
-    campaign.experiments[exp_id] = run_state
-    campaign.updated_at = time.time()
-    _campaign_sys_event(campaign, f"{exp_name} started")
 
-    effective_skip = (
-        req.skip_phases if req.skip_phases is not None
-        else suggest_skip_phases(req.instruction, has_data=bool(req.data_paths))
-    )
+def default_skip_phases(instruction: str) -> list[str]:
+    """Skip ideation and screening for concrete tasks; open questions get the whole pipeline."""
+    text = instruction.lower()
+    open_ended = sum(w in text for w in ("research", "investigate", "explore", "hypothesis", "why",
+                                         "whether", "find out", "understand", "novel", "idea"))
+    return [] if open_ended >= 2 or len(instruction) > 800 else ["ideation", "screening"]
 
-    store.save_experiment(
-        run_id=exp_id, campaign_id=campaign_id, task_name=exp_name,
-        model=req.model, driver=req.driver, autonomy_mode=req.autonomy_mode,
-        started_at=run_state.started_at,
-        config={"instruction": req.instruction, "base_url": req.base_url,
-                "max_turns": req.max_turns, "no_docker": req.no_docker,
-                "data_paths": req.data_paths, "skip_phases": effective_skip},
-        watchdog_mode=req.watchdog_mode,
-    )
-    store.update_campaign_ts(campaign_id, campaign.updated_at)
 
-    api_key = (
-        os.environ.get("OPENROUTER_API_KEY", "")
-        or os.environ.get("ANTHROPIC_API_KEY", "")
-        or os.environ.get("OPENAI_API_KEY", "")
-    )
-    if not api_key:
-        del campaign.experiments[exp_id]
-        store.delete_experiment(exp_id)
-        return {"error": "No API key found. Set OPENROUTER_API_KEY in .env"}
+def _experiment_config(campaign: CampaignState, run_id: str, req: StartExperimentRequest) -> Any:
+    from aurora.config import AuroraConfig
 
-    run_dir = Path("runs") / exp_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    raw = base_config()
+    raw["objective"] = req.instruction
+    raw["campaign_id"] = run_id
+    raw["workspace"] = {**raw.get("workspace", {}), "root": str(_projects_root() / campaign.campaign_id)}
+    raw["skip_phases"] = req.skip_phases if req.skip_phases is not None else default_skip_phases(req.instruction)
+    if req.model:
+        raw.setdefault("models", {})["agent"] = req.model
+    if req.docker_image:
+        raw.setdefault("sandbox", {})["image"] = req.docker_image
+    if req.inputs or req.data_paths:
+        raw["inputs"] = list(raw.get("inputs", [])) + req.inputs + req.data_paths
+    if req.autonomy_mode:
+        raw.setdefault("human", {})["autonomy"] = req.autonomy_mode
+    if req.ideation_mode:
+        raw.setdefault("ideation", {})["mode"] = req.ideation_mode
+    if req.max_cost_usd is not None:
+        raw.setdefault("budget", {})["max_cost_usd"] = req.max_cost_usd
+    if req.mock_mode is not None:
+        raw["mock_mode"] = req.mock_mode
+    return AuroraConfig.model_validate(raw)
 
-    async def _run_custom():
-        from aurora.core.engine import ResearchEngine
-        from aurora.core.event_bridge import EventBridge
-        from aurora.core.execution_backend import LocalBackend
-        from aurora.config import LLMModelAssignment, LLMProviderConfig, AuroraConfig
-        from aurora.models.roundtable import RoundtableProposal
-        from datetime import datetime, timezone
-        import uuid
 
+async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any, *, resume: bool = False) -> None:
+    """Run the engine for *run* in the background and mirror its events into the run state."""
+    from aurora.core.engine import ResearchEngine
+    from aurora.core.event_bridge import EventBridge
+    from aurora.core.requirements import check_runtime_requirements
+
+    check_runtime_requirements(config)   # fail at request time, with the reason, not in the background
+    engine = ResearchEngine(config)
+    engine.project_id = campaign.campaign_id
+    run.engine = engine
+
+    async def mirror(event: Any) -> None:
+        name, data = event.name, event.data
+        if name == "phase_started":
+            run.phase = data.get("phase", run.phase)
+            store.update_experiment(run.run_id, status="running")
+        elif name == "tool_call_start":
+            run.turn += 1
+        elif name == "human_gate_opened":
+            run.status = "awaiting_human"
+            campaign.note(f"{run.task_name}: needs your decision — {data.get('title', '')}")
+        elif name == "human_gate_resolved":
+            if run.status == "awaiting_human":
+                run.status = "running"
+            run.decision_history.append({**data, "timestamp": time.time()})
+        elif name == "frontdesk_response":
+            run.chat_history.append({"role": "assistant", "text": data.get("text", ""), "timestamp": time.time()})
+        run.cost_usd = engine.cost_usd
+
+    engine.event_bus.subscribe_all(mirror)
+    EventBridge(engine.event_bus, run.run_id, broadcast=run.broadcast)
+
+    async def runner() -> None:
+        run.status = "running"
         try:
-            effective_model = req.model or "deepseek/deepseek-v4-flash"
-            effective_key = api_key
-
-            data_context = ""
-            if req.data_paths:
-                data_context = "\n\n## Data/Code Locations\n" + "\n".join(
-                    f"- `{p}`" for p in req.data_paths
-                )
-
-            system_prompt = f"""You are an expert researcher and engineer. \
-The user has given you an instruction to carry out. Work autonomously to \
-complete the task, exploring the environment and producing results.
-
-## Available Tools
-- **shell**: Run any bash command
-- **read_file**: Read file contents
-- **write_file**: Create or overwrite a file
-- **edit_file**: Search-and-replace edit
-- **list_files**: List directory contents
-- **search_files**: Grep for patterns
-- **task_complete**: Signal you're done
-
-## Guidelines
-- Read and explore before acting.
-- Run scripts/commands to verify your work.
-- When finished, call task_complete with a summary of what you did.
-{data_context}"""
-
-            config = AuroraConfig(
-                campaign_id=f"custom_{exp_id}",
-                objective=req.instruction[:2000],
-                domain="custom",
-                skip_phases=effective_skip,
-                use_terminal_iteration=True,
-                terminal_driver=req.driver,
-                terminal_model=effective_model,
-                terminal_api_key=effective_key,
-                terminal_base_url=req.base_url,
-                terminal_max_turns=req.max_turns,
-                max_research_iterations=1,
-                use_docker=not req.no_docker,
-                docker_image=req.docker_image,
-                initial_autonomy_mode="autonomous",
-                llm_providers=[
-                    LLMProviderConfig(
-                        provider="openrouter",
-                        api_key=effective_key,
-                        base_url=req.base_url,
-                    ),
-                ],
-                llm_assignment=LLMModelAssignment(
-                    idea_screening=effective_model,
-                    researcher=effective_model,
-                    auditor_triage=effective_model,
-                    auditor_deep=effective_model,
-                    analyzer=effective_model,
-                    roundtable_chair=effective_model,
-                    roundtable_seat=[effective_model],
-                    writer=effective_model,
-                ),
-            )
-
-            proposal = RoundtableProposal(
-                proposal_id=f"custom_{uuid.uuid4().hex[:6]}",
-                title=exp_name,
-                description=req.instruction[:500],
-                research_questions=[req.instruction[:200]],
-                proposed_methods=["Autonomous agent execution"],
-                expected_outcomes=["Task completion"],
-                selected=True,
-                created_at=datetime.now(timezone.utc),
-            )
-
-            backend = LocalBackend(str(run_dir)) if req.no_docker else None
-
-            engine = ResearchEngine(
-                config,
-                initial_proposal=proposal,
-                execution_backend=backend,
-                terminal_system_prompt=system_prompt,
-                terminal_task_instruction=req.instruction,
-            )
-            run_state.runner = engine
-
-            bridge = EventBridge(
-                engine.event_bus,
-                exp_id,
-                broadcast=run_state.broadcast,
-            )
-
-            if backend is not None:
-                await backend.setup()
-
-            await run_state.broadcast({
-                "type": "experiment_event",
-                "run_id": exp_id,
-                "event_type": "pipeline_config",
-                "data": {
-                    "skip_phases": effective_skip,
-                    "active_phases": [
-                        p for p in ["roundtable", "screening", "planning",
-                                    "research_loop", "analysis", "writing"]
-                        if p not in effective_skip
-                    ],
-                },
-                "timestamp": time.time(),
-            })
-
-            run_state.status = "running"
-            result = await engine.run_campaign()
-
-            run_state.status = result.status
-            run_state.finished_at = time.time()
-            campaign.updated_at = time.time()
-            store.update_experiment(
-                exp_id, status=result.status,
-                finished_at=run_state.finished_at,
-            )
-            store.update_campaign_ts(campaign_id, campaign.updated_at)
-            await run_state.broadcast({
-                "type": "experiment_event",
-                "run_id": exp_id,
-                "event_type": "run_finished",
-                "data": {
-                    "status": result.status,
-                    "wall_time": result.total_wall_time_seconds,
-                    "phases_run": [
-                        p for p in ["roundtable", "screening", "planning",
-                                    "research_loop", "analysis", "writing"]
-                        if p not in effective_skip
-                    ],
-                },
-                "timestamp": time.time(),
-            })
-            _campaign_sys_event(campaign, f"{exp_name} {result.status}")
-
+            result = await engine.run_campaign(resume=resume)
+            run.status = result.status
+            run.error = None if result.status == "completed" else result.summary
+            run.cost_usd = result.cost_usd
+            await run.broadcast({"type": "experiment_event", "run_id": run.run_id, "event_type": "run_finished",
+                                 "data": {"status": result.status, "summary": result.summary,
+                                          "report": result.manuscript_path, "cost_usd": result.cost_usd,
+                                          "wall_time": result.total_wall_time_seconds},
+                                 "timestamp": time.time()})
         except Exception as exc:
-            logger.exception("Custom experiment %s failed", exp_id)
-            run_state.status = "error"
-            run_state.error = str(exc)
-            run_state.finished_at = time.time()
-            campaign.updated_at = time.time()
-            store.update_experiment(
-                exp_id, status="error", error=str(exc),
-                finished_at=run_state.finished_at,
-            )
-            store.update_campaign_ts(campaign_id, campaign.updated_at)
-            await run_state.broadcast({
-                "type": "experiment_event",
-                "run_id": exp_id,
-                "event_type": "run_error",
-                "data": {"error": str(exc)},
-                "timestamp": time.time(),
-            })
-            _campaign_sys_event(campaign, f"{exp_name} error · {str(exc)[:80]}")
+            logger.exception("Experiment %s crashed", run.run_id)
+            run.status, run.error = "failed", str(exc)
+            await run.broadcast({"type": "experiment_event", "run_id": run.run_id, "event_type": "run_error",
+                                 "data": {"error": str(exc)}, "timestamp": time.time()})
         finally:
-            try:
-                ws_dest = store._data_dir / "workspaces" / exp_id
-                if backend is not None and hasattr(backend, 'extract_workspace'):
-                    await backend.extract_workspace(ws_dest)
-            except Exception:
-                logger.debug("Workspace extraction failed", exc_info=True)
-            try:
-                if backend is not None:
-                    await backend.teardown()
-            except Exception:
-                pass
+            run.finished_at = time.time()
+            store.update_experiment(run.run_id, status=run.status, finished_at=run.finished_at,
+                                    error=run.error or "")
+            campaign.note(f"{run.task_name}: {run.status}")
+            _touch(campaign)
 
-    run_state._task = asyncio.create_task(_run_custom())
-    return {
-        **run_state.to_summary(),
-        "experiment_id": exp_id,
-        "skip_phases": effective_skip,
-        "active_phases": [
-            p for p in ["roundtable", "screening", "planning",
-                        "research_loop", "analysis", "writing"]
-            if p not in effective_skip
-        ],
-    }
+    run.task = asyncio.create_task(runner())
+
+
+async def _start(campaign: CampaignState, req: StartExperimentRequest, *, run_id: str | None = None,
+                 resume: bool = False) -> dict[str, Any]:
+    slug = re.sub(r"[^a-z0-9]+", "-", (req.name or req.instruction[:40]).lower()).strip("-")[:30] or "experiment"
+    run_id = run_id or f"{time.strftime('%Y%m%d-%H%M%S')}_{slug}"
+    try:
+        config = _experiment_config(campaign, run_id, req)
+    except Exception as exc:
+        raise HTTPException(400, f"Invalid experiment settings: {exc}") from exc
+    run = ExperimentRunState(run_id, campaign.campaign_id, req.name or slug, config.models.agent,
+                             config.human.autonomy.value)
+    try:
+        await _launch(campaign, run, config, resume=resume)
+    except Exception as exc:
+        raise HTTPException(400, str(exc)) from exc
+    campaign.experiments[run_id] = run
+    store.save_experiment(run_id=run_id, campaign_id=campaign.campaign_id, task_name=run.task_name,
+                          model=run.model, autonomy_mode=run.autonomy_mode, started_at=run.started_at,
+                          config={"request": req.model_dump()})
+    campaign.note(f"{run.task_name} started")
+    _touch(campaign)
+    return {**run.to_summary(), "experiment_id": run_id, "skip_phases": config.skip_phases,
+            "active_phases": [p for p in PHASES if p not in config.skip_phases]}
+
+
+@campaign_router.post("/{campaign_id}/experiments")
+async def start_experiment(campaign_id: str, req: StartExperimentRequest) -> dict[str, Any]:
+    """Start an experiment in the project."""
+    return await _start(_ensure_campaign(campaign_id), req)
+
+
+@campaign_router.post("/{campaign_id}/experiments/custom")
+async def start_custom_experiment(campaign_id: str, req: StartExperimentRequest) -> dict[str, Any]:
+    """Same as ``POST /experiments`` (kept for older clients)."""
+    return await _start(_ensure_campaign(campaign_id), req)
 
 
 @campaign_router.get("/{campaign_id}/experiments/{exp_id}")
 async def get_experiment(campaign_id: str, exp_id: str) -> dict[str, Any]:
-    campaign = _ensure_campaign(campaign_id)
-    if campaign:
-        run_state = campaign.experiments.get(exp_id)
-        if run_state:
-            summary = run_state.to_summary()
-            summary["campaign_id"] = campaign_id
-            events = run_state.events[-200:]
-            if not events:
-                events = store.load_events(campaign_id, exp_id)[-200:]
-            summary["events"] = events
-            summary["decision_history"] = run_state.decision_history
-            return summary
-    db_exp = store.get_experiment(exp_id)
-    if not db_exp:
-        return {"error": "Experiment not found"}
-    events = store.load_events(campaign_id, exp_id)
-    return {
-        "run_id": db_exp["run_id"],
-        "campaign_id": campaign_id,
-        "task_name": db_exp["task_name"],
-        "model": db_exp["model"],
-        "autonomy_mode": db_exp["autonomy_mode"],
-        "status": db_exp["status"],
-        "phase": db_exp["phase"],
-        "turn": db_exp["turn"],
-        "reward": db_exp["reward"],
-        "started_at": db_exp["started_at"],
-        "finished_at": db_exp["finished_at"],
-        "event_count": len(events),
-        "error": db_exp["error"],
-        "pending_decision": None,
-        "decisions_made": 0,
-        "events": events[-200:],
-        "decision_history": [],
-    }
+    run = _get_run(campaign_id, exp_id)
+    summary = run.to_summary()
+    summary["events"] = (run.events or store.load_events(campaign_id, exp_id))[-300:]
+    summary["decision_history"] = run.decision_history or _gates_from_disk(run)
+    report = sorted((run.campaign_dir / "phases" / "writing").glob("**/draft_*.md"))
+    summary["report"] = str(report[-1].relative_to(run.campaign_dir)) if report else None
+    return summary
+
+
+def _gates_from_disk(run: ExperimentRunState) -> list[dict[str, Any]]:
+    path = run.campaign_dir / "human_gates.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
 @campaign_router.delete("/{campaign_id}/experiments/{exp_id}")
 async def stop_experiment(campaign_id: str, exp_id: str) -> dict[str, Any]:
-    campaign = _ensure_campaign(campaign_id)
-    if not campaign:
-        return {"error": "Campaign not found"}
-    run_state = campaign.experiments.get(exp_id)
-    if not run_state:
-        return {"error": "Experiment not found"}
-    if run_state.pending_decision and not run_state.pending_decision.event.is_set():
-        run_state.pending_decision.response = {"action": "abort", "message": "Stopped by user"}
-        run_state.pending_decision.event.set()
-    if run_state._task and not run_state._task.done():
-        run_state._task.cancel()
-        run_state.status = "stopped"
-        run_state.finished_at = time.time()
-        store.update_experiment(exp_id, status="stopped", finished_at=run_state.finished_at)
-        task_slug = run_state.task_name.split("/")[-1]
-        _campaign_sys_event(campaign, f"{task_slug} stopped by user")
-    campaign.updated_at = time.time()
-    store.update_campaign_ts(campaign_id, campaign.updated_at)
-    return run_state.to_summary()
+    """Stop a running experiment (it ends at the next safe point and keeps its files)."""
+    run = _get_run(campaign_id, exp_id)
+    if run.engine is not None and run.status in ("starting", "running", "awaiting_human"):
+        run.engine.request_stop("stopped by the user")
+    return run.to_summary()
+
+
+class DecisionRequest(BaseModel):
+    action: str            # continue | instruct | stop (approve / override / abort also accepted)
+    message: str = ""
+    gate_id: str = ""      # default: the oldest open gate
 
 
 @campaign_router.post("/{campaign_id}/experiments/{exp_id}/decide")
 async def submit_decision(campaign_id: str, exp_id: str, req: DecisionRequest) -> dict[str, Any]:
-    campaign = _ensure_campaign(campaign_id)
-    if not campaign:
-        return {"error": "Campaign not found"}
-    run_state = campaign.experiments.get(exp_id)
-    if not run_state:
-        return {"error": "Experiment not found"}
-    if not run_state.pending_decision:
-        return {"error": "No pending decision"}
+    """Answer the experiment's open human gate."""
+    run = _get_run(campaign_id, exp_id)
+    pending = run.engine.human_gate.pending if run.engine is not None else []
+    if not pending:
+        raise HTTPException(409, "No decision is pending")
+    gate_id = req.gate_id or pending[0].gate_id
+    action = _GATE_ACTIONS.get(req.action.lower())
+    if action is None:
+        raise HTTPException(400, f"Unknown action {req.action!r}; use continue, instruct or stop")
+    if action == "instruct" and not req.message.strip():
+        raise HTTPException(400, "An instruction needs a message")
+    if not run.engine.human_gate.resolve(gate_id, action, req.message):
+        raise HTTPException(409, f"Gate {gate_id} is not open")
+    return {"ok": True, "decision_id": gate_id, "action": action}
 
-    decision = run_state.pending_decision
-    decision.response = {"action": req.action, "message": req.message}
-    decision.event.set()
-    logger.info(
-        "Exp %s: human decided '%s' for %s (waited %.1fs)",
-        exp_id, req.action, decision.decision_id,
-        time.time() - decision.created_at,
-    )
-    return {"ok": True, "decision_id": decision.decision_id, "action": req.action}
+
+class SetAutonomyRequest(BaseModel):
+    autonomy_mode: str   # supervised | autonomous
 
 
 @campaign_router.put("/{campaign_id}/experiments/{exp_id}/autonomy")
 async def set_experiment_autonomy(campaign_id: str, exp_id: str, req: SetAutonomyRequest) -> dict[str, Any]:
-    campaign = _ensure_campaign(campaign_id)
-    if not campaign:
-        return {"error": "Campaign not found"}
-    run_state = campaign.experiments.get(exp_id)
-    if not run_state:
-        return {"error": "Experiment not found"}
+    run = _get_run(campaign_id, exp_id)
     if req.autonomy_mode not in ("autonomous", "supervised"):
-        return {"error": "Invalid mode"}
-
-    old_mode = run_state.autonomy_mode
-    run_state.autonomy_mode = req.autonomy_mode
+        raise HTTPException(400, "autonomy_mode must be 'autonomous' or 'supervised'")
+    old, run.autonomy_mode = run.autonomy_mode, req.autonomy_mode
+    if run.engine is not None:
+        run.engine.human_gate.set_autonomy(req.autonomy_mode)
     store.update_experiment(exp_id, autonomy_mode=req.autonomy_mode)
-
-    if req.autonomy_mode == "autonomous" and run_state.pending_decision and not run_state.pending_decision.event.is_set():
-        run_state.pending_decision.response = {
-            "action": "approve",
-            "message": "Auto-resolved: switched to autonomous mode",
-        }
-        run_state.pending_decision.event.set()
-
-    await run_state.broadcast({
-        "type": "experiment_event",
-        "run_id": exp_id,
-        "event_type": "autonomy_changed",
-        "data": {"old_mode": old_mode, "new_mode": req.autonomy_mode},
-        "timestamp": time.time(),
-    })
-    return {"ok": True, "autonomy_mode": req.autonomy_mode, "previous_mode": old_mode}
+    await run.broadcast({"type": "experiment_event", "run_id": exp_id, "event_type": "autonomy_changed",
+                         "data": {"old_mode": old, "new_mode": req.autonomy_mode}, "timestamp": time.time()})
+    return {"ok": True, "autonomy_mode": req.autonomy_mode, "previous_mode": old}
 
 
-# RERUN_RESUME_PLACEHOLDER
+def _saved_request(exp_id: str) -> StartExperimentRequest:
+    row = store.get_experiment(exp_id)
+    if not row:
+        raise HTTPException(404, f"Experiment {exp_id} not found")
+    saved = json.loads(row.get("config_json") or "{}").get("request")
+    if not saved:
+        raise HTTPException(409, "This experiment has no saved settings to start from")
+    return StartExperimentRequest.model_validate(saved)
 
-# ---------------------------------------------------------------------------
-# WebSocket — live stream for an experiment
-# ---------------------------------------------------------------------------
+
+@campaign_router.post("/{campaign_id}/experiments/{exp_id}/rerun")
+async def rerun_experiment(campaign_id: str, exp_id: str) -> dict[str, Any]:
+    """Start a new experiment with the same settings."""
+    return await _start(_ensure_campaign(campaign_id), _saved_request(exp_id))
+
+
+@campaign_router.post("/{campaign_id}/experiments/{exp_id}/resume")
+async def resume_experiment(campaign_id: str, exp_id: str) -> dict[str, Any]:
+    """Continue a stopped or failed experiment from its last checkpoint (same files, same ID)."""
+    campaign = _ensure_campaign(campaign_id)
+    run = _get_run(campaign_id, exp_id)
+    if run.status in ("starting", "running", "awaiting_human"):
+        raise HTTPException(409, "The experiment is still running")
+    if not (run.campaign_dir / "checkpoint.json").exists():
+        raise HTTPException(409, "No checkpoint to resume from; use Re-run instead")
+    req = _saved_request(exp_id)
+    del campaign.experiments[exp_id]
+    return await _start(campaign, req, run_id=exp_id, resume=True)
+
 
 @campaign_router.websocket("/{campaign_id}/experiments/{exp_id}/ws")
 async def experiment_websocket(websocket: WebSocket, campaign_id: str, exp_id: str) -> None:
-    campaign = _ensure_campaign(campaign_id)
-    run_state = campaign.experiments.get(exp_id) if campaign else None
-
-    if not run_state and not store.get_experiment(exp_id):
+    try:
+        run = _get_run(campaign_id, exp_id)
+    except HTTPException:
         await websocket.close(code=4004, reason="Experiment not found")
         return
-
     await websocket.accept()
-
-    if run_state:
-        run_state.subscribers.append(websocket)
-
-    history = (run_state.events if run_state and run_state.events
-               else store.load_events(campaign_id, exp_id))
-    for event in history:
+    run.subscribers.append(websocket)
+    for event in run.events or store.load_events(campaign_id, exp_id):
         try:
             await websocket.send_text(json.dumps(event, default=str))
         except Exception:
             break
-
     try:
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
         pass
     finally:
-        if run_state and websocket in run_state.subscribers:
-            run_state.subscribers.remove(websocket)
+        if websocket in run.subscribers:
+            run.subscribers.remove(websocket)
 
 
 # ---------------------------------------------------------------------------
-# Campaign-level chat (Project Chat)
+# Conversation with a running experiment (duplex interaction)
 # ---------------------------------------------------------------------------
 
-class CampaignChatBody(BaseModel):
+class ChatBody(BaseModel):
     text: str
 
 
-class CampaignApprovalBody(BaseModel):
-    approval_id: str
-    decision: str  # "approve" | "modify" | "reject"
-    message: str = ""
+@campaign_router.post("/{campaign_id}/experiments/{exp_id}/chat/send")
+async def exp_chat_send(campaign_id: str, exp_id: str, body: ChatBody) -> dict[str, Any]:
+    """A message to the running experiment; its front desk answers (and may relay it to the agent)."""
+    run = _get_run(campaign_id, exp_id)
+    run.chat_history.append({"role": "user", "text": body.text, "timestamp": time.time()})
+    await run.broadcast({"type": "experiment_event", "run_id": exp_id, "event_type": "chat_message",
+                         "data": {"role": "user", "text": body.text}, "timestamp": time.time()})
+    if run.engine is None or run.status not in ("starting", "running", "awaiting_human"):
+        return {"status": "not_running", "response": "This experiment is not running."}
+    reply = await run.engine.handle_user_message(body.text)
+    if run.engine._frontdesk is None and reply.get("text"):
+        run.chat_history.append({"role": "assistant", "text": reply["text"], "timestamp": time.time()})
+    return {"status": "sent", "run_id": exp_id, "response": reply.get("text", "")}
 
 
+@campaign_router.get("/{campaign_id}/experiments/{exp_id}/chat/history")
+async def exp_chat_history(campaign_id: str, exp_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    run = _get_run(campaign_id, exp_id)
+    if run.chat_history:
+        return run.chat_history[-limit:]
+    history = []
+    for e in store.load_events(campaign_id, exp_id):
+        if e.get("event_type") == "chat_message":
+            history.append({"role": "user", "text": e["data"].get("text", ""), "timestamp": e.get("timestamp")})
+        elif e.get("event_type") == "frontdesk_response":
+            history.append({"role": "assistant", "text": e["data"].get("text", ""), "timestamp": e.get("timestamp")})
+    return history[-limit:]
 
-# _FRONTDESK_SYSTEM and _FRONTDESK_TOOLS removed — system prompt and MCP
-# tools now live in aurora/human/frontdesk.py (FrontDeskAgent).
 
+# ---------------------------------------------------------------------------
+# Project conversation: the front desk drafts experiments for the researcher
+# ---------------------------------------------------------------------------
 
-def _build_campaign_context(campaign: CampaignState) -> str:
-    """Build campaign context string for FrontDesk system prompt."""
-    exps = list(campaign.experiments.values())
-    exp_lines = []
-    for e in exps[-10:]:
-        exp_lines.append(f"  - {e.run_id}: {e.task_name} [{e.status}] reward={e.reward}")
-
-    pending = ""
-    unconfirmed = [
-        p for p in campaign.proposals.values()
-        if not p.confirmed and not p.superseded
-    ]
-    if unconfirmed:
-        latest = max(unconfirmed, key=lambda p: p.created_at)
-        p = latest
-        pending = (
-            f"\nPending Proposal (waiting for researcher to confirm or give feedback):\n"
-            f"ID: {p.proposal_id}\n"
-            f"Kind: {p.kind}\n"
-            f"Summary: {p.summary}\n"
-        )
-        if p.kind == "custom":
-            pending += f"Instruction: {p.params.get('instruction', '')[:500]}\n"
-        else:
-            pending += f"Task: {p.params.get('task_dir', '')}\n"
-        all_phases = ["roundtable", "screening", "planning",
-                      "research_loop", "analysis", "writing"]
-        active = [ph for ph in all_phases if ph not in p.suggested_skip]
-        pending += f"Pipeline: {' → '.join(active)}\n"
-        pending += f"Model: {p.params.get('model', 'default')}\n"
-
-    lines = [
-        f"Name: {campaign.name}",
-        f"Objective: {campaign.objective}",
-        f"Experiments: {chr(10).join(exp_lines) if exp_lines else '(none)'}",
-    ]
-    if pending:
-        lines.append(pending)
+def _project_context(campaign: CampaignState) -> str:
+    lines = [f"Project: {campaign.name}", f"Objective: {campaign.objective}", "Experiments:"]
+    for e in list(campaign.experiments.values())[-10:]:
+        lines.append(f"  - {e.run_id}: {e.task_name} [{e.status}]")
+    if len(lines) == 3:
+        lines.append("  (none yet)")
+    open_props = [p for p in campaign.proposals.values() if not p.confirmed and not p.superseded]
+    if open_props:
+        p = max(open_props, key=lambda p: p.created_at)
+        lines.append(f"Pending proposal {p.proposal_id}: {p.summary}\n"
+                     f"Instruction: {p.params.get('instruction', '')[:800]}\n"
+                     f"Phases: {' → '.join(x for x in PHASES if x not in p.suggested_skip)}")
     return "\n".join(lines)
 
 
-def _supersede_old_proposals(campaign: CampaignState) -> None:
-    """Mark all unconfirmed proposals as superseded."""
-    for p in campaign.proposals.values():
-        if not p.confirmed and not p.superseded:
-            p.superseded = True
-
-
-def _get_frontdesk(campaign: CampaignState) -> "FrontDeskAgent":
-    """Get or create the FrontDesk agent for a campaign."""
-    from aurora.human.frontdesk import FrontDeskAgent
+def _project_frontdesk(campaign: CampaignState) -> Any:
+    from aurora.config import AuroraConfig
+    from aurora.human.frontdesk import PROJECT_PROMPT, FrontDeskAgent, FrontDeskTool
 
     if campaign.frontdesk is not None:
         return campaign.frontdesk
+    cfg = AuroraConfig.model_validate({**base_config(), "objective": campaign.objective or "project"})
 
-    async def on_propose_custom(params: dict[str, Any]) -> dict[str, Any]:
-        instruction = params.get("instruction", "")
+    async def propose(params: dict[str, Any]) -> dict[str, Any]:
+        instruction = str(params.get("instruction", "")).strip()
         if not instruction:
             return {"status": "error", "reason": "instruction is required"}
-        _supersede_old_proposals(campaign)
-        summary = params.get("summary", instruction[:100])
         skip = params.get("skip_phases")
-        if skip is None:
-            skip = suggest_skip_phases(instruction, has_data=bool(params.get("data_paths")))
-        proposal_id = f"prop_{uuid.uuid4().hex[:8]}"
-        p_params = {
-            "instruction": instruction,
-            "name": params.get("name", ""),
-            "model": params.get("model", "deepseek/deepseek-v4-flash"),
-            "max_turns": params.get("max_turns", 200),
-            "data_paths": params.get("data_paths", []),
-        }
+        skip = [p for p in skip if p in PHASES] if isinstance(skip, list) else default_skip_phases(instruction)
+        for p in campaign.proposals.values():
+            if not p.confirmed:
+                p.superseded = True
         proposal = ExperimentProposal(
-            proposal_id=proposal_id,
-            kind="custom",
-            params=p_params,
-            suggested_skip=skip,
-            summary=summary,
-        )
-        campaign.proposals[proposal_id] = proposal
+            {"instruction": instruction, "name": params.get("name", ""),
+             "inputs": params.get("inputs", []), "model": params.get("model", "")},
+            skip, str(params.get("summary", instruction[:100])))
+        campaign.proposals[proposal.proposal_id] = proposal
         agent.set_proposal(proposal.to_dict())
-        return {
-            "status": "proposed",
-            "proposal_id": proposal_id,
-            "message": "Proposal created. The researcher will see a confirmation card.",
-        }
+        return {"status": "proposed", "proposal_id": proposal.proposal_id,
+                "message": "The researcher now sees a card to confirm or change."}
 
-    agent = FrontDeskAgent(
-        model=os.environ.get("FRONTDESK_MODEL", "deepseek/deepseek-chat"),
-        api_key=os.environ.get("OPENROUTER_API_KEY", ""),
-        base_url=os.environ.get("FRONTDESK_BASE_URL", "https://openrouter.ai/api/v1"),
-        workspace_root=".",
-        campaign_context_fn=lambda: _build_campaign_context(campaign),
-        on_propose_custom_experiment=on_propose_custom,
-    )
+    tool = FrontDeskTool(
+        "propose_experiment",
+        "Show the researcher an experiment proposal to confirm. It replaces any earlier proposal.",
+        {"type": "object", "properties": {
+            "instruction": {"type": "string", "description": "self-contained brief for the agents"},
+            "summary": {"type": "string", "description": "one line for the card"},
+            "name": {"type": "string", "description": "short name"},
+            "skip_phases": {"type": "array", "items": {"type": "string", "enum": list(PHASES)}},
+            "inputs": {"type": "array", "items": {"type": "string"},
+                       "description": "paths on the server the researcher mentioned"},
+        }, "required": ["instruction", "summary"]},
+        propose)
+    agent = FrontDeskAgent(model=cfg.models.frontdesk, api_key=cfg.api_key_value, base_url=cfg.api_base_url,
+                           system_prompt=PROJECT_PROMPT, tools=[tool],
+                           status_fn=lambda: _project_context(campaign))
     campaign.frontdesk = agent
     return agent
 
 
 @campaign_router.post("/{campaign_id}/chat/send")
-async def campaign_chat_send(campaign_id: str, body: CampaignChatBody) -> dict[str, Any]:
-    """Send a chat message at the campaign level.
-
-    Routes to the FrontDesk agent, which can start experiments, check status,
-    and have multi-turn conversations to understand user intent.
-    """
+async def campaign_chat_send(campaign_id: str, body: ChatBody) -> dict[str, Any]:
     campaign = _ensure_campaign(campaign_id)
-    if not campaign:
-        return {"error": "Campaign not found"}
-
-    msg_record: dict[str, Any] = {
-        "role": "user",
-        "text": body.text,
-        "timestamp": time.time(),
-    }
-    campaign.chat_history.append(msg_record)
-
-
+    campaign.chat_history.append({"role": "user", "text": body.text, "timestamp": time.time()})
     try:
-        frontdesk = _get_frontdesk(campaign)
-        fd_result = await frontdesk.handle_user_message(body.text)
-        response_text = fd_result["text"]
-        proposal_data = fd_result.get("proposal")
-
-        response_record: dict[str, Any] = {
-            "role": "assistant",
-            "text": response_text,
-            "timestamp": time.time(),
-        }
-        if proposal_data:
-            response_record["proposal"] = proposal_data
-
-        campaign.chat_history.append(response_record)
-
-
-        result: dict[str, Any] = {
-            "status": "sent",
-            "campaign_id": campaign_id,
-            "response": response_text,
-        }
-        if proposal_data:
-            result["proposal"] = proposal_data
-        return result
+        result = await _project_frontdesk(campaign).handle_user_message(body.text)
     except Exception as exc:
-        logger.error("FrontDesk error for campaign %s: %s", campaign_id, exc, exc_info=True)
-        err_record = {
-            "role": "assistant",
-            "text": f"Front Desk error: {exc}",
-            "timestamp": time.time(),
-        }
-        campaign.chat_history.append(err_record)
+        logger.exception("Project front desk failed")
+        campaign.chat_history.append({"role": "assistant", "text": f"Front desk error: {exc}",
+                                      "timestamp": time.time()})
         return {"status": "error", "error": str(exc)}
+    record: dict[str, Any] = {"role": "assistant", "text": result.get("text", ""), "timestamp": time.time()}
+    if result.get("proposal"):
+        record["proposal"] = result["proposal"]
+    campaign.chat_history.append(record)
+    return {"status": "sent", "campaign_id": campaign_id, "response": record["text"],
+            **({"proposal": record["proposal"]} if "proposal" in record else {})}
 
 
 class ConfirmProposalBody(BaseModel):
-    skip_phases: list[str] = []
-    model: str = ""  # empty = use proposal default
+    skip_phases: list[str] | None = None
+    model: str = ""
 
 
 @campaign_router.post("/{campaign_id}/proposals/{proposal_id}/confirm")
-async def confirm_proposal(
-    campaign_id: str, proposal_id: str, body: ConfirmProposalBody,
-) -> dict[str, Any]:
-    """Confirm a pending experiment proposal and start the experiment."""
+async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProposalBody) -> dict[str, Any]:
+    """The researcher confirms a proposal: start it as an experiment."""
     campaign = _ensure_campaign(campaign_id)
-    if not campaign:
-        return {"error": "Campaign not found"}
-
     proposal = campaign.proposals.get(proposal_id)
-    if not proposal:
-        return {"error": "Proposal not found"}
+    if proposal is None:
+        raise HTTPException(404, "Proposal not found")
     if proposal.confirmed:
-        return {"error": "Proposal already confirmed"}
-
+        raise HTTPException(409, "Proposal already confirmed")
+    p = proposal.params
+    req = StartExperimentRequest(
+        instruction=p["instruction"], name=p.get("name", ""), inputs=p.get("inputs", []),
+        model=body.model or p.get("model", ""),
+        skip_phases=body.skip_phases if body.skip_phases is not None else proposal.suggested_skip)
+    result = await _start(campaign, req)
     proposal.confirmed = True
-    params = dict(proposal.params)
-    final_skip = body.skip_phases
-    if body.model:
-        params["model"] = body.model
-
-
-    req = StartCustomRunRequest(
-        instruction=params["instruction"],
-        name=params.get("name", ""),
-        model=params.get("model", "deepseek/deepseek-v4-flash"),
-        max_turns=params.get("max_turns", 200),
-        data_paths=params.get("data_paths", []),
-        skip_phases=final_skip,
-    )
-    result = await start_custom_experiment(campaign_id, req)
-
-    if result.get("error"):
-        proposal.confirmed = False
-        return result
-
-    sys_msg: dict[str, Any] = {
-        "role": "system",
-        "text": f"Experiment started: {result.get('experiment_id', '')}",
-        "timestamp": time.time(),
-    }
-    campaign.chat_history.append(sys_msg)
-
-    return {
-        "status": "started",
-        "experiment_id": result.get("experiment_id", ""),
-        "skip_phases": final_skip,
-        "active_phases": [
-            p for p in ["roundtable", "screening", "planning",
-                        "research_loop", "analysis", "writing"]
-            if p not in final_skip
-        ],
-    }
+    campaign.note(f"Experiment started: {result['experiment_id']}")
+    return {"status": "started", "experiment_id": result["experiment_id"],
+            "skip_phases": result["skip_phases"], "active_phases": result["active_phases"]}
 
 
 @campaign_router.get("/{campaign_id}/chat/history")
 async def campaign_chat_history(campaign_id: str, limit: int = 100) -> list[dict[str, Any]]:
-    """Get campaign-level chat history with up-to-date proposal states."""
     campaign = _ensure_campaign(campaign_id)
-    if not campaign:
-        return []
     history = campaign.chat_history[-limit:]
     for msg in history:
-        if "proposal" in msg:
-            pid = msg["proposal"].get("proposal_id")
-            if pid and pid in campaign.proposals:
-                msg["proposal"] = campaign.proposals[pid].to_dict()
+        pid = msg["proposal"].get("proposal_id") if "proposal" in msg else None
+        if pid in campaign.proposals:
+            msg["proposal"] = campaign.proposals[pid].to_dict()
     return history
 
 
 @campaign_router.get("/{campaign_id}/chat/status")
 async def campaign_chat_status(campaign_id: str) -> dict[str, Any]:
-    """Check campaign chat status — active experiments, pending decisions."""
     campaign = _ensure_campaign(campaign_id)
-    if not campaign:
-        return {
-            "campaign_id": campaign_id,
-            "has_chat_handler": False,
-            "has_frontdesk": False,
-            "agent_active": False,
-            "campaign_running": False,
-            "campaign_paused": False,
-            "pending_messages": 0,
-        }
-
     exps = list(campaign.experiments.values())
-    active_exps = [e for e in exps if e.status in ("running", "starting")]
-    awaiting = [e for e in exps if e.status == "awaiting_human"]
-    pending_decisions = [
-        {
-            "experiment_id": e.run_id,
-            "decision_id": e.pending_decision.decision_id,
-            "source": e.pending_decision.source,
-            "context": e.pending_decision.context,
-        }
-        for e in exps
-        if e.pending_decision is not None
-    ]
-
+    pending = [{"experiment_id": e.run_id, **d} for e in exps if (d := e.pending_decision())]
     return {
         "campaign_id": campaign_id,
-        "has_chat_handler": True,
-        "has_frontdesk": len(exps) > 0,
-        "agent_active": len(active_exps) > 0,
-        "campaign_running": len(active_exps) > 0,
-        "campaign_paused": False,
-        "pending_messages": 0,
-        "active_experiments": len(active_exps),
-        "awaiting_human": len(awaiting),
-        "pending_decisions": pending_decisions,
+        "agent_active": any(e.status in ("running", "starting") for e in exps),
+        "active_experiments": sum(e.status in ("running", "starting") for e in exps),
+        "awaiting_human": sum(e.status == "awaiting_human" for e in exps),
+        "pending_decisions": pending,
     }
 
 
-@campaign_router.post("/{campaign_id}/chat/approve")
-async def campaign_chat_approve(campaign_id: str, body: CampaignApprovalBody) -> dict[str, Any]:
-    """Submit approval decision for a pending experiment decision."""
-    campaign = _ensure_campaign(campaign_id)
-    if not campaign:
-        return {"error": "Campaign not found"}
-
-    for exp_id, run_state in campaign.experiments.items():
-        if (
-            run_state.pending_decision
-            and run_state.pending_decision.decision_id == body.approval_id
-        ):
-            run_state.pending_decision.response = {
-                "decision": body.decision,
-                "message": body.message,
-            }
-            run_state.pending_decision.event.set()
-            campaign.chat_history.append({
-                "role": "user",
-                "text": f"[Approval: {body.decision}] {body.message}" if body.message else f"[Approval: {body.decision}]",
-                "timestamp": time.time(),
-                "type": "approval",
-                "approval_id": body.approval_id,
-            })
-            return {
-                "status": "delivered",
-                "approval_id": body.approval_id,
-                "decision": body.decision,
-                "experiment_id": exp_id,
-            }
-
-    return {"error": f"No pending approval '{body.approval_id}'"}
-
-
-@campaign_router.get("/{campaign_id}/chat/pending-approvals")
-async def campaign_chat_pending_approvals(campaign_id: str) -> dict[str, Any]:
-    """List all pending decisions across experiments in this campaign."""
-    campaign = _ensure_campaign(campaign_id)
-    if not campaign:
-        return {"pending": [], "escalations": []}
-
-    pending = []
-    for exp_id, run_state in campaign.experiments.items():
-        if run_state.pending_decision is not None:
-            pending.append(run_state.pending_decision.decision_id)
-
-    return {"pending": pending, "escalations": []}
-
-
 # ---------------------------------------------------------------------------
-# Per-experiment chat
+# Experiment files
 # ---------------------------------------------------------------------------
 
-def _get_run_state(campaign_id: str, exp_id: str) -> ExperimentRunState | None:
-    campaign = _ensure_campaign(campaign_id)
-    if not campaign:
+_CONTAINER_PREFIX = "@container/"
+
+
+def _check_path(path: str) -> str:
+    if not path or ".." in path.split("/") or path.startswith("/") or not _SAFE_PATH.match(path):
+        raise HTTPException(400, f"Invalid path: {path!r}")
+    return path
+
+
+def _container(run: ExperimentRunState) -> tuple[Any, str] | None:
+    backend = getattr(run.engine, "_execution_backend", None) if run.engine else None
+    cid = getattr(backend, "container_id", None)
+    if backend is None or not cid or run.status not in ("running", "awaiting_human", "starting"):
         return None
-    return campaign.experiments.get(exp_id)
+    return backend, cid
 
 
-class ExpChatBody(BaseModel):
-    text: str
-
-
-@campaign_router.post("/{campaign_id}/experiments/{exp_id}/chat/send")
-async def exp_chat_send(campaign_id: str, exp_id: str, body: ExpChatBody) -> dict[str, Any]:
-    """Send a chat message to a running experiment's agent."""
-    run_state = _get_run_state(campaign_id, exp_id)
-    if not run_state:
-        return {"error": "Experiment not found or not running"}
-
-    run_state.chat_history.append({
-        "role": "user", "text": body.text, "timestamp": time.time(),
-    })
-
-    if run_state.runner and hasattr(run_state.runner, "inject_message"):
-        await run_state.runner.inject_message(
-            f"[HUMAN MESSAGE]\n{body.text}"
-        )
-
-    await run_state.broadcast({
-        "type": "experiment_event",
-        "run_id": exp_id,
-        "event_type": "chat_message",
-        "data": {"role": "user", "text": body.text},
-        "timestamp": time.time(),
-    })
-
-    return {"status": "sent", "run_id": exp_id}
-
-
-@campaign_router.get("/{campaign_id}/experiments/{exp_id}/chat/history")
-async def exp_chat_history(campaign_id: str, exp_id: str, limit: int = 100) -> list[dict[str, Any]]:
-    """Get chat history for an experiment."""
-    run_state = _get_run_state(campaign_id, exp_id)
-    if run_state:
-        return run_state.chat_history[-limit:]
-
-    events = store.load_events(campaign_id, exp_id)
-    chat_events = [
-        {"role": e["data"]["role"], "text": e["data"]["text"], "timestamp": e["timestamp"]}
-        for e in events
-        if e.get("event_type") == "chat_message" and "data" in e
-    ]
-    return chat_events[-limit:]
-
-
-# ---------------------------------------------------------------------------
-# Workspace file browsing
-# ---------------------------------------------------------------------------
-
-def _build_tree_node(base: Path, rel: Path) -> dict[str, Any]:
-    """Recursively build a file tree dict from a local directory."""
-    full = base / rel
-    name = rel.name or str(rel)
-    if full.is_dir():
-        children = []
-        try:
-            for child in sorted(full.iterdir()):
-                if child.name.startswith(".") and child.name not in (".claude",):
-                    continue
-                children.append(_build_tree_node(base, rel / child.name))
-        except PermissionError:
-            pass
-        return {"name": name, "type": "dir", "children": children}
-    ext = full.suffix.lstrip(".")
-    return {"name": name, "path": str(rel), "type": ext or "file"}
-
-
-def _parse_find_output(output: str, root: str = "/app") -> list[dict[str, Any]]:
-    """Parse `find` output into a nested tree structure."""
-    tree: dict[str, Any] = {"name": Path(root).name, "type": "dir", "children": []}
-    dirs: dict[str, dict] = {"": tree}
-
-    lines = sorted(output.strip().splitlines())
-    for line in lines:
-        line = line.strip()
-        if not line or line == root:
+def _disk_tree(base: Path, rel: Path = Path("")) -> list[dict[str, Any]]:
+    out = []
+    try:
+        entries = sorted((base / rel).iterdir(), key=lambda p: (p.is_file(), p.name))
+    except OSError:
+        return out
+    for child in entries:
+        if child.name.startswith(".") and child.name != ".claude":
             continue
-        rel = line[len(root):].lstrip("/")
-        if not rel or rel.startswith(".") and not rel.startswith(".claude"):
-            continue
-        parts = rel.split("/")
-        parent_key = "/".join(parts[:-1])
-        name = parts[-1]
-        if name.startswith(".") and name != ".claude":
-            continue
-
-        parent = dirs.get(parent_key, tree)
-        if "children" not in parent:
-            parent["children"] = []
-
-        if line.endswith("/"):
-            node: dict[str, Any] = {"name": name, "type": "dir", "children": []}
-            dirs[rel.rstrip("/")] = node
+        r = rel / child.name
+        if child.is_dir():
+            out.append({"name": child.name, "type": "dir", "children": _disk_tree(base, r)})
         else:
-            ext = Path(name).suffix.lstrip(".")
-            node = {"name": name, "path": rel, "type": ext or "file"}
+            out.append({"name": child.name, "path": str(r), "type": child.suffix.lstrip(".") or "file"})
+    return out
 
+
+def _find_tree(output: str) -> list[dict[str, Any]]:
+    """Nested tree from ``find /app -printf '%y %P\\n'`` output (paths under @container/)."""
+    root: dict[str, Any] = {"children": []}
+    dirs = {"": root}
+    for line in sorted(output.splitlines(), key=lambda line: line[2:]):
+        kind, _, rel = line.partition(" ")
+        if not rel:
+            continue
+        parent_key, _, name = rel.rpartition("/")
+        parent = dirs.get(parent_key)
+        if parent is None:
+            continue
+        if kind == "d":
+            node = {"name": name, "type": "dir", "children": []}
+            dirs[rel] = node
+        else:
+            node = {"name": name, "path": _CONTAINER_PREFIX + rel, "type": Path(name).suffix.lstrip(".") or "file"}
         parent["children"].append(node)
-
-    return tree.get("children", [])
-
-
-async def _get_workspace_tree(
-    run_state: ExperimentRunState | None,
-    exp_id: str,
-) -> list[dict[str, Any]]:
-    """Get file tree — from live Docker container or extracted workspace."""
-    # Try live container first
-    if run_state and run_state.runner:
-        backend = getattr(run_state.runner, '_execution_backend', None)
-        if backend and hasattr(backend, 'exec_command'):
-            try:
-                code, stdout, _ = await backend.exec_command(
-                    "find /app -maxdepth 4 \\( -not -path '*/\\.*' -print \\) -o \\( -name '.claude' -print \\)",
-                    timeout=10.0,
-                )
-                if code == 0 and stdout.strip():
-                    return _parse_find_output(stdout)
-            except Exception:
-                pass
-
-    # Fall back to extracted workspace on disk
-    ws_dir = _find_workspace_dir(exp_id)
-    if ws_dir and ws_dir.is_dir():
-        node = _build_tree_node(ws_dir, Path(""))
-        return node.get("children", [])
-
-    return []
-
-
-def _find_workspace_dir(exp_id: str) -> Path | None:
-    """Find the workspace directory for an experiment, checking multiple locations."""
-    # Primary: store's workspaces dir
-    primary = store._data_dir / "workspaces" / exp_id
-    # Also check engine workspace dirs (workspace/lhtb_<task>_<hash>/workspace/)
-    engine_ws = None
-    ws_root = Path("workspace")
-    if ws_root.is_dir():
-        task_name = exp_id.split("_", 1)[1] if "_" in exp_id else exp_id
-        for d in sorted(ws_root.iterdir(), key=lambda p: p.stat().st_mtime if p.is_dir() else 0, reverse=True):
-            if d.is_dir() and task_name in d.name:
-                ws_sub = d / "workspace"
-                if ws_sub.is_dir() and any(ws_sub.iterdir()):
-                    engine_ws = ws_sub
-                    break
-    # Prefer engine workspace (has agent-created files) over store (may only have user writes)
-    if engine_ws:
-        return engine_ws
-    if primary.is_dir() and any(primary.iterdir()):
-        return primary
-    return None
-
-
-async def _read_workspace_file(
-    run_state: ExperimentRunState | None,
-    exp_id: str,
-    file_path: str,
-) -> str | None:
-    """Read a single file — from live Docker or extracted workspace."""
-    # Validate path
-    if ".." in file_path or file_path.startswith("/"):
-        return None
-
-    # Try live container
-    if run_state and run_state.runner:
-        backend = getattr(run_state.runner, '_execution_backend', None)
-        if backend and hasattr(backend, 'exec_command'):
-            try:
-                code, stdout, _ = await backend.exec_command(
-                    f"cat '/app/{file_path}'",
-                    timeout=10.0,
-                )
-                if code == 0:
-                    return stdout
-            except Exception:
-                pass
-
-    # Fall back to disk
-    ws_dir = _find_workspace_dir(exp_id)
-    if ws_dir:
-        local_path = ws_dir / file_path
-        if local_path.is_file():
-            try:
-                return local_path.read_text(errors="replace")
-            except Exception:
-                return None
-
-    return None
+    return root["children"]
 
 
 @campaign_router.get("/{campaign_id}/experiments/{exp_id}/workspace/tree")
 async def workspace_tree(campaign_id: str, exp_id: str) -> dict[str, Any]:
-    """Return the workspace file tree for an experiment."""
-    run_state = _get_run_state(campaign_id, exp_id)
-    files = await _get_workspace_tree(run_state, exp_id)
+    """The experiment's files: its campaign directory and, while it runs, the container's /app."""
+    run = _get_run(campaign_id, exp_id)
+    files = _disk_tree(run.campaign_dir) if run.campaign_dir.is_dir() else []
+    live = _container(run)
+    if live:
+        backend, _ = live
+        code, out, _ = await backend.exec_command(
+            "find /app -mindepth 1 -maxdepth 5 -not -path '*/.*' -printf '%y %P\\n' | head -3000", timeout=15)
+        if code == 0:
+            files.insert(0, {"name": "app (live container)", "type": "dir", "children": _find_tree(out)})
     return {"experiment_id": exp_id, "files": files}
 
 
+async def _read_bytes(run: ExperimentRunState, path: str) -> bytes:
+    path = _check_path(path)
+    if path.startswith(_CONTAINER_PREFIX):
+        live = _container(run)
+        if not live:
+            raise HTTPException(404, "The container is not running")
+        backend, _ = live
+        code, out, err = await backend.exec_command(
+            f"base64 -w0 /app/{_check_path(path[len(_CONTAINER_PREFIX):])}", timeout=30)
+        if code != 0:
+            raise HTTPException(404, err.strip() or "File not found")
+        return base64.b64decode(out)
+    local = (run.campaign_dir / path).resolve()
+    if not local.is_relative_to(run.campaign_dir.resolve()) or not local.is_file():
+        raise HTTPException(404, f"File not found: {path}")
+    return local.read_bytes()
+
+
 @campaign_router.get("/{campaign_id}/experiments/{exp_id}/workspace/file")
-async def workspace_file(
-    campaign_id: str,
-    exp_id: str,
-    path: str,
-) -> dict[str, Any]:
-    """Read a single file from the experiment workspace."""
-    from fastapi import HTTPException as HE
-    if not path:
-        raise HE(400, "path query parameter required")
-
-    run_state = _get_run_state(campaign_id, exp_id)
-    content = await _read_workspace_file(run_state, exp_id, path)
-    if content is None:
-        raise HE(404, f"File not found: {path}")
-
-    is_binary = "\x00" in content[:512] if content else False
-    if is_binary:
-        return {
-            "path": path,
-            "content": None,
-            "binary": True,
-            "size": len(content),
-        }
-
-    return {
-        "path": path,
-        "content": content[:500_000],
-        "binary": False,
-        "size": len(content),
-        "truncated": len(content) > 500_000,
-    }
+async def workspace_file(campaign_id: str, exp_id: str, path: str) -> dict[str, Any]:
+    data = await _read_bytes(_get_run(campaign_id, exp_id), path)
+    if b"\x00" in data[:1024]:
+        return {"path": path, "content": None, "binary": True, "size": len(data)}
+    text = data.decode(errors="replace")
+    return {"path": path, "content": text[:500_000], "binary": False, "size": len(data),
+            "truncated": len(text) > 500_000}
 
 
 @campaign_router.get("/{campaign_id}/experiments/{exp_id}/workspace/raw")
-async def workspace_file_raw(
-    campaign_id: str,
-    exp_id: str,
-    path: str,
-) -> Any:
-    """Serve a workspace file as raw bytes (for images, etc.)."""
-    from fastapi import HTTPException as HE
-    from fastapi.responses import Response
-    import mimetypes
-
-    if not path:
-        raise HE(400, "path query parameter required")
-    if ".." in path or path.startswith("/"):
-        raise HE(400, "Invalid path")
-
-    run_state = _get_run_state(campaign_id, exp_id)
-
-    raw_bytes: bytes | None = None
-
-    # Try disk first for raw bytes
-    ws_dir = _find_workspace_dir(exp_id)
-    if ws_dir:
-        local_path = ws_dir / path
-        if local_path.is_file():
-            try:
-                raw_bytes = local_path.read_bytes()
-            except Exception:
-                pass
-
-    # Try live container
-    if raw_bytes is None and run_state and run_state.runner:
-        backend = getattr(run_state.runner, '_execution_backend', None)
-        if backend and hasattr(backend, 'exec_command'):
-            try:
-                code, stdout, _ = await backend.exec_command(
-                    f"base64 '/app/{path}'",
-                    timeout=10.0,
-                )
-                if code == 0:
-                    import base64
-                    raw_bytes = base64.b64decode(stdout.strip())
-            except Exception:
-                pass
-
-    if raw_bytes is None:
-        raise HE(404, f"File not found: {path}")
-
-    content_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
-    return Response(content=raw_bytes, media_type=content_type)
+async def workspace_file_raw(campaign_id: str, exp_id: str, path: str) -> Response:
+    data = await _read_bytes(_get_run(campaign_id, exp_id), path)
+    return Response(content=data, media_type=mimetypes.guess_type(path)[0] or "application/octet-stream")
 
 
 class WorkspaceWriteBody(BaseModel):
@@ -1559,68 +841,27 @@ class WorkspaceWriteBody(BaseModel):
     content: str
 
 
-async def _write_workspace_file(
-    run_state: ExperimentRunState | None,
-    exp_id: str,
-    file_path: str,
-    content: str,
-) -> bool:
-    """Write a file — to live Docker container AND extracted workspace."""
-    if ".." in file_path or file_path.startswith("/"):
-        return False
-
-    written = False
-
-    # Write to live container if running
-    if run_state and run_state.runner:
-        backend = getattr(run_state.runner, '_execution_backend', None)
-        if backend and hasattr(backend, 'exec_command'):
-            try:
-                import shlex
-                escaped = content.replace("\\", "\\\\").replace("'", "'\\''")
-                # Use printf to handle newlines correctly
-                import base64
-                b64 = base64.b64encode(content.encode()).decode()
-                code, _, stderr = await backend.exec_command(
-                    f"echo '{b64}' | base64 -d > '/app/{file_path}'",
-                    timeout=10.0,
-                )
-                if code == 0:
-                    written = True
-                else:
-                    logger.warning("Docker write failed for %s: %s", file_path, stderr)
-            except Exception:
-                logger.debug("Docker write failed", exc_info=True)
-
-    # Also persist to extracted workspace on disk
-    ws_dir = _find_workspace_dir(exp_id) or (store._data_dir / "workspaces" / exp_id)
-    local_path = ws_dir / file_path
-    try:
-        local_path.parent.mkdir(parents=True, exist_ok=True)
-        local_path.write_text(content)
-        written = True
-    except Exception:
-        logger.debug("Local write failed for %s", file_path, exc_info=True)
-
-    return written
-
-
 @campaign_router.put("/{campaign_id}/experiments/{exp_id}/workspace/file")
-async def workspace_write(
-    campaign_id: str,
-    exp_id: str,
-    body: WorkspaceWriteBody,
-) -> dict[str, Any]:
-    """Write a file to the experiment workspace (syncs to Docker if running)."""
-    from fastapi import HTTPException as HE
-    if not body.path:
-        raise HE(400, "path is required")
-    if ".." in body.path or body.path.startswith("/"):
-        raise HE(400, "Invalid path")
-
-    run_state = _get_run_state(campaign_id, exp_id)
-    ok = await _write_workspace_file(run_state, exp_id, body.path, body.content)
-    if not ok:
-        raise HE(500, "Failed to write file")
-
-    return {"path": body.path, "size": len(body.content), "synced_to_docker": run_state is not None}
+async def workspace_write(campaign_id: str, exp_id: str, body: WorkspaceWriteBody) -> dict[str, Any]:
+    """Edit a file of the experiment (the researcher's own edits; the agents see them)."""
+    run = _get_run(campaign_id, exp_id)
+    path = _check_path(body.path)
+    if path.startswith(_CONTAINER_PREFIX):
+        live = _container(run)
+        if not live:
+            raise HTTPException(409, "The container is not running")
+        _, cid = live
+        target = "/app/" + _check_path(path[len(_CONTAINER_PREFIX):])
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "exec", "-i", cid, "sh", "-c", 'mkdir -p "$(dirname "$1")" && cat > "$1"', "sh", target,
+            stdin=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        _, err = await proc.communicate(body.content.encode())
+        if proc.returncode != 0:
+            raise HTTPException(500, err.decode().strip() or "write failed")
+        return {"path": path, "size": len(body.content), "synced_to_docker": True}
+    local = (run.campaign_dir / path).resolve()
+    if not local.is_relative_to(run.campaign_dir.resolve()):
+        raise HTTPException(400, "Invalid path")
+    local.parent.mkdir(parents=True, exist_ok=True)
+    local.write_text(body.content)
+    return {"path": path, "size": len(body.content), "synced_to_docker": False}

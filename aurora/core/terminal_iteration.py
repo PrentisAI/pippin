@@ -11,11 +11,11 @@ its time runs out.
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import json
 import logging
 import time
 import uuid
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -158,7 +158,7 @@ class TerminalIteration:
         self._current_loop = loop
         try:
             return await asyncio.wait_for(loop.run(self._build_system_prompt(), message), timeout=time_left)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             loop.interrupt()
             return {"error": "research time limit reached", "turns": 0}
         finally:
@@ -241,11 +241,12 @@ class TerminalIteration:
         if self._artifact_store is None:
             return
         try:
+            from datetime import datetime
+
             from aurora.models.artifacts import ExperimentRecord, Observation
-            from datetime import datetime, timezone
 
             artifacts = self._artifact_store.load()
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
 
             record = ExperimentRecord(
                 job_id=job.job_id,

@@ -211,7 +211,7 @@ class Store:
         if not p.exists():
             return []
         events = []
-        with open(p, "r", encoding="utf-8") as f:
+        with open(p, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:

@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+site/
+.env
+workspace/
+aurora/web/
+frontend/node_modules/
+frontend/dist/
+experiments/data/
+experiments/*/runs/

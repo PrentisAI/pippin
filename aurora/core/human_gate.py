@@ -107,7 +107,7 @@ class HumanGate:
             try:
                 decision = await asyncio.wait_for(
                     asyncio.shield(future), timeout=self._config.gate_timeout_minutes * 60)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 action: Action = "stop" if self._config.on_timeout == "stop" else "continue"
                 decision = GateDecision(action, f"no answer within {self._config.gate_timeout_minutes:g} min",
                                         decided_by="timeout", gate_id=req.gate_id)

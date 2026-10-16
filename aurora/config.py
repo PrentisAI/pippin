@@ -417,7 +417,7 @@ class AuroraConfig(_Section):
     )
 
     @model_validator(mode="after")
-    def _finalize(self) -> "AuroraConfig":
+    def _finalize(self) -> AuroraConfig:
         unknown = set(self.skip_phases) - set(PHASES)
         if unknown:
             raise ValueError(f"skip_phases has unknown phases {sorted(unknown)}; valid: {list(PHASES)}")

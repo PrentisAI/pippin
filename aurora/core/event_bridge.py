@@ -22,7 +22,7 @@ EventHookFn = Callable[[dict[str, Any]], Awaitable[None]]
 class EventBridge:
     """Bridge between the core engine EventBus and the WebSocket layer.
 
-    Converts typed ``Event`` objects into the flat ``lhtb_event`` dict
+    Converts typed ``Event`` objects into the flat ``experiment_event`` dict
     format the frontend ``AgentStreamView`` expects.
     """
 
@@ -43,9 +43,10 @@ class EventBridge:
     async def _on_engine_event(self, event: Event) -> None:
         """Convert an engine Event to a WebSocket dict and broadcast."""
         ws_event: dict[str, Any] = {
-            "type": "lhtb_event",
+            "type": "experiment_event",
             "run_id": self._run_id,
             "event_type": event.name,
+            "source": event.source,
             "data": event.data,
             "timestamp": time.time(),
         }

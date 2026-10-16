@@ -17,7 +17,7 @@ Typical usage::
 from __future__ import annotations
 
 import logging
-from typing import Any, Type, TypeVar
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class ComponentRegistry:
     def __init__(self) -> None:
         self._components: dict[type, Any] = {}
 
-    def register(self, component_type: Type[T], instance: T) -> None:
+    def register(self, component_type: type[T], instance: T) -> None:
         """Register *instance* under *component_type*.
 
         Overwrites any previous registration for the same type.
@@ -42,7 +42,7 @@ class ComponentRegistry:
         self._components[component_type] = instance
         logger.debug("Registered component %s", component_type.__name__)
 
-    def get(self, component_type: Type[T]) -> T:
+    def get(self, component_type: type[T]) -> T:
         """Look up the instance registered for *component_type*.
 
         Raises
@@ -58,7 +58,7 @@ class ComponentRegistry:
                 f"Available: {[t.__name__ for t in self._components]}"
             ) from None
 
-    def get_optional(self, component_type: Type[T]) -> T | None:
+    def get_optional(self, component_type: type[T]) -> T | None:
         """Look up *component_type*, returning ``None`` if not registered."""
         return self._components.get(component_type)
 

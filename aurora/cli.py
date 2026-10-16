@@ -235,7 +235,18 @@ def cmd_resume(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
+    import os
+
     import uvicorn
+
+    if args.config:
+        import yaml
+
+        from aurora.config import AuroraConfig
+        raw = yaml.safe_load(Path(args.config).read_text()) or {}
+        # fail now on typos rather than when the first experiment starts
+        AuroraConfig.model_validate({**raw, "objective": "(set per experiment)"})
+        os.environ["AURORA_SERVER_CONFIG"] = str(Path(args.config).resolve())
 
     url = f"http://{'localhost' if args.host in ('0.0.0.0', '127.0.0.1') else args.host}:{args.port}"
     print(f"AURORA web console: {url}")
@@ -317,6 +328,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("serve", help="start the web console")
     p.add_argument("--host", default="127.0.0.1", help="interface to listen on (default 127.0.0.1)")
     p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--config", help="base configuration for experiments started from the console "
+                                    "(models, sandbox, budget, ...; its objective is ignored)")
     p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("skills", help="manage the skill library shared by all campaigns")

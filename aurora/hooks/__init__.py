@@ -15,13 +15,6 @@ From :mod:`~aurora.hooks.audit_hooks`:
     :class:`MilestoneAuditHook`
 """
 
-from aurora.hooks.base import (
-    Hook,
-    HookContext,
-    HookPoint,
-    HookRegistry,
-    HookResult,
-)
 from aurora.hooks.audit_hooks import (
     ClaimPromotionHook,
     ConsistencyHook,
@@ -33,6 +26,13 @@ from aurora.hooks.audit_hooks import (
     PeriodicAuditHook,
     RepeatedFailureHook,
     TerminationGuardHook,
+)
+from aurora.hooks.base import (
+    Hook,
+    HookContext,
+    HookPoint,
+    HookRegistry,
+    HookResult,
 )
 
 __all__ = [

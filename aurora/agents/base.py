@@ -11,15 +11,13 @@ Two base classes are provided:
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import os
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Type, TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -180,7 +178,7 @@ class Agent(ABC):
         return response.content
 
     async def _generate_structured(
-        self, messages: list[Message], schema: Type[T], **kwargs
+        self, messages: list[Message], schema: type[T], **kwargs
     ) -> T:
         """Convenience: generate structured output via the router."""
         return await self._router.generate_structured(

@@ -1,268 +1,115 @@
-"""Generic Docker execution backend.
+"""Docker execution backend: one container per campaign, shared by all its phases.
 
-Provides a Docker container as the execution environment for any
-experiment type. One container per experiment, shared across all
-execution phases (Screening → Planning → Preflight → Research Loop →
-Analysis). Purely LLM-inference phases (Roundtable, Writing) bypass
-the container entirely.
+The container runs ``sleep infinity``; the agents work in ``/app`` through
+``docker exec``.  When the campaign ends, ``/app`` is copied to
+``<campaign>/workspace`` and the container is removed.
 
-Task-specific adapters (e.g. LHTBTaskAdapter) set ``docker_image``,
-resource limits, and test directories via ``AuroraConfig``.
+Acceptance tests (``sandbox.tests_dir``) are copied into ``/tests`` only while
+they run and removed right after, so the agents never see them.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
-import shutil
-import subprocess
 from pathlib import Path
-from typing import Any
-
 
 logger = logging.getLogger(__name__)
 
 
+async def _run(*args: str, timeout: float = 120.0, stdin: bytes | None = None) -> tuple[int, str, str]:
+    proc = await asyncio.create_subprocess_exec(
+        *args, stdin=asyncio.subprocess.PIPE if stdin is not None else None,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(stdin), timeout=timeout)
+    except TimeoutError:
+        proc.kill()
+        return 124, "", f"`{' '.join(args[:3])} ...` timed out after {timeout:g}s"
+    return proc.returncode or 0, out.decode(errors="replace"), err.decode(errors="replace")
+
+
 class DockerBackend:
-    """ExecutionBackend backed by a Docker container.
+    """A container for one campaign.
 
     Parameters
     ----------
     docker_image:
-        Docker image to use (e.g. ``python:3.11-slim``).
-    cpus:
-        CPU limit for the container.
-    memory_mb:
-        Memory limit in MB.
+        Image to run; pulled when it is not present locally.
+    cpus, memory_mb:
+        Resource limits of the container.
     allow_network:
-        Whether the container has internet access.
+        Internet access from the container.
     tests_dir:
-        Optional host path containing verifier scripts. NOT mounted into
-        the agent container — injected via docker-cp only during verification.
-    build_timeout:
-        Timeout for docker pull / docker run.
+        Host directory with acceptance tests (``test.sh`` or pytest files).
     """
 
-    def __init__(
-        self,
-        docker_image: str = "python:3.11-slim",
-        *,
-        cpus: float = 4.0,
-        memory_mb: int = 8192,
-        allow_network: bool = True,
-        tests_dir: str = "",
-        build_timeout: float = 600.0,
-    ) -> None:
+    def __init__(self, docker_image: str = "python:3.11-slim", *, cpus: float = 4.0, memory_mb: int = 8192,
+                 allow_network: bool = True, tests_dir: str = "", pull_timeout: float = 1800.0) -> None:
         self._image = docker_image
         self._cpus = cpus
         self._memory_mb = memory_mb
         self._allow_network = allow_network
         self._tests_dir = tests_dir
-        self._build_timeout = build_timeout
-        self._container_id: str | None = None
-
-    @property
-    def container_id(self) -> str | None:
-        return self._container_id
+        self._pull_timeout = pull_timeout
+        self.container_id: str | None = None
 
     async def setup(self) -> None:
-        """Pull image and start the container.
-
-        Tests are NOT mounted into the agent container. Verification
-        uses docker-cp to inject tests temporarily — the agent never
-        sees the grader during normal execution.
-        """
-        logger.info("Pulling image %s...", self._image)
-        pull = subprocess.run(
-            ["docker", "pull", self._image],
-            capture_output=True, text=True,
-            timeout=self._build_timeout,
-        )
-        if pull.returncode != 0:
-            logger.warning("Docker pull warning: %s", pull.stderr.strip())
-
-        cmd = [
-            "docker", "run", "-d",
-            "--cpus", str(self._cpus),
-            "--memory", f"{self._memory_mb}m",
-        ]
-        if self._allow_network:
-            cmd.extend(["--network", "bridge"])
-        else:
-            cmd.extend(["--network", "none"])
-
-        # Tests are intentionally NOT mounted — agent cannot see grader
-        cmd.extend([self._image, "sleep", "infinity"])
-
-        logger.info("Starting container: %s", " ".join(cmd))
-        result = subprocess.run(
-            cmd, capture_output=True, text=True,
-            timeout=self._build_timeout,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"Docker run failed: {result.stderr}")
-
-        self._container_id = result.stdout.strip()[:12]
-        logger.info("Container started: %s", self._container_id)
-
-        subprocess.run(
-            ["docker", "exec", self._container_id, "mkdir", "-p", "/app"],
-            capture_output=True, timeout=10,
-        )
+        code, _, _ = await _run("docker", "image", "inspect", self._image, timeout=30)
+        if code != 0:
+            logger.info("Pulling image %s ...", self._image)
+            code, _, err = await _run("docker", "pull", self._image, timeout=self._pull_timeout)
+            if code != 0:
+                raise RuntimeError(f"Could not pull Docker image {self._image}: {err.strip()}")
+        code, out, err = await _run(
+            "docker", "run", "-d", "--init",
+            "--cpus", str(self._cpus), "--memory", f"{self._memory_mb}m",
+            "--network", "bridge" if self._allow_network else "none",
+            "--label", "aurora.campaign=1",
+            "-w", "/app", self._image, "sleep", "infinity", timeout=120)
+        if code != 0:
+            raise RuntimeError(f"Could not start a container from {self._image}: {err.strip()}")
+        self.container_id = out.strip()[:12]
+        await self.exec_command("mkdir -p /app")
+        logger.info("Container %s started from %s", self.container_id, self._image)
 
     async def teardown(self) -> None:
-        """Stop and remove the container."""
-        if self._container_id:
-            logger.info("Stopping container %s", self._container_id)
-            subprocess.run(
-                ["docker", "stop", "-t", "5", self._container_id],
-                capture_output=True, timeout=30,
-            )
-            subprocess.run(
-                ["docker", "rm", "-f", self._container_id],
-                capture_output=True, timeout=30,
-            )
-            self._container_id = None
+        if self.container_id:
+            await _run("docker", "rm", "-f", self.container_id, timeout=60)
+            logger.info("Container %s removed", self.container_id)
+            self.container_id = None
 
-    async def exec_command(
-        self,
-        command: str,
-        *,
-        timeout: float = 120.0,
-        workdir: str | None = None,
-    ) -> tuple[int, str, str]:
-        if not self._container_id:
+    async def exec_command(self, command: str, *, timeout: float = 120.0,
+                           workdir: str | None = None) -> tuple[int, str, str]:
+        if not self.container_id:
             raise RuntimeError("Container not started")
-        wd = workdir or "/app"
-        result = subprocess.run(
-            ["docker", "exec", "-w", wd, self._container_id, "bash", "-c", command],
-            capture_output=True, text=True, timeout=timeout,
-        )
-        return result.returncode, result.stdout, result.stderr
-
-    async def read_file(self, path: str) -> bytes:
-        if not self._container_id:
-            raise RuntimeError("Container not started")
-        result = subprocess.run(
-            ["docker", "exec", self._container_id, "cat", path],
-            capture_output=True, timeout=30,
-        )
-        if result.returncode != 0:
-            raise FileNotFoundError(
-                f"Cannot read {path} in container: {result.stderr.decode(errors='replace')}"
-            )
-        return result.stdout
-
-    async def write_file(self, path: str, content: bytes) -> None:
-        if not self._container_id:
-            raise RuntimeError("Container not started")
-        subprocess.run(
-            ["docker", "exec", self._container_id, "mkdir", "-p",
-             str(Path(path).parent)],
-            capture_output=True, timeout=10,
-        )
-        proc = subprocess.run(
-            ["docker", "exec", "-i", self._container_id, "tee", path],
-            input=content, capture_output=True, timeout=30,
-        )
-        if proc.returncode != 0:
-            raise IOError(
-                f"Cannot write {path}: {proc.stderr.decode(errors='replace')}"
-            )
+        return await _run("docker", "exec", "-w", workdir or "/app", self.container_id, "sh", "-c", command,
+                          timeout=timeout)
 
     async def run_verifier(self, *, timeout: float = 600.0) -> tuple[bool, float, str]:
-        """Run verifier with test isolation.
-
-        When an external tests_dir is configured (LHTB), tests are
-        docker-cp'd in just for verification and deleted immediately
-        after. The agent never has /tests during normal execution.
-
-        Falls back to in-container pytest when no external tests_dir
-        is configured, and returns (True, 1.0, "no verifier") when
-        no tests exist at all.
-        """
-        if not self._container_id:
-            raise RuntimeError("Container not started")
-
-        if self._tests_dir and Path(self._tests_dir).is_dir():
-            return await self._run_sidecar_verifier(timeout=timeout)
-
-        # Fallback: in-container pytest for non-LHTB tasks
-        code, probe, _ = await self.exec_command(
-            "test -d /app/tests && echo yes || echo no"
-        )
-        if "yes" in probe:
-            _, stdout, stderr = await self.exec_command(
-                "cd /app && python -m pytest tests/ -v --tb=short 2>&1 || true",
-                timeout=timeout,
-            )
-            output = stdout + stderr
-            passed = "failed" not in output.lower() and "passed" in output.lower()
-            return passed, 1.0 if passed else 0.0, output
-
-        return True, 1.0, "no verifier"
-
-    async def _run_sidecar_verifier(
-        self, *, timeout: float = 600.0,
-    ) -> tuple[bool, float, str]:
-        """Copy tests in, run verifier, delete tests — agent never sees them.
-
-        We can't use a sidecar container because the grader may depend
-        on packages the agent installed at runtime (pip install -e .).
-        Instead we:
-        1. docker cp tests into the agent container as /tests
-        2. run test.sh
-        3. rm -rf /tests immediately after
-        """
-        tests_path = Path(self._tests_dir).resolve()
-        logger.info("Verifier: injecting /tests (agent cannot see grader at runtime)")
-
-        # 1. Copy tests into container
-        cp_result = subprocess.run(
-            ["docker", "cp", f"{tests_path}/.", f"{self._container_id}:/tests"],
-            capture_output=True, text=True, timeout=30,
-        )
-        if cp_result.returncode != 0:
-            return False, 0.0, f"Failed to copy tests: {cp_result.stderr}"
-
+        """Run the acceptance tests; passed means exit code 0."""
+        if not self._tests_dir:
+            return True, 1.0, "no acceptance tests configured"
+        tests = Path(self._tests_dir).expanduser().resolve()
+        if not tests.is_dir():
+            return False, 0.0, f"tests_dir not found: {tests}"
+        code, _, err = await _run("docker", "cp", f"{tests}/.", f"{self.container_id}:/tests", timeout=60)
+        if code != 0:
+            return False, 0.0, f"Could not copy the tests: {err}"
         try:
-            # 2. Run verifier
-            _, stdout, stderr = await self.exec_command(
-                "mkdir -p /logs/verifier && bash /tests/test.sh 2>&1 || true",
-                timeout=timeout,
-            )
-            output = stdout + stderr
-
-            _, reward_str, _ = await self.exec_command(
-                "cat /logs/verifier/reward.txt 2>/dev/null || echo 0"
-            )
-            try:
-                reward = float(reward_str.strip())
-            except (ValueError, TypeError):
-                reward = 0.0
-
-            _, grade_log, _ = await self.exec_command(
-                "cat /logs/verifier/grade.log 2>/dev/null || true"
-            )
-            if grade_log.strip():
-                output += "\n--- grade.log ---\n" + grade_log
+            cmd = ("if [ -f /tests/test.sh ]; then bash /tests/test.sh; "
+                   "else python -m pytest -q /tests; fi")
+            code, out, err = await self.exec_command(cmd + " 2>&1", timeout=timeout)
         finally:
-            # 3. Always remove tests and verifier logs after verification
-            await self.exec_command(
-                "rm -rf /tests /logs/verifier /tmp/pytest-of-root 2>/dev/null || true"
-            )
-            logger.info("Verifier: /tests removed from container")
-
-        return reward >= 0.95, reward, output
+            await self.exec_command("rm -rf /tests")
+        passed = code == 0
+        return passed, 1.0 if passed else 0.0, out + err
 
     async def extract_workspace(self, dest: Path) -> bool:
-        if not self._container_id:
+        if not self.container_id:
             return False
         dest.mkdir(parents=True, exist_ok=True)
-        result = subprocess.run(
-            ["docker", "cp", f"{self._container_id}:/app/.", str(dest)],
-            capture_output=True, text=True, timeout=120,
-        )
-        if result.returncode != 0:
-            logger.warning("Failed to extract workspace: %s", result.stderr)
-            return False
-        return True
+        code, _, err = await _run("docker", "cp", f"{self.container_id}:/app/.", str(dest), timeout=600)
+        if code != 0:
+            logger.warning("Could not copy /app out of the container: %s", err.strip())
+        return code == 0

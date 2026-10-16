@@ -23,8 +23,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from aurora.tools.base import ToolRegistry, ToolResult
-
+from aurora.tools.base import ToolResult
 
 # ------------------------------------------------------------------
 # Skill I/O models

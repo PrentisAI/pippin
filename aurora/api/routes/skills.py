@@ -15,10 +15,8 @@ _store: SkillStore | None = None
 def get_skill_store() -> SkillStore:
     global _store
     if _store is None:
-        from aurora.api.persistence import _DEFAULT_DATA_DIR
-        db_path = _DEFAULT_DATA_DIR / "aurora.db"
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        _store = SkillStore(db_path)
+        from aurora.paths import aurora_home
+        _store = SkillStore(aurora_home() / "skills.db")
     return _store
 
 

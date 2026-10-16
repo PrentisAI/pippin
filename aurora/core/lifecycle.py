@@ -11,8 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -20,12 +19,12 @@ from pydantic import BaseModel, Field
 
 from aurora.config import AuroraConfig, PipelineStage
 from aurora.core.events import Event, EventBus
+from aurora.hooks.base import HookContext, HookPoint, HookRegistry, HookResult
 from aurora.llm.base import Message
 from aurora.llm.router import LLMRouter
-from aurora.models.artifacts import ExperimentRecord, Observation, ResearchArtifacts
-from aurora.models.audit import AuditOutcome, AuditRecord, AuditTrigger
+from aurora.models.artifacts import ExperimentRecord, Observation
+from aurora.models.audit import AuditRecord
 from aurora.models.experiment import ExperimentJob, ExperimentPlan, JobResult
-from aurora.hooks.base import HookContext, HookPoint, HookRegistry, HookResult
 from aurora.state.artifacts import ArtifactStore
 from aurora.state.context import ContextReconstructor
 from aurora.state.mental_model import MentalModelManager
@@ -151,7 +150,7 @@ class ResearchIteration:
         checkpoint_data = {
             "iteration_id": iter_id,
             "stage": stage.value,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             **data,
         }
         checkpoint_path = checkpoint_dir / "stage_checkpoint.json"
@@ -264,7 +263,7 @@ class ResearchIteration:
                 )
 
         iter_id = resume_iter_id or f"iter_{uuid.uuid4().hex[:8]}"
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         self._hook_decision_override: IterationDecision | None = None
 
         # Stage ordering for skip logic
@@ -421,13 +420,13 @@ class ResearchIteration:
                     source_job_id=job.job_id,
                     description=obs_data.get("description", ""),
                     numerical_values=obs_data.get("numerical_values", {}),
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                 )
                 observations.append(obs)
                 artifacts = self._store.record_observation(artifacts, obs)
 
             # Stage 7: Update experiment record as completed
-            end = datetime.now(timezone.utc)
+            end = datetime.now(UTC)
             exp_record = ExperimentRecord(
                 job_id=job.job_id,
                 skill_used=job.skill_name,
@@ -515,7 +514,7 @@ class ResearchIteration:
                 job_id=job.job_id,
                 decision=IterationDecision.ERROR.value,
                 error=str(exc),
-                wall_time_seconds=(datetime.now(timezone.utc) - start).total_seconds(),
+                wall_time_seconds=(datetime.now(UTC) - start).total_seconds(),
             )
 
     # ------------------------------------------------------------------
@@ -547,7 +546,7 @@ class ResearchIteration:
 
         try:
             # Build a skill input and context from the job parameters
-            from aurora.skills.base import SkillInput, SkillContext
+            from aurora.skills.base import SkillContext, SkillInput
             skill_input = SkillInput(
                 parameters=job.parameters,
                 context=context_str,

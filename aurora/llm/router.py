@@ -8,8 +8,7 @@ providers directly.
 from __future__ import annotations
 
 import logging
-import os
-from typing import Type, TypeVar
+from typing import TypeVar
 
 from pydantic import BaseModel
 
@@ -19,7 +18,6 @@ from aurora.llm.base import (
     LLMProvider,
     LLMResponse,
     Message,
-    TokenUsage,
     UsageTracker,
 )
 
@@ -177,7 +175,7 @@ class LLMRouter:
         self,
         stage: PipelineStage,
         messages: list[Message],
-        schema: Type[T],
+        schema: type[T],
         *,
         seat_index: int = 0,
         **kwargs,

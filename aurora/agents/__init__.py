@@ -3,6 +3,7 @@
 Re-exports all agent classes and the base abstractions.
 """
 
+from aurora.agents.analyzer import AnalyzerAgent
 from aurora.agents.base import (
     Agent,
     AgentAction,
@@ -10,9 +11,8 @@ from aurora.agents.base import (
     AgentContext,
     AgentRole,
 )
-from aurora.agents.analyzer import AnalyzerAgent
-from aurora.agents.writer import WriterAgent
 from aurora.agents.roundtable import Roundtable, RoundtableChair, RoundtableSeat
+from aurora.agents.writer import WriterAgent
 
 __all__ = [
     # Base

@@ -14,13 +14,11 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Any, Callable, Awaitable
+from datetime import UTC, datetime
+from typing import Any, Awaitable, Callable
 
 from aurora.models.artifacts import ResearchArtifacts
 from aurora.models.mental_model import (
-    CausalRelationship,
-    Hypothesis,
     ScientificMentalModel,
 )
 from aurora.state.workspace import WorkspaceManager
@@ -141,7 +139,7 @@ class MentalModelManager:
         raw_response = await llm_generate(prompt)
         model = self._parse_model_response(raw_response)
 
-        model.reconstructed_from_evidence_at = datetime.now(timezone.utc)
+        model.reconstructed_from_evidence_at = datetime.now(UTC)
         self.save(model)
 
         self._ws.append_event({
@@ -252,7 +250,7 @@ class MentalModelManager:
         if text.startswith("```"):
             lines = text.split("\n")
             # Remove first and last lines (```json and ```)
-            lines = [l for l in lines if not l.strip().startswith("```")]
+            lines = [ln for ln in lines if not ln.strip().startswith("```")]
             text = "\n".join(lines)
 
         try:

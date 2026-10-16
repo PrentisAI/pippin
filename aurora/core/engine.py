@@ -25,8 +25,7 @@ import asyncio
 import json
 import logging
 import uuid
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -38,17 +37,19 @@ from aurora.agents.base import AgentActionType, AgentContext
 from aurora.agents.roundtable.roundtable import Roundtable
 from aurora.agents.writer import WriterAgent
 from aurora.config import AuroraConfig, PipelineStage
+from aurora.core.agent_session import AgentSession
 from aurora.core.events import Event, EventBus
+from aurora.core.human_gate import HumanGate
 from aurora.core.lifecycle import (
-    IterationDecision,
     IterationResult,
     ResearchIteration,
 )
 from aurora.core.registry import ComponentRegistry
+from aurora.hooks.base import HookContext, HookPoint, HookRegistry
 from aurora.llm.base import Message
 from aurora.llm.router import LLMRouter, create_router
 from aurora.models.artifacts import ResearchArtifacts
-from aurora.models.experiment import ExperimentJob, ExperimentPlan, JobResult
+from aurora.models.experiment import ExperimentJob, ExperimentPlan
 from aurora.models.roundtable import IdeaScore, RoundtableProposal
 from aurora.planning.dependency_graph import DependencyGraph
 from aurora.planning.planner import ExperimentPlanner
@@ -58,9 +59,6 @@ from aurora.state.artifacts import ArtifactStore
 from aurora.state.context import ContextReconstructor
 from aurora.state.mental_model import MentalModelManager
 from aurora.state.workspace import WorkspaceManager
-from aurora.hooks.base import HookContext, HookPoint, HookRegistry
-from aurora.core.agent_session import AgentSession
-from aurora.core.human_gate import GateDecision, HumanGate
 from aurora.tools.base import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -195,6 +193,8 @@ class ResearchEngine:
         self._awaiting_agent_response: bool = False
 
         self._frontdesk_status: Any = None
+        # Web console project this campaign belongs to (scopes project skills)
+        self.project_id: str = ""
 
         # Budget accounting
         self._started_at: float | None = None
@@ -229,7 +229,7 @@ class ResearchEngine:
 
     async def run_campaign(self, *, resume: bool = False) -> CampaignResult:
         """Run (or resume from its checkpoint) the whole campaign."""
-        campaign_start = datetime.now(timezone.utc)
+        campaign_start = datetime.now(UTC)
         import time as _time
         self._started_at = _time.time()
         from aurora.core.requirements import check_runtime_requirements
@@ -266,6 +266,9 @@ class ResearchEngine:
             skip = set(self._config.skip_phases)
             if proposal is not None:
                 skip.add(CampaignPhase.IDEATION.value)
+            elif CampaignPhase.IDEATION.value in skip and not resume:
+                # no ideation: the objective itself is the direction to pursue
+                proposal = self._objective_proposal()
             order = [CampaignPhase.IDEATION, CampaignPhase.SCREENING, CampaignPhase.PLANNING,
                      CampaignPhase.RESEARCH, CampaignPhase.ANALYSIS, CampaignPhase.WRITING]
 
@@ -414,7 +417,7 @@ class ResearchEngine:
             if self._router:
                 await self._router.close_all()
 
-        total = (datetime.now(timezone.utc) - campaign_start).total_seconds()
+        total = (datetime.now(UTC) - campaign_start).total_seconds()
         self.cost_usd += self._router.usage_tracker.total_cost if self._router else 0.0
         await self._publish(f"campaign_{status}", status=status, summary=summary,
                             cost_usd=round(self.cost_usd, 4), wall_time_seconds=round(total))
@@ -444,6 +447,17 @@ class ResearchEngine:
         spent = self.cost_usd + (self._router.usage_tracker.total_cost if self._router else 0.0)
         if budget.max_cost_usd is not None and spent >= budget.max_cost_usd:
             raise CampaignStopped(f"cost budget of ${budget.max_cost_usd:g} used up (${spent:.2f} spent)")
+
+    def _objective_proposal(self) -> RoundtableProposal:
+        objective = self._config.objective.strip()
+        return RoundtableProposal(
+            proposal_id=f"prop_{uuid.uuid4().hex[:8]}",
+            title=objective.splitlines()[0][:100],
+            description=objective,
+            research_questions=[objective[:500]],
+            selected=True,
+            created_at=datetime.now(UTC),
+        )
 
     def _single_job_plan(self, proposal: RoundtableProposal | None) -> ExperimentPlan:
         """Plan used when planning is skipped: one job that carries out the proposal or objective."""
@@ -577,8 +591,15 @@ class ResearchEngine:
 
         # Lightweight audit hooks (the hook-based audit of mock mode, periodic checks)
         from aurora.hooks.audit_hooks import (
-            ClaimPromotionHook, ConsistencyHook, ConvergenceHook, EnergyAnomalyHook, GoalDriftHook,
-            MilestoneAuditHook, NovelResultHook, PeriodicAuditHook, RepeatedFailureHook,
+            ClaimPromotionHook,
+            ConsistencyHook,
+            ConvergenceHook,
+            EnergyAnomalyHook,
+            GoalDriftHook,
+            MilestoneAuditHook,
+            NovelResultHook,
+            PeriodicAuditHook,
+            RepeatedFailureHook,
             TerminationGuardHook,
         )
         hook_reg = HookRegistry()
@@ -595,6 +616,7 @@ class ResearchEngine:
     def _setup_skills(self) -> None:
         """Put the skill library and the user's skill directories where Claude Code finds them."""
         import shutil
+
         from aurora.paths import aurora_home
         from aurora.skills.materializer import SkillMaterializer
         from aurora.skills.store import SkillStore
@@ -602,7 +624,7 @@ class ResearchEngine:
         try:
             self._skill_store = SkillStore(aurora_home() / "skills.db")
             n = len(SkillMaterializer(self._skill_store, self._workspace.root)
-                    .materialize_for_experiment(self._config.campaign_id))
+                    .materialize_for_experiment(self._config.campaign_id, campaign_id=self.project_id))
         except Exception:
             logger.warning("Skill library unavailable", exc_info=True)
             n = 0
@@ -979,7 +1001,7 @@ Be specific: cite file names and concrete observations.
         )
 
         # --- 2. Current position ---
-        lines.append(f"\n## Your Position")
+        lines.append("\n## Your Position")
         lines.append(f"- **Current phase**: {current_phase}")
         lines.append(f"- **Current round**: {self._current_round}")
 
@@ -990,24 +1012,24 @@ Be specific: cite file names and concrete observations.
         # --- 3. Role ---
         role = self._PHASE_ROLES.get(current_phase, "")
         if role:
-            lines.append(f"\n## Your Responsibility")
+            lines.append("\n## Your Responsibility")
             lines.append(role)
 
         # --- 4. Workspace layout ---
-        lines.append(f"\n## Workspace")
+        lines.append("\n## Workspace")
         lines.append(f"All artifacts are under: `{ws.campaign_dir}`\n")
 
         # Campaign-level files
         campaign_files = []
         if ws.artifacts_path.exists():
-            campaign_files.append(f"- `artifacts.json` — shared experiment records and observations")
+            campaign_files.append("- `artifacts.json` — shared experiment records and observations")
         if ws.mental_model_path.exists():
-            campaign_files.append(f"- `mental_model.json` — evolving research mental model")
+            campaign_files.append("- `mental_model.json` — evolving research mental model")
         if campaign_files:
             lines.extend(campaign_files)
 
         # Phase directories with actual content
-        lines.append(f"\n### Phase Artifacts (`phases/`)\n")
+        lines.append("\n### Phase Artifacts (`phases/`)\n")
 
         phase_order = ["ideation", "screening", "planning", "research", "analysis", "writing"]
         for phase in phase_order:
@@ -1046,7 +1068,7 @@ Be specific: cite file names and concrete observations.
                     self._append_dir_listing(lines, rd, indent=2)
 
         # --- 5. Guidance ---
-        lines.append(f"\n## How to Use Prior Context")
+        lines.append("\n## How to Use Prior Context")
         lines.append(
             "- Read files directly with your tools to understand prior phases' work.\n"
             "- `transcript.jsonl` files contain the full agent trajectory "
@@ -1544,7 +1566,7 @@ Be specific: cite file names and concrete observations.
             runner = self.current_iteration_runner
             if runner is None:
                 return {"status": "not_delivered",
-                        "reason": "no research agent is running now (phase: %s)" % self._phase.value}
+                        "reason": f"no research agent is running now (phase: {self._phase.value})"}
             self._awaiting_agent_response = True
             await runner.inject_message(
                 f"[Instruction from the researcher]\n{message}\n\nAcknowledge it in one or two "
@@ -1849,8 +1871,8 @@ Be specific: cite file names and concrete observations.
             skill_used=job.skill_name,
             parameters=job.parameters,
             status=status,
-            started_at=datetime.now(timezone.utc),
-            completed_at=datetime.now(timezone.utc),
+            started_at=datetime.now(UTC),
+            completed_at=datetime.now(UTC),
             failure_diagnosis=(
                 result.error if status == "failed" else None
             ),
@@ -1888,7 +1910,7 @@ Be specific: cite file names and concrete observations.
                     k: float(v) for k, v in result.job_result.metrics.items()
                     if isinstance(v, (int, float))
                 },
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
             )
             try:
                 artifacts = self._store.load() if self._store else None
@@ -1972,7 +1994,7 @@ Be specific: cite file names and concrete observations.
             plan_id=plan_id,
             completed_jobs=completed_jobs or [],
             current_iteration_id=current_iteration_id,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
         self._workspace.atomic_write_json(
             self._workspace.campaign_dir / "checkpoint.json", cp

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Type, TypeVar
+from dataclasses import dataclass
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -156,6 +156,11 @@ class MockProvider(LLMProvider):
             "not_chosen": [],
             "open_concerns": [],
             "backlog": [],
+        },
+        "Selection": {
+            "chosen": "A",
+            "rationale": "Idea A tests a concrete, falsifiable mechanism with a feasible budget.",
+            "not_chosen": ["B: less directly tied to the objective"],
         },
         "FinalProposal": {
             "title": "Surface Segregation Energetics of Zn in Cu(111)",
@@ -362,7 +367,7 @@ class MockProvider(LLMProvider):
     async def generate_structured(
         self,
         messages: list[Message],
-        schema: Type[T],
+        schema: type[T],
         *,
         model: str | None = None,
         temperature: float = 0.3,

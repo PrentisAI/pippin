@@ -223,7 +223,7 @@ class Supervisor:
                 self._process.stdin.close()
             try:
                 await asyncio.wait_for(self._process.wait(), timeout=20)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._process.kill()
         if self._reader:
             self._reader.cancel()

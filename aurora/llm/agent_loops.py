@@ -487,9 +487,9 @@ class ClaudeCodeLoop:
                 self._process.stdin.close()
             try:
                 await asyncio.wait_for(self._process.wait(), timeout=30)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._process.terminate()
                 try:
                     await asyncio.wait_for(self._process.wait(), timeout=10)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     self._process.kill()

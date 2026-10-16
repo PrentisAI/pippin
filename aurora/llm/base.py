@@ -11,9 +11,9 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, TypeVar, Type
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -206,7 +206,7 @@ class LLMProvider(ABC):
     async def generate_structured(
         self,
         messages: list[Message],
-        schema: Type[T],
+        schema: type[T],
         *,
         model: str | None = None,
         temperature: float = 0.3,
@@ -232,13 +232,13 @@ class LLMProvider(ABC):
         self._usage_tracker.record(self.provider_name, model, usage)
 
     @staticmethod
-    def _schema_to_json_description(schema: Type[BaseModel]) -> str:
+    def _schema_to_json_description(schema: type[BaseModel]) -> str:
         """Return a human-readable JSON schema string for prompt injection."""
         json_schema = schema.model_json_schema()
         return json.dumps(json_schema, indent=2)
 
     @staticmethod
-    def _parse_structured_response(raw: str, schema: Type[T]) -> T:
+    def _parse_structured_response(raw: str, schema: type[T]) -> T:
         """Attempt to parse *raw* text as JSON conforming to *schema*.
 
         Handles common issues like markdown code fences around JSON.
@@ -278,7 +278,7 @@ class LLMProvider(ABC):
     async def _generate_structured_with_fallback(
         self,
         messages: list[Message],
-        schema: Type[T],
+        schema: type[T],
         *,
         model: str | None = None,
         temperature: float = 0.3,

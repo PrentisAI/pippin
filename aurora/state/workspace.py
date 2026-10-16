@@ -53,7 +53,7 @@ import logging
 import os
 import shutil
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -328,7 +328,7 @@ class WorkspaceManager:
         path = Path(path)
         if not path.exists():
             return {}
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             return json.load(fh)
 
     # ------------------------------------------------------------------
@@ -337,7 +337,7 @@ class WorkspaceManager:
 
     def append_event(self, event: dict[str, Any]) -> None:
         """Append a timestamped event to the trajectory JSONL log."""
-        event.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+        event.setdefault("timestamp", datetime.now(UTC).isoformat())
         line = json.dumps(event, default=str, ensure_ascii=False) + "\n"
 
         self.trajectory_path.parent.mkdir(parents=True, exist_ok=True)
@@ -355,7 +355,7 @@ class WorkspaceManager:
         if not self.trajectory_path.exists():
             return []
         events: list[dict[str, Any]] = []
-        with open(self.trajectory_path, "r", encoding="utf-8") as fh:
+        with open(self.trajectory_path, encoding="utf-8") as fh:
             for raw_line in fh:
                 raw_line = raw_line.strip()
                 if raw_line:
@@ -377,7 +377,7 @@ class WorkspaceManager:
         if not path.exists():
             raise FileNotFoundError(f"Cannot back up non-existent file: {path}")
 
-        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
         backup_dir = self._root / "backups" / ts
         backup_dir.mkdir(parents=True, exist_ok=True)
 

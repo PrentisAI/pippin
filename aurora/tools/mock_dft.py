@@ -19,7 +19,6 @@ from typing import Any
 
 from aurora.tools.base import Tool, ToolResult
 
-
 # ---------------------------------------------------------------------------
 # Physical constants and reference energetics
 # ---------------------------------------------------------------------------

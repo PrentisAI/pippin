@@ -16,7 +16,7 @@ fully before or fully after the change — never in between.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 from aurora.models.artifacts import (
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class ArtifactStore:
@@ -463,7 +463,7 @@ class ProvenanceTracker:
                 for eid in evidence:
                     lines.append(f"  - Evidence: {eid}")
             else:
-                lines.append(f"  - ⚠ NO SUPPORTING EVIDENCE LINKED")
+                lines.append("  - ⚠ NO SUPPORTING EVIDENCE LINKED")
 
         lines.append("")
         lines.append("## Experiment → Observation Map")

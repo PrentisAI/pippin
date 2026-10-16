@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
-from typing import Any, Callable, Type, TypeVar
+from typing import Any, Callable, TypeVar
 
 from pydantic import BaseModel
 
 from aurora.llm.base import (
-    LLMProvider,
-    LLMResponse,
     LLMAuthenticationError,
+    LLMError,
+    LLMProvider,
     LLMRateLimitError,
+    LLMResponse,
     LLMResponseParseError,
     LLMTimeoutError,
-    LLMError,
     Message,
     MessageRole,
     TokenUsage,
@@ -189,7 +188,7 @@ class OpenAIProvider(LLMProvider):
     async def generate_structured(
         self,
         messages: list[Message],
-        schema: Type[T],
+        schema: type[T],
         *,
         model: str | None = None,
         temperature: float = 0.3,

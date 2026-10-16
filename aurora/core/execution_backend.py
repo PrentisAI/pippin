@@ -1,10 +1,9 @@
-"""Pluggable execution backend abstraction.
+"""Where the agents' commands run: the execution backend of a campaign.
 
-Defines the ``ExecutionBackend`` protocol that all execution environments
-must implement, plus ``LocalBackend`` for host-local subprocess execution.
-
-Task-specific backends (e.g. Docker for LHTB) live under their own
-packages and implement this same protocol.
+``DockerBackend`` (:mod:`aurora.core.docker_backend`) gives every campaign its
+own container; ``LocalBackend`` runs nothing itself and lets the Claude Code
+sessions work directly in the campaign workspace on this machine (shell
+commands only with ``sandbox.allow_host_bash``).
 """
 
 from __future__ import annotations
@@ -12,62 +11,44 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import subprocess
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
-
+from typing import Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
 class ExecutionBackend(Protocol):
-    """Protocol for pluggable execution environments.
+    """What the engine needs from an execution environment."""
 
-    Implementations provide command execution, tool registration,
-    and lifecycle management for a task's runtime environment.
-    """
+    container_id: str | None
 
     async def setup(self) -> None:
-        """Prepare the execution environment (pull images, start containers, etc.)."""
+        """Prepare the environment (pull the image, start the container, ...)."""
         ...
 
     async def teardown(self) -> None:
-        """Clean up the execution environment."""
+        """Release the environment."""
         ...
 
-    async def exec_command(
-        self,
-        command: str,
-        *,
-        timeout: float = 120.0,
-        workdir: str | None = None,
-    ) -> tuple[int, str, str]:
-        """Run a command and return (exit_code, stdout, stderr)."""
-        ...
-
-    async def read_file(self, path: str) -> bytes:
-        """Read a file from the execution environment."""
-        ...
-
-    async def write_file(self, path: str, content: bytes) -> None:
-        """Write a file in the execution environment."""
+    async def exec_command(self, command: str, *, timeout: float = 120.0,
+                           workdir: str | None = None) -> tuple[int, str, str]:
+        """Run a shell command; returns (exit code, stdout, stderr)."""
         ...
 
     async def run_verifier(self, *, timeout: float = 600.0) -> tuple[bool, float, str]:
-        """Run task verification. Returns (passed, reward, output).
-
-        Backends that don't support verification should return (True, 1.0, "no verifier").
-        """
+        """Run the acceptance tests; returns (passed, score, output)."""
         ...
 
     async def extract_workspace(self, dest: Path) -> bool:
-        """Copy the task workspace to a local directory. Returns success."""
+        """Copy the agents' working directory to *dest* on the host."""
         ...
 
 
 class LocalBackend:
-    """Execute commands on the local host via subprocess."""
+    """No container: the agents work in the campaign workspace on this machine."""
+
+    container_id: str | None = None
 
     def __init__(self, working_dir: str) -> None:
         self._working_dir = working_dir
@@ -78,60 +59,24 @@ class LocalBackend:
     async def teardown(self) -> None:
         pass
 
-    async def exec_command(
-        self,
-        command: str,
-        *,
-        timeout: float = 120.0,
-        workdir: str | None = None,
-    ) -> tuple[int, str, str]:
-        cwd = workdir or self._working_dir
+    async def exec_command(self, command: str, *, timeout: float = 120.0,
+                           workdir: str | None = None) -> tuple[int, str, str]:
+        proc = await asyncio.create_subprocess_exec(
+            "bash", "-c", command, cwd=workdir or self._working_dir,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            env={**os.environ, "TERM": "dumb"},
+        )
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "bash", "-c", command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-                env={**os.environ, "TERM": "dumb"},
-            )
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(), timeout=timeout,
-            )
-            return (
-                proc.returncode or 0,
-                stdout_bytes.decode(errors="replace"),
-                stderr_bytes.decode(errors="replace"),
-            )
-        except asyncio.TimeoutError:
-            try:
-                proc.kill()
-            except Exception:
-                pass
-            return 1, "", f"Command timed out after {timeout}s"
-        except Exception as exc:
-            return 1, "", f"Execution failed: {exc}"
-
-    async def read_file(self, path: str) -> bytes:
-        full = Path(self._working_dir) / path.lstrip("/")
-        return full.read_bytes()
-
-    async def write_file(self, path: str, content: bytes) -> None:
-        full = Path(self._working_dir) / path.lstrip("/")
-        full.parent.mkdir(parents=True, exist_ok=True)
-        full.write_bytes(content)
+            out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except TimeoutError:
+            proc.kill()
+            return 124, "", f"timed out after {timeout:g}s"
+        return proc.returncode or 0, out.decode(errors="replace"), err.decode(errors="replace")
 
     async def run_verifier(self, *, timeout: float = 600.0) -> tuple[bool, float, str]:
-        return True, 1.0, "no verifier"
+        logger.warning("Acceptance tests (sandbox.tests_dir) need sandbox.docker; not run")
+        return True, 1.0, "acceptance tests not run (no container)"
 
     async def extract_workspace(self, dest: Path) -> bool:
-        import shutil
-        src = Path(self._working_dir)
-        if not src.exists():
-            return False
-        dest.mkdir(parents=True, exist_ok=True)
-        try:
-            shutil.copytree(src, dest, dirs_exist_ok=True)
-            return True
-        except Exception as exc:
-            logger.warning("Failed to extract workspace: %s", exc)
-            return False
+        # the agents already worked in the campaign workspace on the host
+        return True
