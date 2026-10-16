@@ -1,0 +1,25 @@
+name: Release
+on:
+  push: {tags: ["v*"]}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions: {id-token: write, contents: write}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 22}
+      - name: Build the web console into the package
+        run: cd frontend && npm ci && npm run build && rm -rf ../aurora/web && cp -r dist ../aurora/web
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install build && python -m build
+      - uses: pypa/gh-action-pypi-publish@release/v1
+  docs:
+    runs-on: ubuntu-latest
+    permissions: {contents: write}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[docs]" && mkdocs gh-deploy --force

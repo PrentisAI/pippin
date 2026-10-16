@@ -1,0 +1,60 @@
+# Multi-agent ideation
+
+A single model, sampled repeatedly, tends to propose variations of the same
+idea. AURORA draws on several model families instead and lets a chair from
+another family choose.
+
+```yaml
+models:
+  ideation_seats: [anthropic/claude-sonnet-5.5, openai/gpt-5.6-sol, google/gemini-3.1-pro-preview]
+  ideation_chair: moonshotai/kimi-k3
+ideation:
+  mode: roundtable        # or: independent
+```
+
+## Two configurations
+
+**`independent`** — every seat prepares one idea on its own. The chair sees the
+ideas anonymised and in random order, picks one with a rationale and a reason
+for each idea not chosen, and the author of the chosen idea writes it up as the
+proposal. Cheap and, in the paper's evaluation, at least as good as the meeting.
+
+**`roundtable`** — a research group meeting:
+
+1. *Preparation* — every seat prepares a presentation of one main idea.
+2. *Agenda* — one item per presentation, in random order. The other seats make
+   remarks (questions, concerns, suggestions, evidence, build-ons) or pass; the
+   presenter responds; seats that raised a hand may follow up; up to
+   `ideation.rounds_per_item` exchanges. The chair takes notes on every thread
+   and its outcome.
+3. *Open discussion* — cross-cutting remarks.
+4. *Decision* — the chair decides the direction from the notes and the
+   transcript (no voting by the seats); the chosen presenter writes the proposal
+   with the changes the meeting accepted.
+
+The full transcript, the chair's notes and the decision are saved with the
+proposal in `phases/ideation/round_N/`. In the paper's evaluation the meeting
+tended to merge directions rather than choose among them and cost about four
+times as much as independent selection.
+
+## Customising seats
+
+```yaml
+ideation:
+  seats:
+    - {name: Theorist,     model: anthropic/claude-sonnet-5.5, prompt: "You favour first-principles explanations ..."}
+    - {name: Experimentalist, model: openai/gpt-5.6-sol}
+    - {name: Skeptic,      model: google/gemini-3.1-pro-preview, prompt: "You look for confounders ..."}
+  chair_prompt: ""        # empty: the built-in chair prompt
+  web_search: false       # let seats search the web (OpenRouter web plugin)
+```
+
+Leave `web_search` off when evaluating ideation on known problems, so ideas
+cannot be looked up.
+
+## Failures
+
+If a seat's call fails it is left out and the meeting continues with the
+others (a warning is logged). If every seat fails, or the chair cannot decide,
+the campaign stops with an error naming the models — check the model IDs and
+your key.

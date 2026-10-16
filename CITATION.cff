@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use AURORA, please cite the paper."
+title: "AURORA"
+type: software
+license: MIT
+repository-code: "https://github.com/titanresearchlabs/aurora"
+authors:
+  - name: "The AURORA authors"
+preferred-citation:
+  type: article
+  title: "AURORA: Towards Long-Horizon Open-ended AutoResearch with Human-Agent Synergy"
+  authors:
+    - name: "The AURORA authors"
+  year: 2026

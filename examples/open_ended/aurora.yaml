@@ -1,0 +1,31 @@
+# An open-ended campaign: the full pipeline, starting from a broad question.
+#   aurora run examples/open_ended/aurora.yaml
+# Expect roughly 1-3 hours and US$15-40, depending on the models and how many
+# follow-up rounds the analysis asks for. The budget below stops it at US$40.
+
+objective: >
+  When does a gradient-boosted tree ensemble beat a random forest on small
+  tabular classification problems (fewer than 2,000 rows), and when is the
+  difference just noise? Use datasets that ship with scikit-learn or can be
+  generated synthetically, control for tuning effort, and give a practical
+  rule of thumb backed by the evidence.
+
+ideation:
+  mode: roundtable              # three models present and discuss directions; a chair decides
+
+agent:
+  max_research_iterations: 6
+  research_timeout_minutes: 45
+  max_followup_cycles: 1
+
+sandbox:
+  image: python:3.11-slim
+  cpus: 8
+  memory_mb: 16384
+
+human:
+  autonomy: supervised          # escalations wait for you (answer in the terminal or web console)
+
+budget:
+  max_hours: 4
+  max_cost_usd: 40

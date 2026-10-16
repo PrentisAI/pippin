@@ -8,41 +8,22 @@ JSONL trajectory log records every significant event for post-hoc analysis.
 Directory layout::
 
     {workspace.root}/{campaign_id}/
-    ├── campaign.json                        # Campaign config snapshot
-    ├── artifacts.json                       # Shared state
-    ├── mental_model.json
-    │
+    ├── config.yaml                  # effective configuration (no secrets), for `aurora resume`
+    ├── checkpoint.json              # where to resume
+    ├── artifacts.json               # experiments, observations and claims recorded so far
+    ├── human_gates.jsonl            # every human gate and its decision
+    ├── trajectory.jsonl             # append-only event log
+    ├── audit_records/               # milestone audit reports, one per hand-off
     ├── phases/
-    │   ├── ideation/
-    │   │   ├── transcript.jsonl
-    │   │   └── proposal.json
-    │   │
-    │   ├── screening/
-    │   │   ├── transcript.jsonl
-    │   │   └── verdict.json
-    │   │
-    │   ├── planning/
-    │   │   ├── transcript.jsonl
-    │   │   └── plan.json
-    │   │
-    │   ├── research/
-    │   │   └── round_{n}/
-    │   │       └── {job_id}/
-    │   │           └── iter_{n}/
-    │   │               ├── transcript.jsonl
-    │   │               ├── workspace/       # Agent-produced files
-    │   │               └── verifier.json
-    │   │
-    │   ├── analysis/
-    │   │   └── round_{n}/
-    │   │       ├── transcript.jsonl
-    │   │       └── verdict.json
-    │   │
-    │   └── writing/
-    │       ├── transcript.jsonl
-    │       └── report.md
-    │
-    └── backups/
+    │   ├── ideation/round_N/        # proposal JSON (with meeting notes and the chair's decision)
+    │   ├── screening/round_N/       # score.json + session transcript
+    │   ├── planning/round_N/        # plan.json + session transcript
+    │   ├── research/                # research_loop.jsonl: live transcript of the research agent
+    │   ├── supervisor/round_N/      # live-auditor log and verdicts
+    │   ├── analysis/round_N/        # verdict.json + session transcript
+    │   └── writing/                 # draft_N.md: the report
+    ├── workspace/                   # the container's /app, copied out when the campaign ends
+    └── .claude/skills/              # skills available to the agent sessions
 """
 
 from __future__ import annotations

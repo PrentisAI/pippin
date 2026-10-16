@@ -47,3 +47,13 @@ def test_load_config_with_overrides(tmp_path):
     assert cfg.ideation.mode == "independent"
     with pytest.raises(FileNotFoundError):
         load_config(tmp_path / "missing.yaml")
+
+
+def test_relative_paths_are_relative_to_the_config_file(tmp_path, monkeypatch):
+    (tmp_path / "proj" / "data").mkdir(parents=True)
+    path = tmp_path / "proj" / "c.yaml"
+    path.write_text(yaml.safe_dump({"objective": "x", "inputs": ["data"], "workspace": {"root": "ws"}}))
+    monkeypatch.chdir(tmp_path)
+    cfg = load_config(path)
+    assert cfg.inputs == [str(tmp_path / "proj" / "data")]
+    assert cfg.workspace.root == str(tmp_path / "proj" / "ws")

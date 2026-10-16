@@ -1,0 +1,29 @@
+# Quickstart: a small, cheap, real campaign (a few minutes, typically under US$2).
+#   aurora run examples/quickstart/aurora.yaml
+# It skips ideation and screening (the question is already concrete) and runs one
+# planning → research → analysis → writing pass in a Docker container.
+
+objective: >
+  The file inputs/measurements.csv holds 400 runs of a (simulated) reactor:
+  standardised temperature, pressure, catalyst_loading and flow_rate, and the
+  measured yield. Find out which variables actually drive the yield, what the
+  shape of each effect is (linear or not), and how well yield can be predicted.
+  Be careful about correlated inputs: say which effects are causal-looking and
+  which are only correlated. Report effect estimates with uncertainty and a
+  held-out prediction error, with one or two figures.
+
+inputs:
+  - data/measurements.csv       # paths in a config file are relative to the file
+
+skip_phases: [ideation, screening]
+
+agent:
+  max_research_iterations: 3
+  research_timeout_minutes: 20
+
+sandbox:
+  image: python:3.11-slim       # the agent installs numpy/pandas/scikit-learn itself
+
+budget:
+  max_hours: 1
+  max_cost_usd: 5

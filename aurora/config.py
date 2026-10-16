@@ -470,4 +470,22 @@ def load_config(path: str | Path, **overrides: Any) -> AuroraConfig:
     with open(path, encoding="utf-8") as fh:
         raw: dict[str, Any] = yaml.safe_load(fh) or {}
     raw.update({k: v for k, v in overrides.items() if v is not None})
+    _resolve_relative_paths(raw, path.resolve().parent)
     return AuroraConfig.model_validate(raw)
+
+
+def _resolve_relative_paths(raw: dict[str, Any], base: Path) -> None:
+    """Paths written in a config file are relative to that file, like in docker-compose."""
+    def resolve(value: str) -> str:
+        p = Path(value).expanduser()
+        return str(p if p.is_absolute() else (base / p).resolve())
+
+    for key in ("inputs", "skills_dirs"):
+        if isinstance(raw.get(key), list):
+            raw[key] = [resolve(v) for v in raw[key]]
+    sandbox = raw.get("sandbox")
+    if isinstance(sandbox, dict) and sandbox.get("tests_dir"):
+        sandbox["tests_dir"] = resolve(sandbox["tests_dir"])
+    workspace = raw.get("workspace")
+    if isinstance(workspace, dict) and workspace.get("root"):
+        workspace["root"] = resolve(workspace["root"])

@@ -38,6 +38,41 @@ class RecordedCall:
     response: str
 
 
+# Text answer for the mental-model reconstruction of the scripted study
+_MENTAL_MODEL_TEXT = json.dumps({
+    "active_hypotheses": [
+        {
+            "hypothesis_id": "h1",
+            "statement": "Zn preferentially segregates to the Cu(111) surface at low coverage",
+            "confidence": 0.65,
+            "supporting_evidence": ["obs_seg"],
+            "contradicting_evidence": [],
+        },
+    ],
+    "competing_hypotheses": [],
+    "rejected_hypotheses": [],
+    "inferred_mechanisms": [
+        "Size mismatch (Zn > Cu) provides thermodynamic driving force for surface segregation",
+    ],
+    "causal_relationships": [
+        {
+            "cause": "Zn atom size mismatch with Cu lattice",
+            "effect": "Surface segregation preference",
+            "mechanism": "Strain relief at free surface",
+            "confidence": 0.6,
+            "supporting_evidence": ["obs_seg"],
+        },
+    ],
+    "current_rationale": "Zn segregation to Cu(111) is driven by size mismatch strain relief.",
+    "unresolved_ambiguity": ["Coverage dependence not yet established"],
+    "expected_outcomes": {
+        "Zn segregation energy at higher coverage": "ΔE_seg becomes less negative with increasing Zn coverage",
+        "NequIP cross-validation": "ΔΔE_seg < 0.5 eV between DFT and NequIP",
+    },
+    "schema_version": "aurora_mental_model_v0",
+})
+
+
 class MockProvider(LLMProvider):
     """Deterministic mock LLM provider for testing.
 
@@ -293,7 +328,7 @@ class MockProvider(LLMProvider):
         usage_tracker: UsageTracker | None = None,
     ) -> None:
         super().__init__(usage_tracker=usage_tracker)
-        self._responses: dict[str, str] = responses or {}
+        self._responses: dict[str, str] = responses or {"scientific reasoning engine": _MENTAL_MODEL_TEXT}
         self._default_response = default_response
         # Merge builtin defaults with user overrides (user takes precedence)
         self._structured_defaults: dict[str, dict[str, Any]] = {
