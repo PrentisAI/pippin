@@ -1,0 +1,64 @@
+# Cu-Zn Surface Segregation — full paper case study (Section H)
+# This is the configuration for the Cu-Zn alloy catalyst study described
+# in the AURORA paper.  Uses real LLM API keys (set via env vars).
+#
+# Usage: python -m aurora run --config examples/cu_zn_segregation/config.yaml
+
+campaign_id: "cu_zn_segregation_001"
+objective: >
+  Map the surface segregation landscape of Cu₁₋ₓZnₓ alloys across low-
+  index facets ((111), (100), (110)) and Zn concentrations (x = 0.05–0.30),
+  quantify coverage-dependent ΔE_seg, cross-validate DFT with at least two
+  MLIP potentials (NequIP, CHGNet), and assess implications for methanol
+  synthesis catalyst stability under operating conditions.
+domain: "computational_materials_science"
+
+# Model assignment from Table 6 of the paper
+llm_assignment:
+  roundtable_seat:
+    - "claude-opus-4-8"
+    - "gemini-3.1-pro-preview"
+    - "gpt-5.5"
+    - "deepseek-v4-pro"
+  roundtable_chair: "deepseek-v4-flash"
+  idea_screening: "gpt-4o-mini"
+  researcher: "claude-opus-4-8"
+  auditor_triage: "claude-haiku-4-5"
+  auditor_deep: "claude-opus-4-8"
+  analyzer: "claude-opus-4-8"
+  writer: "claude-sonnet-4-5"
+
+llm_providers:
+  - provider: "anthropic"
+    api_key: ""  # Set ANTHROPIC_API_KEY env var
+  - provider: "openai"
+    api_key: ""  # Set OPENAI_API_KEY env var
+  - provider: "google"
+    api_key: ""  # Set GOOGLE_API_KEY env var
+  - provider: "deepseek"
+    api_key: ""  # Set DEEPSEEK_API_KEY env var
+
+workspace:
+  workspace_root: "./workspace"
+  no_delete_policy: true
+
+resource_limits:
+  max_wall_clock_hours: 120.0
+  max_gpu_hours: 1000.0
+  monthly_token_budget: 10000000
+  per_cell_wall_time_minutes: 120
+  max_concurrent_simulations: 16
+
+human_checkpoints:
+  require_approval_for:
+    - "proposal_approval"
+    - "goal_change"
+    - "termination"
+    - "validation_sub_campaign"
+  auto_approve_timeout_seconds: null  # wait indefinitely
+
+# Pipeline parameters
+max_followup_cycles: 3
+max_roundtable_rounds: 5
+num_roundtable_seats: 4
+max_research_iterations: 50

@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LHTB Monitor</title>
+<style>
+:root {
+  --bg: #1a1a2e;
+  --bg-card: #16213e;
+  --bg-highlight: #0f3460;
+  --bg-input: #0d1b36;
+  --border: #1e3a5f;
+  --text: #e0e0e0;
+  --text-dim: #8892a4;
+  --text-bright: #ffffff;
+  --accent: #4ea8de;
+  --green: #4ade80;
+  --red: #f87171;
+  --orange: #fb923c;
+  --yellow: #facc15;
+  --blue: #60a5fa;
+  --purple: #a78bfa;
+  --font-mono: 'Menlo', 'Monaco', 'Consolas', 'Courier New', monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-width: 1200px;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Layout */
+.app { display: flex; height: 100vh; }
+.panel-left { width: 280px; border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+.panel-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.panel-right { width: 300px; border-left: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+
+/* Panel headers */
+.panel-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-bright);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.panel-header .count {
+  background: var(--bg-highlight);
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+/* Left panel — run list */
+.run-list { flex: 1; overflow-y: auto; padding: 8px; }
+.run-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.run-card:hover { border-color: var(--accent); }
+.run-card.selected { border-color: var(--accent); background: var(--bg-highlight); }
+.run-card .task-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-bright);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 6px;
+}
+.run-card .run-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.run-card .run-meta .reward { font-weight: 600; }
+
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.status-running { background: rgba(96,165,250,0.2); color: var(--blue); }
+.status-completed { background: rgba(74,222,128,0.2); color: var(--green); }
+.status-error { background: rgba(248,113,113,0.2); color: var(--red); }
+.status-timeout { background: rgba(250,204,21,0.2); color: var(--yellow); }
+.status-starting { background: rgba(167,139,250,0.2); color: var(--purple); }
+.status-stopped { background: rgba(136,146,164,0.2); color: var(--text-dim); }
+.status-partial { background: rgba(251,146,60,0.2); color: var(--orange); }
+.status-incomplete { background: rgba(136,146,164,0.2); color: var(--text-dim); }
+
+.watchdog-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 6px;
+}
+.watchdog-indicator.active { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.watchdog-indicator.inactive { background: var(--text-dim); }
+
+/* Main panel — overview */
+.overview {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.overview-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.overview-title { font-size: 18px; font-weight: 700; color: var(--text-bright); }
+.overview-model { font-size: 12px; color: var(--text-dim); }
+.overview-stats {
+  display: flex;
+  gap: 24px;
+  font-size: 13px;
+}
+.stat-item { display: flex; flex-direction: column; gap: 2px; }
+.stat-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; }
+.stat-value { font-weight: 600; color: var(--text-bright); }
+.reward-bar {
+  height: 6px;
+  background: var(--bg-highlight);
+  border-radius: 3px;
+  margin-top: 12px;
+  overflow: hidden;
+}
+.reward-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.5s;
+}
+
+/* Event stream */
+.event-stream-container { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.event-stream-header {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.auto-scroll-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.auto-scroll-badge.on { background: rgba(74,222,128,0.2); color: var(--green); }
+.auto-scroll-badge.off { background: rgba(248,113,113,0.2); color: var(--red); }
+
+.event-stream {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.event-line { padding: 2px 0; border-bottom: 1px solid rgba(30,58,95,0.3); }
+.event-time { color: var(--text-dim); margin-right: 8px; font-size: 11px; }
+.event-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-right: 6px;
+  text-transform: uppercase;
+}
+
+.event-reasoning .event-tag { background: rgba(136,146,164,0.2); color: var(--text-dim); }
+.event-reasoning .event-text { color: #9ca3af; }
+.event-tool-call .event-tag { background: rgba(96,165,250,0.2); color: var(--blue); }
+.event-tool-call .event-text { color: var(--blue); }
+.event-tool-result .event-tag { background: rgba(74,222,128,0.2); color: var(--green); }
+.event-tool-result .event-text { color: #a7f3d0; }
+.event-tool-result.error .event-tag { background: rgba(248,113,113,0.2); color: var(--red); }
+.event-tool-result.error .event-text { color: #fca5a5; }
+
+.event-verifier {
+  background: var(--bg-highlight);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 6px 0;
+}
+.event-verifier .event-tag { background: rgba(167,139,250,0.3); color: var(--purple); font-size: 12px; }
+.event-verifier .reward-value { font-size: 18px; font-weight: 700; margin-left: 12px; }
+.event-verifier .reward-value.pass { color: var(--green); }
+.event-verifier .reward-value.fail { color: var(--red); }
+
+.event-watchdog-verdict {
+  border-left: 3px solid var(--orange);
+  background: rgba(251,146,60,0.08);
+  padding: 6px 12px;
+  margin: 4px 0;
+  border-radius: 0 6px 6px 0;
+}
+.event-watchdog-verdict .event-tag { background: rgba(251,146,60,0.2); color: var(--orange); }
+
+.event-watchdog-interrupt {
+  border: 1px solid var(--red);
+  background: rgba(248,113,113,0.1);
+  padding: 8px 12px;
+  margin: 6px 0;
+  border-radius: 6px;
+}
+.event-watchdog-interrupt .event-tag { background: rgba(248,113,113,0.3); color: var(--red); font-size: 12px; }
+
+.event-watchdog-checkpoint {
+  border-left: 3px solid var(--accent);
+  background: rgba(78,168,222,0.08);
+  padding: 6px 12px;
+  margin: 4px 0;
+  border-radius: 0 6px 6px 0;
+}
+
+.event-phase {
+  background: var(--bg-highlight);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  margin: 6px 0;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* Phase timeline */
+.phase-timeline {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+.phase-chip {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 80px;
+}
+.phase-chip .phase-num { font-weight: 700; color: var(--text-bright); }
+.phase-chip .phase-reward { font-weight: 600; }
+.phase-chip.passed { border-color: var(--green); }
+.phase-chip.passed .phase-reward { color: var(--green); }
+.phase-chip.failed .phase-reward { color: var(--red); }
+.phase-chip.current { border-color: var(--accent); background: var(--bg-highlight); }
+
+/* Right panel — watchdog */
+.watchdog-status { padding: 16px; flex-shrink: 0; border-bottom: 1px solid var(--border); }
+.watchdog-active-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.watchdog-active-dot {
+  width: 12px; height: 12px; border-radius: 50%;
+}
+.watchdog-active-dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+.watchdog-active-dot.off { background: #555; }
+.watchdog-active-label { font-size: 13px; font-weight: 600; }
+
+.watchdog-counters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.counter-box {
+  background: var(--bg-highlight);
+  border-radius: 6px;
+  padding: 8px;
+  text-align: center;
+}
+.counter-box .counter-val { font-size: 20px; font-weight: 700; color: var(--text-bright); }
+.counter-box .counter-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; }
+
+.latest-verdict {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+}
+.latest-verdict .verdict-level { font-size: 12px; font-weight: 700; text-transform: uppercase; }
+.latest-verdict .verdict-reason { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+.verdict-history-label {
+  padding: 12px 16px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.verdict-history { flex: 1; overflow-y: auto; padding: 0 16px 16px; }
+.verdict-item {
+  background: var(--bg-card);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  border-left: 3px solid;
+}
+.verdict-item.normal { border-left-color: var(--green); }
+.verdict-item.warning { border-left-color: var(--orange); }
+.verdict-item.critical { border-left-color: var(--red); }
+.verdict-item .verdict-item-level { font-weight: 700; text-transform: uppercase; }
+.verdict-item.normal .verdict-item-level { color: var(--green); }
+.verdict-item.warning .verdict-item-level { color: var(--orange); }
+.verdict-item.critical .verdict-item-level { color: var(--red); }
+.verdict-item .verdict-item-reason { color: var(--text-dim); margin-top: 2px; }
+.verdict-item .verdict-item-time { color: var(--text-dim); font-size: 10px; margin-top: 2px; }
+
+/* Empty / placeholder states */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-dim);
+  font-size: 14px;
+  gap: 8px;
+}
+.empty-state .empty-icon { font-size: 36px; opacity: 0.4; }
+
+/* Connection status */
+.conn-status {
+  padding: 4px 16px;
+  font-size: 11px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.conn-dot { width: 6px; height: 6px; border-radius: 50%; }
+.conn-dot.connected { background: var(--green); }
+.conn-dot.disconnected { background: var(--red); }
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--bg-highlight); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Left Panel: Run List -->
+  <div class="panel-left">
+    <div class="panel-header">
+      Runs <span class="count" id="runCount">0</span>
+    </div>
+    <div class="run-list" id="runList">
+      <div class="empty-state">
+        <div class="empty-icon">&#9744;</div>
+        <div>No runs yet</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Panel: Run Details -->
+  <div class="panel-main">
+    <div id="mainContent">
+      <div class="empty-state" style="height:100vh">
+        <div class="empty-icon">&#9654;</div>
+        <div>Select a run to view details</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Panel: Watchdog -->
+  <div class="panel-right">
+    <div class="panel-header">Watchdog</div>
+    <div id="watchdogContent">
+      <div class="empty-state" style="height:300px">
+        <div class="empty-icon">&#9737;</div>
+        <div>No run selected</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const state = {
+  runs: [],
+  selectedRunId: null,
+  ws: null,
+  autoScroll: true,
+  events: [],
+  watchdogVerdicts: [],
+  refreshTimer: null,
+};
+
+// --- API ---
+const api = {
+  async getRuns() {
+    const r = await fetch('/api/lhtb/runs');
+    return r.json();
+  },
+  async getRunDetail(runId) {
+    const r = await fetch(`/api/lhtb/runs/${runId}`);
+    return r.json();
+  },
+  async stopRun(runId) {
+    const r = await fetch(`/api/lhtb/runs/${runId}`, { method: 'DELETE' });
+    return r.json();
+  },
+};
+
+// --- Helpers ---
+function fmtTime(ts) {
+  if (!ts) return '--';
+  const d = new Date(ts * 1000);
+  return d.toLocaleTimeString('en-US', { hour12: false });
+}
+
+function fmtElapsed(startTs, endTs) {
+  const end = endTs || Date.now() / 1000;
+  const s = Math.floor(end - startTs);
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  if (h > 0) return `${h}h ${m % 60}m`;
+  if (m > 0) return `${m}m ${s % 60}s`;
+  return `${s}s`;
+}
+
+function fmtReward(r) {
+  return (r * 100).toFixed(1) + '%';
+}
+
+function statusClass(s) {
+  return 'status-' + (s || 'starting');
+}
+
+function rewardColor(r) {
+  if (r >= 0.95) return 'var(--green)';
+  if (r >= 0.5) return 'var(--yellow)';
+  if (r > 0) return 'var(--orange)';
+  return 'var(--red)';
+}
+
+function escapeHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+function truncate(str, max) {
+  if (!str) return '';
+  return str.length > max ? str.slice(0, max) + '...' : str;
+}
+
+// --- Render run list ---
+function renderRunList() {
+  const el = document.getElementById('runList');
+  const countEl = document.getElementById('runCount');
+  countEl.textContent = state.runs.length;
+
+  if (state.runs.length === 0) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9744;</div><div>No runs yet</div></div>';
+    return;
+  }
+
+  el.innerHTML = state.runs.map(r => `
+    <div class="run-card ${r.run_id === state.selectedRunId ? 'selected' : ''}"
+         onclick="selectRun('${r.run_id}')">
+      <div class="task-name">${escapeHtml(r.task_name)}</div>
+      <div class="run-meta">
+        <span class="status-badge ${statusClass(r.status)}">${r.status}</span>
+        <span class="reward" style="color:${rewardColor(r.reward)}">${fmtReward(r.reward)}</span>
+      </div>
+      <div class="run-meta" style="margin-top:4px">
+        <span>P${r.phase} / T${r.turn}</span>
+        <span>${fmtElapsed(r.started_at, r.finished_at)}
+          <span class="watchdog-indicator ${r.watchdog_active ? 'active' : 'inactive'}"></span>
+        </span>
+      </div>
+    </div>
+  `).join('');
+}
+
+// --- Render main panel ---
+function renderMainPanel(detail) {
+  const el = document.getElementById('mainContent');
+  if (!detail || detail.error === 'Run not found') {
+    el.innerHTML = '<div class="empty-state" style="height:100vh"><div class="empty-icon">&#9654;</div><div>Select a run to view details</div></div>';
+    return;
+  }
+
+  const r = detail;
+  const phases = r.phases || [];
+
+  el.innerHTML = `
+    <div class="overview">
+      <div class="overview-top">
+        <div>
+          <div class="overview-title">${escapeHtml(r.task_name)}</div>
+          <div class="overview-model">${escapeHtml(r.model)} &middot; ${r.run_id}</div>
+        </div>
+        <span class="status-badge ${statusClass(r.status)}" style="font-size:13px;padding:4px 12px">${r.status}</span>
+      </div>
+      <div class="overview-stats">
+        <div class="stat-item"><span class="stat-label">Phase</span><span class="stat-value">${r.phase}</span></div>
+        <div class="stat-item"><span class="stat-label">Turn</span><span class="stat-value">${r.turn}</span></div>
+        <div class="stat-item"><span class="stat-label">Reward</span><span class="stat-value" style="color:${rewardColor(r.reward)}">${fmtReward(r.reward)}</span></div>
+        <div class="stat-item"><span class="stat-label">Elapsed</span><span class="stat-value">${fmtElapsed(r.started_at, r.finished_at)}</span></div>
+        <div class="stat-item"><span class="stat-label">Events</span><span class="stat-value">${r.event_count}</span></div>
+      </div>
+      <div class="reward-bar">
+        <div class="reward-bar-fill" style="width:${Math.min(r.reward * 100, 100)}%;background:${rewardColor(r.reward)}"></div>
+      </div>
+    </div>
+
+    <div class="event-stream-container">
+      <div class="event-stream-header">
+        <span>Event Stream</span>
+        <span class="auto-scroll-badge ${state.autoScroll ? 'on' : 'off'}" onclick="toggleAutoScroll()">
+          Auto-scroll: ${state.autoScroll ? 'ON' : 'OFF'}
+        </span>
+      </div>
+      <div class="event-stream" id="eventStream"></div>
+    </div>
+
+    <div class="phase-timeline" id="phaseTimeline"></div>
+    <div class="conn-status">
+      <span class="conn-dot" id="connDot"></span>
+      <span id="connLabel">Connecting...</span>
+    </div>
+  `;
+
+  renderEvents();
+  renderPhaseTimeline(phases);
+  setupScrollDetection();
+  updateConnStatus();
+}
+
+// --- Render single event ---
+function renderEventHtml(ev) {
+  const t = ev.event_type;
+  const d = ev.data || {};
+  const time = `<span class="event-time">${fmtTime(ev.timestamp)}</span>`;
+
+  if (t === 'reasoning') {
+    return `<div class="event-line event-reasoning">${time}<span class="event-tag">think</span><span class="event-text">${escapeHtml(truncate(d.text, 300))}</span></div>`;
+  }
+  if (t === 'tool_call_start') {
+    return `<div class="event-line event-tool-call">${time}<span class="event-tag">tool</span><span class="event-text">${escapeHtml(d.tool_name || '?')}</span></div>`;
+  }
+  if (t === 'tool_call_result') {
+    const isErr = d.error || (d.output && d.output.includes('Error'));
+    return `<div class="event-line event-tool-result ${isErr ? 'error' : ''}">${time}<span class="event-tag">result</span><span class="event-text">${escapeHtml(d.tool_name || '?')} (${d.duration || 0}s)</span></div>`;
+  }
+  if (t === 'verifier_result') {
+    const passed = d.passed;
+    return `<div class="event-verifier">${time}<span class="event-tag">verifier</span><span class="reward-value ${passed ? 'pass' : 'fail'}">${fmtReward(d.reward || 0)}</span> ${passed ? 'PASSED' : 'FAILED'}</div>`;
+  }
+  if (t === 'phase_started') {
+    return `<div class="event-phase">${time} Phase ${d.phase} started (${d.remaining || 0}s remaining)</div>`;
+  }
+  if (t === 'watchdog_verdict') {
+    const level = d.level || 'normal';
+    return `<div class="event-watchdog-verdict">${time}<span class="event-tag">watchdog</span><span class="verdict-item-level" style="color:var(--${level === 'critical' ? 'red' : level === 'warning' ? 'orange' : 'green'})">[${level.toUpperCase()}]</span> ${escapeHtml(truncate(d.reason, 200))}</div>`;
+  }
+  if (t === 'watchdog_interrupt') {
+    return `<div class="event-watchdog-interrupt">${time}<span class="event-tag">interrupt</span><span class="event-text">${escapeHtml(truncate(d.message, 300))}</span></div>`;
+  }
+  if (t === 'watchdog_checkpoint') {
+    const level = d.level || 'normal';
+    return `<div class="event-watchdog-checkpoint">${time}<span class="event-tag">checkpoint</span> [${d.checkpoint_id || '?'}] <span style="color:var(--${level === 'critical' ? 'red' : level === 'warning' ? 'orange' : 'green'})">${level.toUpperCase()}</span> ${escapeHtml(truncate(d.reason, 150))}</div>`;
+  }
+  if (t === 'docker_started') {
+    return `<div class="event-line">${time}<span class="event-tag" style="background:rgba(167,139,250,0.2);color:var(--purple)">docker</span><span class="event-text">Container ${escapeHtml(d.container_id || '?')} started</span></div>`;
+  }
+  if (t === 'run_finished') {
+    return `<div class="event-phase" style="border-color:${d.status === 'completed' ? 'var(--green)' : 'var(--red)'}">${time} Run finished: ${d.status} (reward: ${fmtReward(d.final_reward || 0)}, ${d.total_turns || 0} turns, ${Math.round(d.wall_time || 0)}s)</div>`;
+  }
+  if (t === 'run_error') {
+    return `<div class="event-watchdog-interrupt">${time}<span class="event-tag">error</span><span class="event-text">${escapeHtml(truncate(d.error, 300))}</span></div>`;
+  }
+  // Fallback
+  return `<div class="event-line">${time}<span class="event-tag" style="background:rgba(136,146,164,0.2);color:var(--text-dim)">${escapeHtml(t)}</span><span class="event-text" style="color:var(--text-dim)">${escapeHtml(truncate(JSON.stringify(d), 200))}</span></div>`;
+}
+
+function renderEvents() {
+  const el = document.getElementById('eventStream');
+  if (!el) return;
+  el.innerHTML = state.events.map(renderEventHtml).join('');
+  if (state.autoScroll) {
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
+function appendEvent(ev) {
+  state.events.push(ev);
+  const el = document.getElementById('eventStream');
+  if (!el) return;
+  el.insertAdjacentHTML('beforeend', renderEventHtml(ev));
+  if (state.autoScroll) {
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
+// --- Phase timeline ---
+function renderPhaseTimeline(phases) {
+  const el = document.getElementById('phaseTimeline');
+  if (!el) return;
+  if (!phases || phases.length === 0) {
+    el.innerHTML = '<span style="font-size:12px;color:var(--text-dim)">No phases yet</span>';
+    return;
+  }
+  // Also show current phase from run state
+  const selected = state.runs.find(r => r.run_id === state.selectedRunId);
+  const currentPhase = selected ? selected.phase : -1;
+
+  el.innerHTML = phases.map((p, i) => {
+    const passed = p.passed || p.verifier_passed;
+    const isCurrent = i === currentPhase && selected && selected.status === 'running';
+    return `
+      <div class="phase-chip ${passed ? 'passed' : 'failed'} ${isCurrent ? 'current' : ''}">
+        <span class="phase-num">Phase ${i}</span>
+        <span class="phase-reward">${fmtReward(p.reward || p.verifier_reward || 0)}</span>
+        <span style="font-size:10px;color:var(--text-dim)">${p.turns || 0}t / ${Math.round(p.wall_time || p.wall_time_seconds || 0)}s</span>
+      </div>
+    `;
+  }).join('');
+}
+
+// --- Auto-scroll detection ---
+function setupScrollDetection() {
+  const el = document.getElementById('eventStream');
+  if (!el) return;
+  el.addEventListener('scroll', () => {
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+    if (atBottom && !state.autoScroll) {
+      state.autoScroll = true;
+      updateAutoScrollBadge();
+    } else if (!atBottom && state.autoScroll) {
+      state.autoScroll = false;
+      updateAutoScrollBadge();
+    }
+  });
+}
+
+function toggleAutoScroll() {
+  state.autoScroll = !state.autoScroll;
+  updateAutoScrollBadge();
+  if (state.autoScroll) {
+    const el = document.getElementById('eventStream');
+    if (el) el.scrollTop = el.scrollHeight;
+  }
+}
+
+function updateAutoScrollBadge() {
+  const el = document.querySelector('.auto-scroll-badge');
+  if (!el) return;
+  el.className = `auto-scroll-badge ${state.autoScroll ? 'on' : 'off'}`;
+  el.textContent = `Auto-scroll: ${state.autoScroll ? 'ON' : 'OFF'}`;
+}
+
+// --- Watchdog panel ---
+function renderWatchdogPanel(detail) {
+  const el = document.getElementById('watchdogContent');
+  if (!detail) {
+    el.innerHTML = '<div class="empty-state" style="height:300px"><div class="empty-icon">&#9737;</div><div>No run selected</div></div>';
+    return;
+  }
+
+  const active = detail.watchdog_active;
+  const cycles = detail.watchdog_cycles || 0;
+  const l2 = detail.l2_escalations || 0;
+  const verdicts = detail.watchdog_verdict_details || [];
+  const latest = verdicts.length > 0 ? verdicts[verdicts.length - 1] : null;
+
+  let latestHtml = '<div style="font-size:12px;color:var(--text-dim)">No verdicts yet</div>';
+  if (latest) {
+    const lvl = latest.level || 'normal';
+    const color = lvl === 'critical' ? 'var(--red)' : lvl === 'warning' ? 'var(--orange)' : 'var(--green)';
+    latestHtml = `
+      <div class="latest-verdict">
+        <div class="verdict-level" style="color:${color}">${lvl}</div>
+        <div class="verdict-reason">${escapeHtml(truncate(latest.reason, 150))}</div>
+      </div>
+    `;
+  }
+
+  const verdictItems = verdicts.slice().reverse().map(v => {
+    const lvl = v.level || 'normal';
+    return `
+      <div class="verdict-item ${lvl}">
+        <div class="verdict-item-level">${lvl}</div>
+        <div class="verdict-item-reason">${escapeHtml(truncate(v.reason, 120))}</div>
+        ${v.suggestion ? `<div class="verdict-item-reason" style="color:var(--accent)">${escapeHtml(truncate(v.suggestion, 100))}</div>` : ''}
+        <div class="verdict-item-time">${v.source || 'watchdog'} &middot; ${v.timestamp ? fmtTime(v.timestamp) : ''}</div>
+      </div>
+    `;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="watchdog-status">
+      <div class="watchdog-active-row">
+        <span class="watchdog-active-dot ${active ? 'on' : 'off'}"></span>
+        <span class="watchdog-active-label">${active ? 'Active' : 'Inactive'}</span>
+      </div>
+      <div class="watchdog-counters">
+        <div class="counter-box">
+          <div class="counter-val">${cycles}</div>
+          <div class="counter-label">Cycles</div>
+        </div>
+        <div class="counter-box">
+          <div class="counter-val">${l2}</div>
+          <div class="counter-label">L2 Escalations</div>
+        </div>
+      </div>
+      ${latestHtml}
+    </div>
+    <div class="verdict-history-label">Verdict History</div>
+    <div class="verdict-history">${verdictItems || '<div style="font-size:12px;color:var(--text-dim);padding:8px">No verdicts</div>'}</div>
+  `;
+}
+
+// --- Connection status ---
+function updateConnStatus() {
+  const dot = document.getElementById('connDot');
+  const label = document.getElementById('connLabel');
+  if (!dot || !label) return;
+  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+    dot.className = 'conn-dot connected';
+    label.textContent = 'Connected (WebSocket)';
+  } else {
+    dot.className = 'conn-dot disconnected';
+    label.textContent = state.selectedRunId ? 'Disconnected' : 'No connection';
+  }
+}
+
+// --- WebSocket ---
+function connectWs(runId) {
+  if (state.ws) {
+    state.ws.close();
+    state.ws = null;
+  }
+  if (!runId) return;
+
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${proto}//${location.host}/api/lhtb/runs/${runId}/ws`;
+  const ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    updateConnStatus();
+  };
+
+  ws.onmessage = (evt) => {
+    try {
+      const ev = JSON.parse(evt.data);
+      appendEvent(ev);
+
+      // Update run state in sidebar
+      if (ev.event_type === 'verifier_result') {
+        refreshRuns();
+      }
+      if (ev.event_type === 'run_finished' || ev.event_type === 'run_error') {
+        refreshRuns();
+      }
+      // Collect watchdog verdicts
+      if (ev.event_type === 'watchdog_verdict' || ev.event_type === 'watchdog_checkpoint') {
+        state.watchdogVerdicts.push(ev.data || {});
+      }
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  ws.onclose = () => {
+    updateConnStatus();
+  };
+
+  ws.onerror = () => {
+    updateConnStatus();
+  };
+
+  state.ws = ws;
+}
+
+// --- Select a run ---
+async function selectRun(runId) {
+  state.selectedRunId = runId;
+  state.events = [];
+  state.watchdogVerdicts = [];
+  state.autoScroll = true;
+
+  renderRunList();
+
+  try {
+    const detail = await api.getRunDetail(runId);
+
+    // Load historical events
+    if (detail.events) {
+      state.events = detail.events;
+    }
+    if (detail.watchdog_verdict_details) {
+      state.watchdogVerdicts = detail.watchdog_verdict_details;
+    }
+
+    renderMainPanel(detail);
+    renderWatchdogPanel(detail);
+    connectWs(runId);
+  } catch (e) {
+    console.error('Failed to load run detail:', e);
+  }
+}
+
+// --- Periodic refresh ---
+async function refreshRuns() {
+  try {
+    state.runs = await api.getRuns();
+    renderRunList();
+
+    // If we have a selected run, update watchdog panel
+    if (state.selectedRunId) {
+      const detail = await api.getRunDetail(state.selectedRunId);
+      renderWatchdogPanel(detail);
+
+      // Update overview stats without re-rendering event stream
+      const selected = state.runs.find(r => r.run_id === state.selectedRunId);
+      if (selected) {
+        const statEls = document.querySelectorAll('.stat-value');
+        if (statEls.length >= 5) {
+          statEls[0].textContent = selected.phase;
+          statEls[1].textContent = selected.turn;
+          statEls[2].textContent = fmtReward(selected.reward);
+          statEls[2].style.color = rewardColor(selected.reward);
+          statEls[3].textContent = fmtElapsed(selected.started_at, selected.finished_at);
+          statEls[4].textContent = selected.event_count;
+        }
+        // Update reward bar
+        const bar = document.querySelector('.reward-bar-fill');
+        if (bar) {
+          bar.style.width = Math.min(selected.reward * 100, 100) + '%';
+          bar.style.background = rewardColor(selected.reward);
+        }
+        // Update status badge
+        const badge = document.querySelector('.overview .status-badge');
+        if (badge) {
+          badge.className = `status-badge ${statusClass(selected.status)}`;
+          badge.textContent = selected.status;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to refresh runs:', e);
+  }
+}
+
+// --- Init ---
+async function init() {
+  await refreshRuns();
+  state.refreshTimer = setInterval(refreshRuns, 5000);
+}
+
+init();
+</script>
+</body>
+</html>
