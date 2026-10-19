@@ -26,7 +26,7 @@ import {
   type Proposal,
   type Skill,
 } from '../types'
-import type { StreamEvent } from '../types/chat'
+import { turnKey, type StreamEvent } from '../types/chat'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -686,6 +686,8 @@ const REFRESH_EVENTS = new Set([
   'writing_complete', 'run_finished', 'run_error',
 ])
 const MAX_STREAM_EVENTS = 2000
+/** Events after which no ideation turn is still being written. */
+const LIVE_END_EVENTS = new Set(['phase_started', 'ideation_complete', 'run_finished', 'run_error', 'campaign_stopped', 'campaign_failed'])
 
 function ExperimentView({
   campaignId,
@@ -706,6 +708,8 @@ function ExperimentView({
 }) {
   const [run, setRun] = useState<ExperimentDetail | null>(null)
   const [events, setEvents] = useState<StreamEvent[]>([])
+  // Ideation turns being written now, by turn; not part of the stored stream
+  const [live, setLive] = useState<Record<string, StreamEvent>>({})
   // Bumped to reconnect the event stream (after a resume, the experiment has a new live state)
   const [connection, setConnection] = useState(0)
   const [streamCollapsed, setStreamCollapsed] = useState(false)
@@ -744,13 +748,28 @@ function ExperimentView({
         timestamp: record.timestamp ?? Date.now() / 1000,
         turn: record.data?.turn,
       }
+      if (event.event_type === 'ideation_stream') {
+        setLive((prev) => ({ ...prev, [turnKey(event.data)]: event }))
+        return
+      }
+      if (event.event_type === 'ideation_turn') {
+        setLive((prev) => {
+          const { [turnKey(event.data)]: _done, ...rest } = prev
+          return rest
+        })
+      } else if (LIVE_END_EVENTS.has(event.event_type)) {
+        setLive({})
+      }
       setEvents((prev) => {
         const next = [...prev, event]
         return next.length > MAX_STREAM_EVENTS ? next.slice(-MAX_STREAM_EVENTS) : next
       })
       if (REFRESH_EVENTS.has(event.event_type)) fetchRun()
     }
-    return () => ws.close()
+    return () => {
+      ws.close()
+      setLive({})
+    }
   }, [campaignId, experimentId, connection, fetchRun])
 
   /** Run a control action, showing its error (e.g. a missing Docker or API key) instead of failing silently. */
@@ -907,7 +926,7 @@ function ExperimentView({
             </div>
           ) : (
             <div style={{ flex: 1, overflowY: 'auto' }}>
-              <AgentStreamView events={events} campaignId={campaignId} experimentId={experimentId} />
+              <AgentStreamView events={events} live={Object.values(live)} campaignId={campaignId} experimentId={experimentId} />
             </div>
           )}
         </div>
@@ -993,8 +1012,10 @@ function ApprovalBar({
         <textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          placeholder="Instruction for the agent (required for “Send instruction”)"
-          rows={2}
+          placeholder={offers('propose')
+            ? 'An instruction (for “Send instruction”), or your own research proposal (for “Use as my proposal”)'
+            : 'Instruction for the agent (required for “Send instruction”)'}
+          rows={offers('propose') ? 4 : 2}
         />
         {offers('continue') && (
           <button className="btn-sm btn-approve" disabled={submitting} title="Go on as planned" onClick={() => decide('continue')}>
@@ -1004,6 +1025,13 @@ function ApprovalBar({
         {offers('instruct') && (
           <button className="btn-sm btn-modify" disabled={submitting || !message.trim()} title="Go on, following your instruction" onClick={() => decide('instruct')}>
             {'✎'} Send instruction
+          </button>
+        )}
+        {offers('propose') && (
+          <button className="btn-sm btn-modify" disabled={submitting || !message.trim()}
+            title="Pursue the text above as the research proposal: no more ideation or screening, planning starts from it"
+            onClick={() => decide('propose')}>
+            {'➜'} Use as my proposal
           </button>
         )}
         <span className="approval-spacer" />

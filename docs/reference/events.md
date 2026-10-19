@@ -30,7 +30,11 @@ result = await engine.run_campaign()
 |---|---|
 | `campaign_started` | `campaign_id`, `workspace`, `resume` |
 | `phase_started` | `phase` |
+| `ideation_progress` | `step` (preparing, prepared, agenda_item, item_notes, open_discussion, chair_selecting, chair_deciding, decided, resumed) and the step's details |
+| `ideation_stream` | `seat`, `model`, `kind`, `item`, `round`, `text` (so far), `thinking` (end of the reasoning); about once a second while a seat writes a turn. Web console only, not stored |
+| `ideation_turn` | `seat`, `model`, `kind` (presentation, remarks, response, open), `item`, `round`, `content`, `citations`, `headline`; `error` if the turn failed |
 | `ideation_complete` | `proposal_id`, `title`, `hypothesis` |
+| `proposal_from_researcher` | `proposal_id`, `title`, `text` (the researcher's own proposal, from the screening gate) |
 | `screening_complete` | `proposal_id`, `selected`, `score` |
 | `planning_complete` | `plan_id`, `num_jobs` |
 | `planning_fallback` | `reason` (no valid plan; one job carries out the whole proposal) |

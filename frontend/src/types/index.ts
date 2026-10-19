@@ -62,7 +62,7 @@ export function isActiveStatus(status: string | undefined): boolean {
   return status === 'starting' || status === 'running' || status === 'awaiting_human'
 }
 
-export type GateAction = 'continue' | 'instruct' | 'stop'
+export type GateAction = 'continue' | 'instruct' | 'propose' | 'stop'
 
 /** Where a human gate came from (`GateRequest.source`). */
 export type GateSource = 'milestone_audit' | 'supervisor' | 'screening' | 'termination'

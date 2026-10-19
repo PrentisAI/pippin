@@ -2332,3 +2332,41 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 }
 .proposal-card .proposal-settings dt { color: var(--fg-dim); }
 .proposal-card .proposal-settings dd { margin: 0; overflow-wrap: anywhere; }
+
+/* Full-width rows sit above the column dividers, which otherwise cross their text */
+.tl-stage-row, .tl-round-row { position: relative; z-index: 7; background: var(--bg-surface); }
+
+/* ── Ideation meeting turns ── */
+.tl-stage-row.meeting-row { background: var(--bg-raised); padding: 5px 10px; }
+.meeting-turn {
+  flex: 1; min-width: 0;
+  border: 1px solid var(--border-subtle); border-left: 3px solid #fb923c;
+  border-radius: 8px; background: var(--bg-surface);
+  padding: 6px 10px;
+}
+.meeting-turn.live { border-left-color: var(--green); }
+.meeting-turn.quiet { opacity: .6; padding: 3px 10px; }
+.meeting-turn.failed { border-left-color: var(--red); }
+.meeting-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.meeting-head.clickable { cursor: pointer; }
+.meeting-head .agent-chevron { margin-left: auto; font-size: 8px; color: var(--fg-dim); transition: transform .15s; }
+.meeting-turn.open .agent-chevron { transform: rotate(90deg); }
+.seat-tag {
+  font: 600 10px 'IBM Plex Mono', monospace; letter-spacing: .02em;
+  padding: 1px 6px; border-radius: 3px;
+  background: #e879581a; color: #fb923c; flex-shrink: 0;
+}
+.meeting-model { font-size: 10px; color: var(--fg-muted); white-space: nowrap; }
+.meeting-kind { font-size: 10px; color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meeting-spinner { width: 10px; height: 10px; margin-left: auto; flex-shrink: 0; }
+.meeting-summary { font-size: 11px; line-height: 1.5; color: var(--fg); margin-top: 3px; overflow-wrap: anywhere; }
+.meeting-turn.failed .meeting-summary { color: var(--red); }
+.meeting-cites { color: var(--fg-dim); font-size: 10px; }
+.meeting-body {
+  font-size: 11px; line-height: 1.55; color: var(--fg);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  margin-top: 6px; max-height: 420px; overflow-y: auto;
+}
+.meeting-body.live { max-height: 220px; }
+.meeting-body.thinking { max-height: 90px; color: var(--fg-dim); font-style: italic; }
+.meeting-wait { font-size: 10.5px; color: var(--fg-dim); margin-top: 3px; font-style: italic; }

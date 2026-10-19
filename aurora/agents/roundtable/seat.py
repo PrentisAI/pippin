@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
+from collections.abc import Awaitable, Callable
 
 from pydantic import BaseModel, Field
 
@@ -113,6 +115,8 @@ WRITE_ALONE = """\
 Write the final research proposal for your main idea, incorporating anything you revised along the way. \
 Keep within the word limits given for each field."""
 
+STREAM_INTERVAL = 1.0  # seconds between live updates of a turn being written
+
 _UNVERIFIED = re.compile(r"[^.\n]*\(my claim, unverified\)", re.I)
 _PASS = re.compile(r"^\W*pass\W*$", re.I)
 _HAND = re.compile(r"HAND:\s*(yes|no)", re.I)
@@ -136,6 +140,85 @@ class FinalProposal(BaseModel):
 
 WORD_LIMITS = {"title": 15, "problem": 80, "hypothesis": 120, "method": 250,
                "alternatives_considered": 100, "falsification_check": 100}
+
+
+class _LiveTurn:
+    """Reports a turn while it is being written: its text so far, at most every STREAM_INTERVAL s."""
+
+    def __init__(self, progress: Callable[..., Awaitable[None]], turn: dict) -> None:
+        self._progress = progress
+        self._turn = turn
+        self._text: list[str] = []
+        self._thinking: list[str] = []
+        self._last = 0.0
+
+    async def start(self) -> None:
+        await self._send()
+
+    async def add(self, kind: str, piece: str) -> None:
+        (self._thinking if kind == "reasoning" else self._text).append(piece)
+        if time.monotonic() - self._last >= STREAM_INTERVAL:
+            await self._send()
+
+    async def fail(self, exc: Exception) -> None:
+        try:
+            await self._progress("ideation_turn", **self._turn, content="", error=str(exc)[:300])
+        except Exception:
+            logger.debug("ideation_turn callback failed", exc_info=True)
+
+    async def _send(self) -> None:
+        self._last = time.monotonic()
+        try:
+            # the whole text so far, so a viewer who connects mid-turn sees all of it;
+            # of the reasoning only its end, to show what the model is thinking about now
+            await self._progress("ideation_stream", **self._turn, text="".join(self._text),
+                                 thinking="".join(self._thinking)[-600:])
+        except Exception:
+            logger.debug("ideation_stream callback failed", exc_info=True)
+
+
+_TITLE = re.compile(r"^\W*title\W*:\s*(.+)", re.I)
+_MAIN_IDEA = re.compile(r"main\b.*\bidea|research idea", re.I)
+_LABEL = re.compile(r"^[\W\d]*(question|research question|idea)\W*:\W*(.+)", re.I)
+_MARKUP = re.compile(r"^[#>*\-\s\d.)]+|[*_`]+")
+
+
+def _plain(line: str) -> str:
+    return _MARKUP.sub("", line).strip(" :*-")
+
+
+def headline(text: str, limit: int = 160) -> str:
+    """A one-line title for a presentation: its stated title, else the name or question of its
+    main idea, else its first sentence."""
+    h = _headline(text, limit)
+    return h[:1].upper() + h[1:]
+
+
+def _headline(text: str, limit: int) -> str:
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    for ln in lines:
+        m = _TITLE.match(_MARKUP.sub("", ln))
+        if m:
+            return _plain(m.group(1))[:limit]
+    for i, ln in enumerate(lines):
+        if _MAIN_IDEA.search(ln) and len(ln) < 200:
+            # "3. Main research idea: E-bikes as a friction isolator"
+            name = _plain(ln.split(":", 1)[1]) if ":" in ln else ""
+            if len(name) > 8:
+                return name[:limit]
+            # otherwise the question (or the first line) that follows the heading
+            for nxt in lines[i + 1:i + 6]:
+                m = _LABEL.match(_MARKUP.sub("", nxt).strip())
+                if m:
+                    return _plain(m.group(2))[:limit]
+            if i + 1 < len(lines):
+                return _plain(lines[i + 1])[:limit]
+    for ln in lines:
+        m = _LABEL.match(_MARKUP.sub("", ln).strip())
+        if m:
+            return _plain(m.group(2))[:limit]
+    body = next((ln for ln in lines if not ln.startswith("#")), lines[0] if lines else "")
+    return _plain(re.split(r"(?<=[.?!])\s", _plain(body), maxsplit=1)[0])[:limit]
 
 
 def over_limit(p: FinalProposal, slack: float = 1.15) -> dict[str, int]:
@@ -210,6 +293,9 @@ class RoundtableSeat(Agent):
         self._web_search = web_search
         self._max_tokens = max_tokens
         self.cost = 0.0
+        # Called as ``on_progress(event, **data)``: ``ideation_stream`` while a turn is being written
+        # (the text so far, every STREAM_INTERVAL s) and ``ideation_turn`` when it is done.
+        self.on_progress: Callable[..., Awaitable[None]] | None = None
 
     @property
     def seat_index(self) -> int:
@@ -244,16 +330,34 @@ class RoundtableSeat(Agent):
         searchable = "/" in self.model_id
         kwargs = {"extra_body": {"plugins": [{"id": "web", "engine": "native", "max_results": 5}]}} \
             if self._web_search and searchable and kind in SEARCH_TURNS else {}
-        response = await self._router.generate(
-            PipelineStage.ROUNDTABLE_SEAT,
-            [Message.system(self.system_prompt()), Message.user("\n\n".join(parts))],
-            seat_index=self._seat_index,
-            temperature=0.7,
-            max_tokens=self._max_tokens,
-            **kwargs,
-        )
+        turn = {"seat": self._agent_id, "model": self.model_id, "kind": kind, "item": agenda_item,
+                 "round": round_number}
+        live = _LiveTurn(self.on_progress, turn) if self.on_progress else None
+        if live:
+            await live.start()
+        try:
+            response = await self._router.generate(
+                PipelineStage.ROUNDTABLE_SEAT,
+                [Message.system(self.system_prompt()), Message.user("\n\n".join(parts))],
+                seat_index=self._seat_index,
+                temperature=0.7,
+                max_tokens=self._max_tokens,
+                on_delta=live.add if live else None,
+                **kwargs,
+            )
+        except Exception as exc:
+            if live:
+                await live.fail(exc)
+            raise
         self.cost += response_cost(response)
         content = response.content.strip()
+        if self.on_progress:
+            try:
+                await self.on_progress("ideation_turn", **turn, content=content,
+                                       citations=len(response_citations(response)),
+                                       headline=headline(content) if kind == "presentation" else "")
+            except Exception:
+                logger.debug("ideation_turn callback failed", exc_info=True)
         return SeatContribution(
             seat_id=self._agent_id,
             model_id=response.model_id or self.model_id,

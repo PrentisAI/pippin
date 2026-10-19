@@ -165,6 +165,8 @@ class LLMProvider(ABC):
     """
 
     provider_name: str  # e.g., "anthropic", "openai", "google", "deepseek"
+    # True if generate() accepts ``on_delta`` and streams the completion through it
+    supports_streaming: bool = False
 
     def __init__(self, usage_tracker: UsageTracker | None = None) -> None:
         self._usage_tracker = usage_tracker or UsageTracker()

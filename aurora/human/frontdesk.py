@@ -81,7 +81,8 @@ class SystemStatus:
         if self.supervisor_status:
             lines.append(f"Live auditor's last verdict: {self.supervisor_status}")
         for g in self.open_gates:
-            lines.append(f"OPEN HUMAN GATE {g['gate_id']} ({g['source']}): {g['title']}")
+            lines.append(f"OPEN HUMAN GATE {g['gate_id']} ({g['source']}): {g['title']}\n"
+                         f"  {g.get('detail', '')}\n  actions: {', '.join(g.get('options', []))}")
         return "\n".join(lines)
 
 
@@ -104,7 +105,11 @@ A campaign runs these phases in order; any can be skipped:
 6. Writing: an agent writes the report.
 Between phases a milestone auditor reviews the output: pass, reject (the phase revises its
 work) or escalate (the researcher decides). A human gate is a point where the campaign waits
-for the researcher's decision: continue, instruct, or stop.
+for the researcher's decision: continue, instruct, or stop. The gate that opens when
+screening keeps rejecting proposals also offers propose: the researcher's own proposal is
+pursued directly, without more ideation or screening.
+To start an experiment from the researcher's own idea, skip ideation: the instruction itself
+is then the direction.
 """
 
 CAMPAIGN_PROMPT = """You are the front desk of AURORA, a system that runs long research campaigns with AI agents.
@@ -123,8 +128,10 @@ What you can do:
   interrupt_agent (and relay the new instruction, if any). To stop the whole campaign, the
   researcher uses the Stop button.
 - Human gates: when the status shows an OPEN HUMAN GATE, explain it briefly and help the
-  researcher decide. Once they have clearly decided, call answer_gate with
-  continue, instruct (with their instruction) or stop. Never answer a gate on your own.
+  researcher decide. Once they have clearly decided, call answer_gate with one of the
+  actions the gate offers: continue, instruct (with their instruction), propose (with their
+  proposal, where offered) or stop. Never answer a gate on your own. For propose, pass the
+  researcher's proposal in their own words, complete; ask for it if they have not given it.
 
 Be brief and concrete. Reply in the researcher's language.
 
@@ -365,8 +372,9 @@ def campaign_tools(
             "Record the researcher's decision on an open human gate. Only after they decided.",
             {"type": "object", "properties": {
                 "gate_id": {"type": "string"},
-                "action": {"type": "string", "enum": ["continue", "instruct", "stop"]},
-                "message": {"type": "string", "description": "the instruction, for 'instruct'"},
+                "action": {"type": "string", "enum": ["continue", "instruct", "propose", "stop"]},
+                "message": {"type": "string",
+                            "description": "the instruction, for 'instruct'; the researcher's proposal, for 'propose'"},
             }, "required": ["gate_id", "action"]},
             _answer),
     ]

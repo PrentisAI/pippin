@@ -15,6 +15,7 @@ export type KnownEventType =
   | 'autonomy_changed'
   // Phase results
   | 'ideation_complete'
+  | 'proposal_from_researcher'
   | 'screening_complete'
   | 'planning_complete'
   | 'planning_fallback'
@@ -53,6 +54,8 @@ export type KnownEventType =
   | 'instruction_relayed'
   | 'instruction_queued'
   | 'ideation_progress'
+  | 'ideation_stream'
+  | 'ideation_turn'
   | 'mental_model_updated'
   | 'mental_model_invalid'
   | 'agent_interrupted'
@@ -70,4 +73,9 @@ export interface StreamEvent {
   data: Record<string, any>
   timestamp: number
   turn?: number
+}
+
+/** Identifies one turn of a seat in the ideation meeting (`ideation_stream` / `ideation_turn`). */
+export function turnKey(d: Record<string, unknown>): string {
+  return [d.seat, d.kind, d.item, d.round].map((x) => String(x ?? '')).join('|')
 }

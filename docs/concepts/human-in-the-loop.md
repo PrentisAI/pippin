@@ -13,13 +13,18 @@ A gate opens when
 - **screening** keeps rejecting proposals;
 - the campaign is about to finish and `human.approve_termination` is on.
 
-Each gate shows what happened and asks for one of three answers:
+Each gate shows what happened and asks for one of these answers:
 
 | Answer | Effect |
 |---|---|
 | **continue** | go on as planned |
 | **instruct** | go on, following your message (it is sent to the agent or the next phase) |
+| **propose** | screening gate only: pursue your own research proposal (your message) instead; ideation and screening do not run again and planning starts from it |
 | **stop** | end the campaign (it can be resumed later) |
+
+To start a campaign from your own idea in the first place, skip ideation
+(`skip_phases: [ideation]`, or untick it on the proposal card): the objective
+is then the direction.
 
 You can answer in the web console's approval bar, by telling the front desk
 in the chat, or — for `aurora run` in a terminal — at the prompt. Every gate and

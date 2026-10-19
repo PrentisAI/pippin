@@ -205,6 +205,7 @@ class ResearchEngine:
         self._resuming = False
         self._sessions: SessionRegistry | None = None
         self.cost_usd: float = 0.0
+        self._prior_cost = 0.0      # spent before this run, when resuming (from cost.json)
         self._stop_requested: str | None = None
 
         # Cross-phase context: each phase writes its transcript to disk,
@@ -245,6 +246,8 @@ class ResearchEngine:
         self._setup()
         assert self._router is not None
         assert self._workspace is not None
+        if resume:
+            self._prior_cost = self._load_spent()
 
         all_iterations: list[IterationResult] = []
         proposal: RoundtableProposal | None = self._initial_proposal
@@ -266,7 +269,8 @@ class ResearchEngine:
             start_phase = CampaignPhase(checkpoint.phase) if checkpoint else CampaignPhase.IDEATION
             research_cycle = checkpoint.research_cycle if checkpoint else 0
             self._current_round = research_cycle
-            if self._store and (not resume or start_phase == CampaignPhase.IDEATION):
+            # a resumed campaign keeps what it has learnt (claims, mental model)
+            if self._store and (not resume or not self._workspace.artifacts_path.exists()):
                 self._store.initialize(objective=self._config.objective)
             await self._publish("campaign_started", campaign_id=self._config.campaign_id,
                                 workspace=str(self._workspace.campaign_dir), resume=resume)
@@ -299,8 +303,11 @@ class ResearchEngine:
                 return next_phase(order[i + 1]) if i + 1 < len(order) else CampaignPhase.COMPLETED
 
             current = next_phase(start_phase) if start_phase in order else start_phase
-            rejections = 0
-            guidance = ""   # instruction from a human gate, passed to the next phase
+            # proposals screening has rejected so far (kept across a resume)
+            rejections = int(checkpoint.metadata.get("screening_rejections", 0)) if checkpoint else 0
+            # instruction from a human gate (or a screening rejection), passed to the next phase
+            guidance = (checkpoint.metadata.get("guidance", "") if checkpoint
+                        and start_phase == CampaignPhase.IDEATION else "")
 
             while current != CampaignPhase.COMPLETED:
                 self._check_budget()
@@ -317,28 +324,52 @@ class ResearchEngine:
                     proposal = proposal or self._load_latest_proposal()
                     if proposal is None:
                         raise RuntimeError("Screening needs a proposal, but ideation was skipped and none exists.")
-                    proposal = await self._run_screening(proposal)
+                    if proposal.score is not None:
+                        # resumed after this proposal was screened: keep its verdict
+                        await self._publish("phase_started", phase="screening")
+                        logger.info("Proposal %s was already screened (%.1f/10)", proposal.proposal_id,
+                                    proposal.score.composite)
+                    else:
+                        proposal = await self._run_screening(proposal)
+                        rejections += 0 if proposal.selected else 1
+                        self._workspace.atomic_write_json(
+                            self._workspace.proposal_path(proposal.proposal_id, self._current_round), proposal)
                     following = after(current)
                     if not proposal.selected:
-                        rejections += 1
                         if rejections <= _MAX_SCREENING_REJECTIONS and CampaignPhase.IDEATION.value not in skip:
                             logger.warning("Screening rejected the proposal (%d/%d); new ideation round",
                                            rejections, _MAX_SCREENING_REJECTIONS)
                             guidance = (f"The previous proposal '{proposal.title}' was rejected at screening: "
                                         f"{proposal.score.explanation if proposal.score else ''}")
                             current = CampaignPhase.IDEATION
+                            self._save_checkpoint(current, research_cycle,
+                                                  metadata={"screening_rejections": rejections,
+                                                            "guidance": guidance})
                             continue
+                        self._save_checkpoint(current, research_cycle, proposal_id=proposal.proposal_id,
+                                              metadata={"screening_rejections": rejections})
                         decision = await self.human_gate.request(
                             "screening", "Screening keeps rejecting the proposals",
                             f"Screening rejected {rejections} proposals. Latest: '{proposal.title}' "
                             f"(score {proposal.score.composite if proposal.score else '?'}/10).\n"
                             "continue: pursue the latest proposal anyway; instruct: run ideation again "
-                            "with your guidance; stop: end the campaign.")
+                            "with your guidance; propose: pursue your own proposal (your message), "
+                            "without more ideation or screening; stop: end the campaign.",
+                            options=["continue", "instruct", "propose", "stop"])
                         if decision.action == "stop":
                             raise CampaignStopped(f"stopped at screening: {decision.message or 'human decision'}")
                         if decision.action == "instruct":
                             guidance = decision.message
                             current = CampaignPhase.IDEATION
+                            continue
+                        if decision.action == "propose":
+                            # the researcher's own direction: no ideation, no screening, no audit of
+                            # the rejected screening; planning starts from it
+                            proposal = await self._adopt_researcher_proposal(decision.message)
+                            following = after(CampaignPhase.SCREENING)
+                            self._save_checkpoint(following, research_cycle, proposal_id=proposal.proposal_id,
+                                                  plan_id=plan.plan_id if plan else None)
+                            current = following
                             continue
                         proposal = proposal.model_copy(update={"selected": True})
 
@@ -442,9 +473,10 @@ class ResearchEngine:
                 await self._router.close_all()
 
         total = (datetime.now(UTC) - campaign_start).total_seconds()
-        self.cost_usd = self._spent()
+        spent = self._spent()
+        self._record_spent()
         await self._publish(f"campaign_{status}", status=status, summary=summary,
-                            cost_usd=round(self.cost_usd, 4), wall_time_seconds=round(total))
+                            cost_usd=round(spent, 4), wall_time_seconds=round(total))
         return CampaignResult(
             campaign_id=self._config.campaign_id,
             status=status,
@@ -455,15 +487,40 @@ class ResearchEngine:
             research_cycles=research_cycle,
             total_wall_time_seconds=total,
             total_llm_tokens=self._router.usage_tracker.total_tokens if self._router else 0,
-            cost_usd=round(self.cost_usd, 4),
+            cost_usd=round(spent, 4),
             workspace=str(self._workspace.campaign_dir) if self._workspace else "",
             summary=summary,
         )
 
     def _spent(self) -> float:
-        """API cost so far: finished sessions, the running live auditor and direct calls."""
+        """API cost so far: earlier runs of a resumed campaign, finished sessions, the running
+        live auditor and direct calls."""
         live = self._supervisor.cost_usd if self._supervisor is not None else 0.0
-        return self.cost_usd + live + (self._router.usage_tracker.total_cost if self._router else 0.0)
+        return (self._prior_cost + self.cost_usd + live
+                + (self._router.usage_tracker.total_cost if self._router else 0.0))
+
+    @property
+    def total_cost_usd(self) -> float:
+        """What the campaign has cost so far, across resumes."""
+        return self._spent()
+
+    def _record_spent(self) -> None:
+        """Keep the cost on disk (``cost.json``), so a resumed campaign counts it against its budget."""
+        if self._workspace is None:
+            return
+        try:
+            self._workspace.campaign_dir.mkdir(parents=True, exist_ok=True)
+            (self._workspace.campaign_dir / "cost.json").write_text(
+                json.dumps({"cost_usd": round(self._spent(), 6), "updated_at": datetime.now(UTC).isoformat()}))
+        except OSError:
+            logger.debug("Could not record the cost", exc_info=True)
+
+    def _load_spent(self) -> float:
+        path = self._workspace.campaign_dir / "cost.json" if self._workspace else None
+        try:
+            return float(json.loads(path.read_text())["cost_usd"]) if path and path.exists() else 0.0
+        except (OSError, ValueError, KeyError, TypeError):
+            return 0.0
 
     def _remaining_budget(self) -> float | None:
         cap = self._config.budget.max_cost_usd
@@ -497,6 +554,26 @@ class ResearchEngine:
             selected=True,
             created_at=datetime.now(UTC),
         )
+
+    async def _adopt_researcher_proposal(self, text: str) -> RoundtableProposal:
+        """Make the researcher's own proposal the direction of the campaign."""
+        text = text.strip()
+        first = next((ln.strip().lstrip("#*- ").strip() for ln in text.splitlines() if ln.strip()), "")
+        proposal = RoundtableProposal(
+            proposal_id=f"prop_{uuid.uuid4().hex[:8]}",
+            title=first[:100] or "Researcher's proposal",
+            description=text,
+            research_questions=[text[:500]],
+            selected=True,
+            decision={"mode": "researcher", "note": "written by the researcher at a human gate"},
+            created_at=datetime.now(UTC),
+        )
+        # the newest proposal of the round, so later phases and a resume use it
+        self._workspace.atomic_write_json(
+            self._workspace.proposal_path(proposal.proposal_id, self._current_round), proposal)
+        await self._publish("proposal_from_researcher", proposal_id=proposal.proposal_id, title=proposal.title,
+                            text=text)
+        return proposal
 
     def _single_job_plan(self, proposal: RoundtableProposal | None) -> ExperimentPlan:
         """Plan used when planning is skipped: one job that carries out the proposal or objective."""
@@ -1044,6 +1121,7 @@ Be specific: cite file names and concrete observations.
         )
         result = await session.run(full_system, user_message)
         self.cost_usd += float(result.get("cost_usd") or 0.0)
+        self._record_spent()
         if resumed and result.get("error") and not result.get("turns"):
             # the old session could not be continued (e.g. another machine): start over, but
             # point the agent at what the interrupted attempt left behind
@@ -1594,6 +1672,7 @@ Be specific: cite file names and concrete observations.
                     logger.warning("Budget reached during research: %s", exc)
                     self.request_stop(str(exc))
             self._update_frontdesk_status(cost_usd=self._spent())
+            self._record_spent()
 
     def _campaign_brief(self, proposal: RoundtableProposal | None) -> str:
         lines = [f"## Research objective\n\n{self._config.objective}"]
@@ -1763,6 +1842,12 @@ Be specific: cite file names and concrete observations.
                 }.get(step, str(step))
                 st.ideation_log = (st.ideation_log + [text])[-20:]
                 st.activity = f"ideation: {text[:200]}"
+            elif event.name == "ideation_turn" and d.get("content"):
+                what = {"presentation": "presented", "remarks": f"remarked on {d.get('item')}'s idea",
+                        "response": "answered the remarks", "open": "spoke in the open discussion"}
+                gist = d.get("headline") or " ".join(str(d.get("content", "")).split())[:200]
+                st.ideation_log = (st.ideation_log + [
+                    f"{d.get('seat')} ({d.get('model')}) {what.get(d.get('kind'), d.get('kind'))}: {gist}"])[-20:]
             elif event.name == "milestone_audit_started":
                 st.activity = (f"the milestone auditor reviews the {d.get('completed_phase')} output "
                                f"before {d.get('next_phase')}")
@@ -2232,10 +2317,13 @@ Be specific: cite file names and concrete observations.
         completed_jobs: list[str] | None = None,
         iteration: int = 0,
         current_iteration_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         if self._workspace is None:
             return
+        self._record_spent()
         cp = Checkpoint(
+            metadata=metadata or {},
             campaign_id=self._config.campaign_id,
             phase=phase.value,
             iteration=iteration,
@@ -2266,9 +2354,10 @@ Be specific: cite file names and concrete observations.
             rd = self._workspace.phases_dir / "ideation" / f"round_{rn}"
             if not rd.exists():
                 continue
-            jsons = sorted(
-                p for p in rd.glob("*.json") if p.name != "transcript.jsonl"
-            )
+            # several ideation runs in one round (screening rejected the first) leave several
+            # proposals; the newest one counts
+            jsons = sorted((p for p in rd.glob("*.json") if not p.name.startswith("meeting_state")),
+                           key=lambda p: p.stat().st_mtime)
             if jsons:
                 return RoundtableProposal.model_validate_json(
                     jsons[-1].read_text(encoding="utf-8")

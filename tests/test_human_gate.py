@@ -59,3 +59,20 @@ async def test_invalid_action_is_rejected():
         gate.resolve(gate.pending[0].gate_id, "approve")
     gate.cancel_all()
     assert (await task).action == "stop"
+
+
+async def test_propose_only_where_offered_and_with_text():
+    gate, _ = make_gate(autonomy="supervised")
+    plain = asyncio.create_task(gate.request("supervisor", "t", "d"))
+    offered = asyncio.create_task(gate.request("screening", "t", "d",
+                                               options=["continue", "instruct", "propose", "stop"]))
+    await asyncio.sleep(0.01)
+    first, second = gate.pending
+    with pytest.raises(ValueError):
+        gate.resolve(first.gate_id, "propose", "my idea")       # this gate does not offer it
+    with pytest.raises(ValueError):
+        gate.resolve(second.gate_id, "propose", "  ")           # a proposal needs its text
+    assert gate.resolve(second.gate_id, "propose", "Test whether e-bikes flatten seasonality")
+    assert (await offered).action == "propose"
+    gate.resolve(first.gate_id, "stop")
+    await plain

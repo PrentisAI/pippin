@@ -167,8 +167,14 @@ class LLMRouter:
         seat_index: int = 0,
         **kwargs,
     ) -> LLMResponse:
-        """Route and generate in one call."""
+        """Route and generate in one call.
+
+        ``on_delta`` (streaming callback) is dropped for providers that cannot stream; they
+        return the whole completion at once.
+        """
         provider, model = self.get_provider_and_model(stage, seat_index=seat_index)
+        if kwargs.get("on_delta") is None or not provider.supports_streaming:
+            kwargs.pop("on_delta", None)
         return await provider.generate(messages, model=model, **kwargs)
 
     async def generate_structured(

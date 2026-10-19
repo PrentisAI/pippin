@@ -38,13 +38,16 @@ from aurora.config import PHASES
 
 logger = logging.getLogger(__name__)
 
+# Events sent to open pages but not stored or replayed
+TRANSIENT_EVENTS = {"ideation_stream"}
+
 store = LazyStore()
 campaign_router = APIRouter(prefix="/api/campaigns", tags=["projects"])
 
 # Answers the approval bar sends, mapped to human-gate actions
 _GATE_ACTIONS = {"continue": "continue", "approve": "continue", "instruct": "instruct",
                  "override": "instruct", "modify": "instruct", "stop": "stop", "abort": "stop",
-                 "reject": "stop"}
+                 "reject": "stop", "propose": "propose"}
 _SAFE_PATH = re.compile(r"^[\w .@+=,%-]+(/[\w .@+=,%-]+)*$")
 
 
@@ -111,8 +114,11 @@ class ExperimentRunState:
         return _projects_root() / self.campaign_id / self.run_id
 
     async def broadcast(self, event: dict[str, Any]) -> None:
-        self.events.append(event)
-        store.append_event(self.campaign_id, self.run_id, event)
+        # live previews (text still being written) go to the open pages only; the finished
+        # text arrives as its own event, which is kept
+        if event.get("event_type") not in TRANSIENT_EVENTS:
+            self.events.append(event)
+            store.append_event(self.campaign_id, self.run_id, event)
         payload = json.dumps(event, default=str)
         for ws in list(self.subscribers):
             try:
@@ -391,7 +397,7 @@ async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any,
             run.decision_history.append({**data, "timestamp": time.time()})
         elif name == "frontdesk_response":
             run.chat_history.append({"role": "assistant", "text": data.get("text", ""), "timestamp": time.time()})
-        run.cost_usd = engine.cost_usd
+        run.cost_usd = engine.total_cost_usd
 
     engine.event_bus.subscribe_all(mirror)
     EventBridge(engine.event_bus, run.run_id, broadcast=run.broadcast)
@@ -507,7 +513,7 @@ async def stop_experiment(campaign_id: str, exp_id: str) -> dict[str, Any]:
 
 
 class DecisionRequest(BaseModel):
-    action: str            # continue | instruct | stop (approve / override / abort also accepted)
+    action: str            # continue | instruct | propose | stop (approve / override / abort also accepted)
     message: str = ""
     gate_id: str = ""      # default: the oldest open gate
 
@@ -522,12 +528,16 @@ async def submit_decision(campaign_id: str, exp_id: str, req: DecisionRequest) -
     gate_id = req.gate_id or pending[0].gate_id
     action = _GATE_ACTIONS.get(req.action.lower())
     if action is None:
-        raise HTTPException(400, f"Unknown action {req.action!r}; use continue, instruct or stop")
+        raise HTTPException(400, f"Unknown action {req.action!r}; use continue, instruct, propose or stop")
     if action == "continue" and req.message.strip():
         action = "instruct"     # a continue with a message is an instruction
     if action == "instruct" and not req.message.strip():
         raise HTTPException(400, "An instruction needs a message")
-    if not run.engine.human_gate.resolve(gate_id, action, req.message):
+    try:
+        resolved = run.engine.human_gate.resolve(gate_id, action, req.message)
+    except ValueError as exc:     # an action this gate does not offer, or a proposal without text
+        raise HTTPException(400, str(exc)) from exc
+    if not resolved:
         raise HTTPException(409, f"Gate {gate_id} is not open")
     return {"ok": True, "decision_id": gate_id, "action": action}
 

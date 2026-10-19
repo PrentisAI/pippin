@@ -22,7 +22,8 @@ phase, the ideation seats and chair, both auditors and the front desk.
 An **experiment** is one campaign. Its page shows
 
 - the **phase pipeline** and the current phase;
-- the **live stream**: agent reasoning and tool calls, job boundaries,
+- the **live stream**: the ideation meeting as it happens (each seat's
+  presentation and remarks appear while they are written), agent reasoning and tool calls, job boundaries,
   milestone audit verdicts, live-auditor verdicts, human gates, front-desk
   messages and skill suggestions;
 - the **files** of the experiment: its campaign directory (plans, audit
@@ -41,7 +42,9 @@ experiment and relays instructions to the research agent while it works (see
 
 When the experiment needs a decision, an approval bar appears with the
 reason. Choose **Continue**, write an instruction and **Send instruction**, or
-**Stop**. The *Supervised / Autonomous* switch changes whether such gates wait
+**Stop**. When screening keeps rejecting the proposals, you can also write your
+own proposal and choose **Use as my proposal**: planning starts from it, without
+more ideation. The *Supervised / Autonomous* switch changes whether such gates wait
 for you.
 
 ## Stop, resume, re-run

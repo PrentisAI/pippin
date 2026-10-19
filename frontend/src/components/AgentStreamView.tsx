@@ -2,10 +2,12 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { api, describeError } from '../api/client'
 import { clip, formatCost, formatDuration } from '../format'
 import { GATE_SOURCE_LABELS, phaseLabel, PHASES } from '../types'
-import type { StreamEvent } from '../types/chat'
+import { turnKey, type StreamEvent } from '../types/chat'
 
 interface AgentStreamViewProps {
   events: StreamEvent[]
+  /** Ideation turns being written right now (`ideation_stream` events, latest per turn). */
+  live?: StreamEvent[]
   campaignId: string
   experimentId: string
 }
@@ -49,6 +51,7 @@ const DECIDED_BY_LABELS: Record<string, string> = {
 const GATE_ACTION_LABELS: Record<string, string> = {
   continue: 'Continue',
   instruct: 'Continue with instruction',
+  propose: 'Pursue your own proposal',
   stop: 'Stop',
 }
 
@@ -115,6 +118,8 @@ function describeEvent(event: StreamEvent): Described {
     // -- phase results -----------------------------------------------------------
     case 'ideation_progress':
       return ideationProgress(d)
+    case 'ideation_stream':
+      return { lane: 'hidden', tone: 'muted', text: '' }
     case 'mental_model_updated': {
       const hyps = Array.isArray(d.hypotheses) ? (d.hypotheses as Array<Record<string, unknown>>) : []
       const refuted = hyps.filter((h) => h.status === 'refuted').length
@@ -123,6 +128,8 @@ function describeEvent(event: StreamEvent): Described {
     }
     case 'mental_model_invalid':
       return system('warning', 'The analysis returned an invalid mental model; the previous one is kept', str(d.reason))
+    case 'proposal_from_researcher':
+      return system('success', `Your proposal: ${str(d.title)} — planning starts from it`, str(d.text) || undefined)
     case 'ideation_complete':
       return system('success', `Idea: ${str(d.title) || 'untitled'}`, str(d.hypothesis) || undefined)
     case 'screening_complete': {
@@ -260,6 +267,7 @@ type TimelineRow =
   | { kind: 'job'; badge: string; title: string }
   | { kind: 'system'; event: StreamEvent; info: Described }
   | { kind: 'skill'; event: StreamEvent }
+  | { kind: 'meeting'; event: StreamEvent }
   | { kind: 'event-row'; ts: number; agentEvents: StreamEvent[]; oversightEvents: StreamEvent[]; isLatest: boolean; hasAlert: boolean }
 
 function buildTimeline(events: StreamEvent[]): TimelineRow[] {
@@ -292,6 +300,12 @@ function buildTimeline(events: StreamEvent[]): TimelineRow[] {
       const d = evt.data ?? {}
       const badge = d.index != null ? `Job ${d.index}/${d.total ?? '?'}` : 'Job'
       rows.push({ kind: 'job', badge, title: str(d.title) || str(d.job_id) })
+      continue
+    }
+
+    if (evt.event_type === 'ideation_turn') {
+      flush(false)
+      rows.push({ kind: 'meeting', event: evt })
       continue
     }
 
@@ -467,6 +481,65 @@ function SystemEventRow({ info }: { info: Described }) {
   )
 }
 
+const TURN_LABELS: Record<string, string> = {
+  presentation: 'Presentation',
+  remarks: 'Remarks on {item}',
+  response: 'Answers the remarks',
+  open: 'Open discussion',
+}
+
+function isPass(text: string): boolean {
+  return /^\W*pass\W*$/i.test(text.replace(/HAND:\s*(yes|no)/i, '').trim())
+}
+
+/** Text that scrolls to its end as it grows (a turn being written). */
+function LiveText({ text, className }: { text: string; className: string }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight
+  }, [text])
+  return <div ref={ref} className={className}>{text}</div>
+}
+
+/** One turn of a seat in the ideation meeting: live while being written, then collapsible. */
+function MeetingTurn({ event, live = false }: { event: StreamEvent; live?: boolean }) {
+  const [open, setOpen] = useState(false)
+  const d = event.data ?? {}
+  const text = str(live ? d.text : d.content)
+  const model = str(d.model).split('/').pop() || str(d.model)
+  const kind = (TURN_LABELS[str(d.kind)] ?? str(d.kind)).replace('{item}', str(d.item))
+  const round = Number(d.round) > 1 ? ` · round ${String(d.round)}` : ''
+  const error = str(d.error)
+  const passed = !live && !error && isPass(text)
+  const summary = error ? `failed: ${error}`
+    : passed ? 'passes'
+    : str(d.headline) || clip(text.replace(/\s+/g, ' ').trim(), 180)
+  const expandable = !live && !passed && !error && text.length > 0
+
+  return (
+    <div className="tl-stage-row meeting-row">
+      <div className={`meeting-turn${live ? ' live' : ''}${open ? ' open' : ''}${passed || error ? ' quiet' : ''}${error ? ' failed' : ''}`}>
+        <div className={`meeting-head${expandable ? ' clickable' : ''}`} onClick={() => expandable && setOpen(!open)}>
+          <span className="seat-tag">{str(d.seat)}</span>
+          <span className="meeting-model">{model}</span>
+          <span className="meeting-kind">{kind}{round}</span>
+          {live && <span className="spinner meeting-spinner" />}
+          {expandable && <span className="agent-chevron">{'▶'}</span>}
+        </div>
+        {live ? (
+          text ? <LiveText text={text} className="meeting-body live" />
+            : d.thinking ? <LiveText text={str(d.thinking)} className="meeting-body thinking" />
+            : <div className="meeting-wait">{d.kind === 'presentation' ? 'Looking into the literature…' : 'Preparing…'}</div>
+        ) : open ? (
+          <div className="meeting-body">{text}</div>
+        ) : (
+          <div className="meeting-summary">{summary}{d.citations ? <span className="meeting-cites"> · {String(d.citations)} sources</span> : null}</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 type SkillOutcome =
   | { state: 'open' }
   | { state: 'saving' }
@@ -539,16 +612,24 @@ function stageDescription(phase: string): string {
 // Main component
 // ---------------------------------------------------------------------------
 
-export function AgentStreamView({ events, campaignId, experimentId }: AgentStreamViewProps) {
+export function AgentStreamView({ events, live = [], campaignId, experimentId }: AgentStreamViewProps) {
   const endRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
+  // Follow new output only while the view is scrolled to the end, so reading earlier rows is not interrupted
+  const followRef = useRef(true)
   const [timeWidth, setTimeWidth] = useState(44)
   const [mainPct, setMainPct] = useState(55)
   const timelineRows = useMemo(() => buildTimeline(events), [events])
+  const liveLength = live.reduce((n, e) => n + str(e.data?.text).length + str(e.data?.thinking).length, 0)
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [events.length])
+    if (followRef.current) endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [events.length, live.length, liveLength])
+
+  const onScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget
+    followRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  }, [])
 
   const gridCols = `${timeWidth}px ${mainPct}fr ${100 - mainPct}fr`
 
@@ -614,7 +695,7 @@ export function AgentStreamView({ events, campaignId, experimentId }: AgentStrea
       />
 
       {/* Scrollable grid */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div style={{ flex: 1, overflowY: 'auto' }} onScroll={onScroll}>
         <div className="timeline-grid" style={{ gridTemplateColumns: gridCols }}>
           {timelineRows.map((row, i) => {
             switch (row.kind) {
@@ -634,6 +715,8 @@ export function AgentStreamView({ events, campaignId, experimentId }: AgentStrea
                 )
               case 'system':
                 return <SystemEventRow key={i} info={row.info} />
+              case 'meeting':
+                return <MeetingTurn key={i} event={row.event} />
               case 'skill':
                 return (
                   <SkillSuggestionCard
@@ -661,6 +744,7 @@ export function AgentStreamView({ events, campaignId, experimentId }: AgentStrea
               }
             }
           })}
+          {live.map((e) => <MeetingTurn key={`live-${turnKey(e.data ?? {})}`} event={e} live />)}
           <div ref={endRef} />
         </div>
       </div>

@@ -33,7 +33,7 @@ from pathlib import Path
 
 from aurora.agents.base import AgentContext
 from aurora.agents.roundtable.chair import Decision, ItemNotes, RoundtableChair, Selection
-from aurora.agents.roundtable.seat import RoundtableSeat, is_pass, raised_hand
+from aurora.agents.roundtable.seat import RoundtableSeat, headline, is_pass, raised_hand
 from aurora.config import AuroraConfig
 from aurora.llm.router import LLMRouter
 from aurora.models.roundtable import RoundtableProposal, SeatContribution
@@ -42,15 +42,6 @@ logger = logging.getLogger(__name__)
 
 
 Progress = Callable[..., Awaitable[None]]
-
-
-def _headline(text: str) -> str:
-    """First non-empty line of a presentation, without Markdown markers."""
-    for line in text.splitlines():
-        line = line.strip().lstrip("#*- ").strip()
-        if line:
-            return line[:200]
-    return ""
 
 
 class Roundtable:
@@ -74,6 +65,8 @@ class Roundtable:
             RoundtableSeat(router, seat_index=i, custom_system_prompt=p, web_search=ideation.web_search)
             for i, p in enumerate(prompts)
         ]
+        for seat in self._seats:
+            seat.on_progress = self._seat_progress if progress is not None else None
         self._chair = RoundtableChair(router, custom_system_prompt=ideation.chair_prompt)
 
     @property
@@ -118,7 +111,7 @@ class Roundtable:
             selection = await self._chair.select(briefing, {lab: c.content for lab, c in labels.items()})
             self._save_state(topic, selection=selection.model_dump())
         chosen = next((labels[x] for x in re.findall(r"[A-Z]", selection.chosen) if x in labels), order[0])
-        await self._emit("decided", chosen=chosen.seat_id, headline=_headline(chosen.content),
+        await self._emit("decided", chosen=chosen.seat_id, headline=headline(chosen.content),
                          rationale=selection.rationale)
         writer = next(s for s in self._seats if s.agent_id == chosen.seat_id)
         final = await writer.write_proposal(
@@ -282,12 +275,20 @@ class Roundtable:
             except Exception:
                 logger.debug("ideation progress callback failed", exc_info=True)
 
+    async def _seat_progress(self, event: str, **data) -> None:
+        """Pass a seat's live turn (``ideation_stream``) and finished turn (``ideation_turn``) on."""
+        if self._progress is not None:
+            try:
+                await self._progress(event, **data)
+            except Exception:
+                logger.debug("ideation %s callback failed", event, exc_info=True)
+
     async def _prepare_all(self, context: AgentContext, topic: str, rnd: random.Random) -> list[SeatContribution]:
         """Every seat prepares its idea; fail loudly when too few seats could take part."""
         await self._emit("preparing", seats=[{"seat": s.agent_id, "model": s.model_id} for s in self._seats])
         drafts = await self._parallel([s.prepare(context, topic) for s in self._seats], rnd)
         await self._emit("prepared", ideas=[{"seat": d.seat_id, "model": d.model_id,
-                                             "headline": _headline(d.content)} for d in drafts],
+                                             "headline": headline(d.content)} for d in drafts],
                          failed=len(self._seats) - len(drafts))
         if not drafts:
             raise RuntimeError(

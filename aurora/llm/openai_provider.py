@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 import time
-from typing import Any, Callable, TypeVar
+from typing import Any, Awaitable, Callable, TypeVar
 
 from pydantic import BaseModel
 
@@ -46,6 +47,7 @@ class OpenAIProvider(LLMProvider):
     """
 
     provider_name = "openai"
+    supports_streaming = True
 
     def __init__(
         self,
@@ -148,19 +150,25 @@ class OpenAIProvider(LLMProvider):
         max_tokens: int = 4096,
         system_prompt: str | None = None,
         extra_body: dict | None = None,
+        on_delta: Callable[[str, str], Awaitable[None] | None] | None = None,
     ) -> LLMResponse:
+        """Generate a completion.
+
+        With *on_delta* the completion is streamed and ``on_delta(kind, text)`` is called for
+        every piece, *kind* being ``"content"`` or ``"reasoning"``; the returned response is
+        the same as without streaming.
+        """
         client = self._get_client()
         model = model or self._default_model
         api_messages = self._to_openai_messages(messages, system_prompt)
 
         try:
-            response = await client.chat.completions.create(
-                model=model,
-                messages=api_messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                **({"extra_body": extra_body} if extra_body else {}),
-            )
+            kwargs = dict(model=model, messages=api_messages, temperature=temperature, max_tokens=max_tokens,
+                          **({"extra_body": extra_body} if extra_body else {}))
+            if on_delta is None:
+                response = await client.chat.completions.create(**kwargs)
+            else:
+                response = await self._stream(client, kwargs, on_delta)
         except Exception as exc:
             self._handle_api_error(exc)
         self._log_call("generate", model, api_messages, response, extra_body)
@@ -184,6 +192,53 @@ class OpenAIProvider(LLMProvider):
             finish_reason=choice.finish_reason or "stop",
             raw_response=response,
         )
+
+    @staticmethod
+    async def _stream(client, kwargs: dict, on_delta: Callable[[str, str], Awaitable[None] | None]):
+        """Stream a chat completion, reporting each piece, and rebuild the full response."""
+        from openai.types.chat import ChatCompletion
+
+        stream = await client.chat.completions.create(
+            **kwargs, stream=True, stream_options={"include_usage": True})
+        content: list[str] = []
+        reasoning: list[str] = []
+        annotations: list[dict] = []
+        usage = None
+        finish = None
+        resp_id, resp_model = "", kwargs["model"]
+        async for chunk in stream:
+            resp_id = chunk.id or resp_id
+            resp_model = chunk.model or resp_model
+            if chunk.usage is not None:
+                usage = chunk.usage
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            finish = choice.finish_reason or finish
+            delta = choice.delta
+            if delta is None:
+                continue
+            extra = getattr(delta, "model_extra", None) or {}
+            for a in getattr(delta, "annotations", None) or extra.get("annotations") or []:
+                annotations.append(a if isinstance(a, dict) else a.model_dump())
+            for kind, piece in (("reasoning", extra.get("reasoning")), ("content", delta.content)):
+                if isinstance(piece, str) and piece:
+                    (reasoning if kind == "reasoning" else content).append(piece)
+                    res = on_delta(kind, piece)
+                    if inspect.isawaitable(res):
+                        await res
+        message = {"role": "assistant", "content": "".join(content), "reasoning": "".join(reasoning)}
+        if annotations:
+            message["annotations"] = annotations
+        data = {"id": resp_id or "stream", "object": "chat.completion", "created": int(time.time()),
+                "model": resp_model, "choices": [{"index": 0, "finish_reason": finish or "stop", "message": message}],
+                "usage": usage.model_dump() if usage is not None else None}
+        try:
+            return ChatCompletion.model_validate(data)
+        except Exception:  # an unusual annotation or finish reason must not lose the text
+            message.pop("annotations", None)
+            data["choices"][0]["finish_reason"] = "stop"
+            return ChatCompletion.model_validate(data)
 
     async def generate_structured(
         self,
