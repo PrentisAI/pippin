@@ -131,6 +131,7 @@ export const api = {
       models?: Record<string, unknown>
       cpus?: number
       memory_mb?: number
+      max_parallel_jobs?: number
     }) =>
       request<{ status: string; experiment_id: string; skip_phases: string[]; active_phases: string[] }>(
         `/campaigns/${campaignId}/proposals/${proposalId}/confirm`,

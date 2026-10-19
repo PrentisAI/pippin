@@ -1776,7 +1776,9 @@ Be specific: cite file names and concrete observations.
         guidance: str = "",
         proposal: RoundtableProposal | None = None,
     ) -> list[IterationResult]:
-        """Run the plan's jobs in dependency order, one research session at a time."""
+        """Run the plan's jobs in dependency order: up to ``agent.max_parallel_jobs`` at once, each
+        with its own research agent, a new one starting as soon as its dependencies are done."""
+        from aurora.core.terminal_iteration import RunningJobs, TerminalIteration
         assert self._router is not None
         await self._publish("phase_started", phase="research")
         dag = DependencyGraph(plan)
@@ -1784,45 +1786,49 @@ Be specific: cite file names and concrete observations.
             dag.restore_completed(completed_jobs)
             logger.info("Restored %d completed jobs from the checkpoint", len(completed_jobs))
         max_iters = self._config.agent.max_research_iterations
+        max_parallel = max(1, self._config.agent.max_parallel_jobs)
+        agents = not self._config.mock_mode and self._execution_backend is not None
+        transcript_dir = self._workspace.phase_dir("research") if (agents and self._workspace) else None
 
-        if not self._config.mock_mode and self._execution_backend is not None:
-            from aurora.core.terminal_iteration import TerminalIteration
-            transcript_dir = self._workspace.phase_dir("research") if self._workspace else None
+        async def _agent_text(text: str) -> None:
+            # after a relayed instruction, the agent's next words go back to the human
+            if self._frontdesk and self._awaiting_agent_response and text.strip():
+                self._awaiting_agent_response = False
+                await self._publish("agent_reply_to_human", text=text[:2000])
+                await self._frontdesk.notify(f"The research agent replied: {text[:2000]}")
 
-            async def _agent_text(text: str) -> None:
-                # after a relayed instruction, the agent's next words go back to the human
-                if self._frontdesk and self._awaiting_agent_response and text.strip():
-                    self._awaiting_agent_response = False
-                    await self._publish("agent_reply_to_human", text=text[:2000])
-                    await self._frontdesk.notify(f"The research agent replied: {text[:2000]}")
+        if agents and (completed_jobs is not None or self._resuming):
+            guidance = "\n\n".join(x for x in [guidance, (
+                "This campaign was interrupted and resumed. Files from the earlier attempt are already "
+                "in the working directory: look at them first and continue from where the work stopped "
+                "instead of starting over.")] if x)
+        running: dict[asyncio.Task, ExperimentJob] = {}
 
-            if completed_jobs is not None or self._resuming:
-                guidance = "\n\n".join(x for x in [guidance, (
-                    "This campaign was interrupted and resumed. Files from the earlier attempt are already "
-                    "in the working directory: look at them first and continue from where the work stopped "
-                    "instead of starting over.")] if x)
-            runner = TerminalIteration(
-                config=self._config,
-                backend=self._execution_backend,
-                event_bus=self._bus,
-                system_prompt=self._terminal_system_prompt,
-                task_instruction="\n\n".join(x for x in [self._terminal_task_instruction, guidance] if x),
-                campaign_brief=self._campaign_brief(proposal),
-                artifact_store=self._store,
-                prior_phase_context=self._build_prior_context_prompt("research"),
-                transcript_dir=transcript_dir,
-                text_callback=_agent_text,
-                cwd=str(self._workspace.root) if self._workspace else None,
-                budget_fn=self._remaining_budget,
-                sessions=self._sessions,
-                round_n=self._current_round,
-                resuming=self._resuming,
-            )
-            if self._config.audit.live and transcript_dir:
-                await self._start_supervisor(str(transcript_dir / "research_loop.jsonl"), proposal)
-        else:
-            logger.info("Mock mode: using the scripted research iteration")
-            runner = ResearchIteration(
+        def share_of_budget() -> float | None:
+            # each running agent may spend its share of what is left, so together they cannot overrun
+            left = self._remaining_budget()
+            return None if left is None else left / max(1, len(running))
+
+        def new_runner() -> Any:
+            if agents:
+                return TerminalIteration(
+                    config=self._config,
+                    backend=self._execution_backend,
+                    event_bus=self._bus,
+                    system_prompt=self._terminal_system_prompt,
+                    task_instruction="\n\n".join(x for x in [self._terminal_task_instruction, guidance] if x),
+                    campaign_brief=self._campaign_brief(proposal),
+                    artifact_store=self._store,
+                    prior_phase_context=self._build_prior_context_prompt("research"),
+                    transcript_dir=transcript_dir,
+                    text_callback=_agent_text,
+                    cwd=str(self._workspace.root) if self._workspace else None,
+                    budget_fn=share_of_budget,
+                    sessions=self._sessions,
+                    round_n=self._current_round,
+                    resuming=self._resuming,
+                )
+            return ResearchIteration(
                 config=self._config,
                 router=self._router,
                 artifact_store=self._store,
@@ -1833,38 +1839,67 @@ Be specific: cite file names and concrete observations.
                 tool_registry=self._registry.get_optional(ToolRegistry),
                 hook_registry=self._hooks,
             )
-        self.current_iteration_runner = runner
+
+        if agents and self._config.audit.live and transcript_dir:
+            await self._start_supervisor(str(transcript_dir / "research_loop.jsonl"), proposal)
+        if not agents:
+            logger.info("Mock mode: using the scripted research iteration")
+        group = RunningJobs()
+        self.current_iteration_runner = group
         self._update_frontdesk_status(phase="research", max_iterations=max_iters, agent_status="running")
 
         results: list[IterationResult] = []
+        started = 0
+        last_runner: Any = None
         watchdog = asyncio.create_task(self._watch_budget())
+
+        async def run_job(job: ExperimentJob, runner: Any, n: int, others: list[str]) -> IterationResult:
+            kwargs = {"concurrent": others} if others and isinstance(runner, TerminalIteration) else {}
+            try:
+                return await runner.run(job, plan, n, **kwargs)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.exception("Research job %s raised", job.job_id)
+                return IterationResult(iteration_id=f"err_{job.job_id}", job_id=job.job_id,
+                                       decision="error", error=str(exc))
+
         try:
-            while not dag.is_complete() and not dag.is_blocked() and len(results) < max_iters:
+            while True:
                 self._check_budget()
-                ready = dag.ready_jobs()
-                if not ready:
+                # start what is ready, up to the limits
+                while len(running) < max_parallel and started < max_iters:
+                    ready = dag.ready_jobs()
+                    if not ready:
+                        break
+                    job = ready[0]
+                    dag.mark_running(job.job_id)
+                    others = [j.job_id for j in running.values()]
+                    started += 1
+                    runner = last_runner = new_runner()
+                    group.add(job.job_id, runner)
+                    await self._publish("job_started", job_id=job.job_id, title=job.skill_name,
+                                        index=started, total=len(plan.jobs), parallel_with=others)
+                    running[asyncio.create_task(run_job(job, runner, started - 1, others))] = job
+                if not running:
                     break
-                job = ready[0]
-                await self._publish("job_started", job_id=job.job_id, title=job.skill_name,
-                                    index=len(results) + 1, total=len(plan.jobs))
-                try:
-                    result = await runner.run(job, plan, len(results))
-                except Exception as exc:
-                    logger.exception("Research job %s raised", job.job_id)
-                    result = IterationResult(iteration_id=f"err_{job.job_id}", job_id=job.job_id,
-                                             decision="error", error=str(exc))
-                results.append(result)
-                self.cost_usd += (result.job_result.metrics.get("cost_usd", 0.0) if result.job_result else 0.0)
-                self._record_iteration_result(job, result)
-                if result.job_result and result.job_result.success:
-                    dag.mark_complete(job.job_id, result.job_result)
-                else:
-                    dag.mark_failed(job.job_id, [result.error or "failed"])
-                self._update_frontdesk_status(iteration=len(results), cost_usd=self.cost_usd)
-                await self._sync_container_files()
-                self._save_checkpoint(CampaignPhase.RESEARCH, self._current_round, plan_id=plan.plan_id,
-                                      completed_jobs=dag.completed_job_ids(), iteration=len(results),
-                                      current_iteration_id=result.iteration_id)
+                done, _ = await asyncio.wait(running, return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    job = running.pop(task)
+                    group.remove(job.job_id)
+                    result = task.result()
+                    results.append(result)
+                    self.cost_usd += (result.job_result.metrics.get("cost_usd", 0.0) if result.job_result else 0.0)
+                    self._record_iteration_result(job, result)
+                    if result.job_result and result.job_result.success:
+                        dag.mark_complete(job.job_id, result.job_result)
+                    else:
+                        dag.mark_failed(job.job_id, [result.error or "failed"])
+                    self._update_frontdesk_status(iteration=len(results), cost_usd=self.cost_usd)
+                    await self._sync_container_files()
+                    self._save_checkpoint(CampaignPhase.RESEARCH, self._current_round, plan_id=plan.plan_id,
+                                          completed_jobs=dag.completed_job_ids(), iteration=len(results),
+                                          current_iteration_id=result.iteration_id)
                 if self._stop_requested:
                     raise CampaignStopped(self._stop_requested)
             await self._hooks.fire(HookPoint.PERIODIC, HookContext(
@@ -1874,15 +1909,19 @@ Be specific: cite file names and concrete observations.
                 metadata={"campaign_id": self._config.campaign_id}))
         finally:
             watchdog.cancel()
+            for task in running:            # stopped or failed: end the jobs still running
+                task.cancel()
+            if running:
+                await asyncio.gather(*running, return_exceptions=True)
             self._update_frontdesk_status(agent_status="idle")
             await self._stop_supervisor()
             # a live-auditor question is about research work that is over now
             self.human_gate.close_source("supervisor", "the research phase ended")
             self.current_iteration_runner = None
-            if getattr(runner, "transcript_path", None):
-                self._phase_transcripts.append({"phase": "research", "path": runner.transcript_path})
-            if getattr(runner, "session_id", None):
-                self._session_id = runner.session_id
+            if getattr(last_runner, "transcript_path", None):
+                self._phase_transcripts.append({"phase": "research", "path": last_runner.transcript_path})
+            if getattr(last_runner, "session_id", None):
+                self._session_id = last_runner.session_id
 
         await self._publish("research_loop_complete", iterations=len(results), completed=dag.is_complete())
         return results
@@ -1927,14 +1966,14 @@ Be specific: cite file names and concrete observations.
     async def _start_supervisor(self, transcript_path: str, proposal: RoundtableProposal | None) -> None:
         from aurora.core.supervisor import Supervisor, SupervisorVerdict
 
-        async def advise(msg: str) -> None:
+        async def advise(msg: str, job: str = "") -> None:
             if self.current_iteration_runner is not None:
-                await self.current_iteration_runner.inject_message(msg)
+                await self.current_iteration_runner.inject_message(msg, job or None)
 
-        async def interrupt(msg: str) -> None:
+        async def interrupt(msg: str, job: str = "") -> None:
             if self.current_iteration_runner is not None:
-                self.current_iteration_runner.interrupt()
-                await self.current_iteration_runner.inject_message(msg)
+                self.current_iteration_runner.interrupt(job or None)
+                await self.current_iteration_runner.inject_message(msg, job or None)
 
         async def escalate(verdict: SupervisorVerdict) -> None:
             asyncio.create_task(self._supervisor_gate(verdict))
@@ -1966,25 +2005,25 @@ Be specific: cite file names and concrete observations.
         await self._supervisor.start(transcript_path)
 
     async def _supervisor_gate(self, verdict: Any) -> None:
-        """The live auditor escalated: pause the agent where it is and ask the human.
+        """The live auditor escalated: pause the agent(s) concerned where they are and ask the human.
 
-        The agent's session waits (its job clock stands still, other messages wait too) until
+        A paused agent's session waits (its job clock stands still, other messages wait too) until
         the decision, which it then receives and goes on from where it stopped.
         """
-        runner = self.current_iteration_runner
-        paused = runner is not None and hasattr(runner, "pause_for_decision")
-        if paused:
-            runner.pause_for_decision()
+        group = self.current_iteration_runner
+        job = getattr(verdict, "job", "") or None
+        paused = group.pause_for_decision(job) if hasattr(group, "pause_for_decision") else []
+        who = f"the research agent of job {job}" if job else "the research agent"
         title = f"The live auditor escalated: {verdict.reason[:120]}"
         decision = await self.human_gate.request(
             "supervisor", title,
-            f"{verdict.reason}\n\nSuggestion: {verdict.suggestion}\n\nThe research agent is paused until "
-            "you decide. continue: let it go on; instruct: send it your instruction; stop: end the campaign.")
+            f"{verdict.reason}\n\nSuggestion: {verdict.suggestion}\n\n{who[0].upper() + who[1:]} is paused "
+            "until you decide. continue: let it go on; instruct: send it your instruction; stop: end the campaign.")
         if decision.action == "stop" and decision.decided_by != "auditor":
             if decision.decided_by != "system":     # system: the campaign is ending anyway
                 self.request_stop(f"stopped after a live-auditor escalation: {decision.message or 'human decision'}")
             return
-        if not paused or runner is not self.current_iteration_runner:
+        if not paused or group is not self.current_iteration_runner:
             return
         why = f"You were paused because the live auditor asked the researcher: {verdict.reason}"
         if decision.decided_by == "auditor":
@@ -1993,7 +2032,7 @@ Be specific: cite file names and concrete observations.
             text = f"[Decision of the researcher] {why}\n\n{decision.message}\n\nContinue where you stopped."
         else:
             text = f"[Decision of the researcher] {why}\nContinue where you stopped."
-        await runner.resume_after_decision(text)
+        await group.resume_after_decision(text, paused)
 
     async def _stop_supervisor(self) -> None:
         if self._supervisor is not None:
@@ -2014,7 +2053,7 @@ Be specific: cite file names and concrete observations.
     async def _start_frontdesk(self) -> None:
         from aurora.human.frontdesk import CAMPAIGN_PROMPT, FrontDeskAgent, SystemStatus, campaign_tools
 
-        async def relay(message: str) -> dict[str, Any]:
+        async def relay(message: str, job: str = "") -> dict[str, Any]:
             if not message:
                 return {"status": "error", "reason": "empty message"}
             runner = self.current_iteration_runner
@@ -2028,16 +2067,16 @@ Be specific: cite file names and concrete observations.
             self._awaiting_agent_response = True
             await runner.inject_message(
                 f"[Instruction from the researcher]\n{message}\n\nAcknowledge it in one or two "
-                "sentences, then adjust your work accordingly.")
-            await self._publish("instruction_relayed", message=message)
-            return {"status": "delivered"}
+                "sentences, then adjust your work accordingly.", job or None)
+            await self._publish("instruction_relayed", message=message, job_id=job)
+            return {"status": "delivered", "to": job or "all running jobs"}
 
-        async def interrupt(reason: str) -> dict[str, Any]:
+        async def interrupt(reason: str, job: str = "") -> dict[str, Any]:
             if self.current_iteration_runner is None:
                 return {"status": "not_running"}
-            self.current_iteration_runner.interrupt()
-            await self._publish("agent_interrupted", reason=reason, by="human")
-            return {"status": "interrupted"}
+            self.current_iteration_runner.interrupt(job or None)
+            await self._publish("agent_interrupted", reason=reason, by="human", job_id=job)
+            return {"status": "interrupted", "job": job or "all running jobs"}
 
         async def answer_gate(gate_id: str, action: str, message: str,
                               rerun: list[str] | None = None) -> dict[str, Any]:
@@ -2115,7 +2154,12 @@ Be specific: cite file names and concrete observations.
             elif event.name == "human_gate_opened":
                 st.activity = f"waiting for the researcher's decision: {d.get('title')}"
             elif event.name == "job_started":
-                st.current_job = f"{event.data.get('index')}/{event.data.get('total')} {event.data.get('title', '')}"
+                st.running_jobs = {**st.running_jobs, str(event.data.get("job_id")):
+                                   f"{event.data.get('index')}/{event.data.get('total')} {event.data.get('title', '')}"}
+                st.current_job = "; ".join(f"{k}: {v}" for k, v in st.running_jobs.items())
+            elif event.name == "iteration_complete":
+                st.running_jobs = {k: v for k, v in st.running_jobs.items() if k != str(event.data.get("job_id"))}
+                st.current_job = "; ".join(f"{k}: {v}" for k, v in st.running_jobs.items())
             elif event.name == "tool_call_start" and event.source == "terminal_iteration":
                 import time as _time
                 st.recent_actions = (st.recent_actions + [

@@ -61,6 +61,7 @@ class SystemStatus:
     cost_usd: float = 0.0
     budget_usd: float | None = None
     current_job: str = ""
+    running_jobs: dict[str, str] = field(default_factory=dict)   # job ID -> description
     recent_actions: list[str] = field(default_factory=list)   # newest last
     ideation_log: list[str] = field(default_factory=list)     # meeting progress, newest last
 
@@ -75,7 +76,7 @@ class SystemStatus:
         if self.phase in ("research", "analysis", "writing") or self.iteration:
             lines.append(f"Research jobs finished: {self.iteration}/{self.max_iterations or '?'}")
         if self.current_job and self.phase == "research":
-            lines.append(f"Current job: {self.current_job}")
+            lines.append(f"Running job(s): {self.current_job}")
         if self.recent_actions and self.phase == "research":
             lines.append("Recent actions of the research agent (newest last):")
             lines += [f"  {a}" for a in self.recent_actions[-8:]]
@@ -351,17 +352,17 @@ class FrontDeskAgent:
 
 def campaign_tools(
     *,
-    relay: Callable[[str], Awaitable[dict[str, Any]]],
-    interrupt: Callable[[str], Awaitable[dict[str, Any]]],
+    relay: Callable[[str, str], Awaitable[dict[str, Any]]],
+    interrupt: Callable[[str, str], Awaitable[dict[str, Any]]],
     answer_gate: Callable[..., Awaitable[dict[str, Any]]],
     set_resources: Callable[[float | None, int | None], Awaitable[dict[str, Any]]] | None = None,
 ) -> list[FrontDeskTool]:
     """Tools of the front desk of a running campaign."""
     async def _relay(p: dict[str, Any]) -> Any:
-        return await relay(str(p.get("message", "")))
+        return await relay(str(p.get("message", "")), str(p.get("job_id") or ""))
 
     async def _interrupt(p: dict[str, Any]) -> Any:
-        return await interrupt(str(p.get("reason", "requested by the researcher")))
+        return await interrupt(str(p.get("reason", "requested by the researcher")), str(p.get("job_id") or ""))
 
     async def _answer(p: dict[str, Any]) -> Any:
         rerun = p.get("rerun") if isinstance(p.get("rerun"), list) else []
@@ -372,13 +373,17 @@ def campaign_tools(
         FrontDeskTool(
             "relay_to_agent",
             "Send an instruction from the researcher to the research agent; it receives the message "
-            "while it works and adjusts.",
-            {"type": "object", "properties": {"message": {"type": "string"}}, "required": ["message"]},
+            "while it works and adjusts. When several jobs run, give job_id to address one of them "
+            "(otherwise all running jobs receive it).",
+            {"type": "object", "properties": {"message": {"type": "string"}, "job_id": {"type": "string"}},
+             "required": ["message"]},
             _relay),
         FrontDeskTool(
             "interrupt_agent",
-            "Stop the research agent's current action (it then waits for the next message).",
-            {"type": "object", "properties": {"reason": {"type": "string"}}, "required": ["reason"]},
+            "Stop the research agent's current action (it then waits for the next message). With job_id, "
+            "only that job's agent; otherwise all running jobs.",
+            {"type": "object", "properties": {"reason": {"type": "string"}, "job_id": {"type": "string"}},
+             "required": ["reason"]},
             _interrupt),
         FrontDeskTool(
             "answer_gate",

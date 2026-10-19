@@ -46,6 +46,7 @@ class TrajectoryEntry:
     turn: int = 0
     event_type: str = ""  # thinking | tool_call | tool_result | text | error
     data: dict[str, Any] = field(default_factory=dict)
+    job: str = ""         # the research job, when several write to one transcript
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +133,9 @@ class ClaudeCodeLoop:
         session_callback: Any = None,
         app_on_host: str | None = None,
         container_agent: dict[str, str] | None = None,
+        transcript_tag: str = "",
     ) -> None:
+        self._transcript_tag = transcript_tag
         # run Claude Code inside the campaign container: {"container": id, plus env such as
         # ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN / HOME} (see DockerBackend.agent_env)
         self._container_agent = container_agent
@@ -362,6 +365,7 @@ class ClaudeCodeLoop:
 
         def _track(entry: TrajectoryEntry) -> None:
             """Append to in-memory list and live transcript file."""
+            entry.job = self._transcript_tag
             trajectory.append(entry)
             self._write_live(entry)
 

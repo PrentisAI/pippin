@@ -26,14 +26,14 @@ def tool_call(name, args):
 async def test_relays_an_instruction_and_answers(tmp_path):
     relayed, answered = [], []
 
-    async def relay(message):
+    async def relay(message, job=""):
         relayed.append(message)
         return {"status": "delivered"}
 
-    async def interrupt(reason):
+    async def interrupt(reason, job=""):
         return {"status": "interrupted"}
 
-    async def answer_gate(gate_id, action, message):
+    async def answer_gate(gate_id, action, message, rerun=None):
         answered.append((gate_id, action))
         return {"status": "recorded"}
 

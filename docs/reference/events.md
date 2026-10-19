@@ -40,7 +40,7 @@ result = await engine.run_campaign()
 | `screening_complete` | `proposal_id`, `selected`, `score` |
 | `planning_complete` | `plan_id`, `num_jobs` |
 | `planning_fallback` | `reason` (no valid plan; one job carries out the whole proposal) |
-| `job_started` | `job_id`, `title`, `index`, `total` |
+| `job_started` | `job_id`, `title`, `index`, `total`, `parallel_with` (jobs already running) |
 | `iteration_complete` | `job_id`, `decision`, `cost_usd`, `errors` |
 | `research_loop_complete` | `iterations`, `completed` |
 | `analysis_complete` | `loop_back_to` (phase or null) |
@@ -48,6 +48,8 @@ result = await engine.run_campaign()
 | `campaign_completed` / `campaign_failed` / `campaign_stopped` | `status`, `summary`, `cost_usd`, `wall_time_seconds` |
 
 ## Agent sessions
+
+Events from research agents also carry `job_id`, since several jobs may run at once.
 
 | Event | Data |
 |---|---|

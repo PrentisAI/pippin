@@ -131,11 +131,18 @@ class Runner:
 async def test_live_auditor_gate_pauses_until_the_decision(tmp_path, action, decided_by, expect):
     engine = ResearchEngine(AuroraConfig(objective="x", mock_mode=True, campaign_id="p1",
                                          workspace={"root": str(tmp_path)}, human={"autonomy": "supervised"}))
+    from aurora.core.terminal_iteration import RunningJobs
     runner = Runner()
-    engine.current_iteration_runner = runner
-    gate = asyncio.create_task(engine._supervisor_gate(types.SimpleNamespace(reason="loops", suggestion="s")))
-    while not engine.human_gate.pending:
+    group = RunningJobs()
+    group.add("job-a", runner)
+    engine.current_iteration_runner = group
+    gate = asyncio.create_task(engine._supervisor_gate(types.SimpleNamespace(reason="loops", suggestion="s",
+                                                                             job="job-a")))
+    for _ in range(500):
+        if engine.human_gate.pending or gate.done():
+            break
         await asyncio.sleep(0.01)
+    assert not gate.done(), gate.exception() if gate.done() else None
     assert runner.paused
     [g] = engine.human_gate.pending
     if decided_by == "auditor":

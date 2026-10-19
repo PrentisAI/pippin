@@ -1353,6 +1353,11 @@ function ProposalCard({
         setError('The budget must be a positive number of US$, or empty for no limit')
         return
       }
+      const parallel = advanced.parallel?.trim() ? Number(advanced.parallel) : null
+      if (parallel !== null && !(Number.isInteger(parallel) && parallel >= 1 && parallel <= 16)) {
+        setError('Jobs at the same time must be a whole number from 1 to 16')
+        return
+      }
       const cpus = advanced.cpus?.trim() ? Number(advanced.cpus) : null
       const memoryGb = advanced.memoryGb?.trim() ? Number(advanced.memoryGb) : null
       if ((cpus !== null && !(cpus > 0)) || (memoryGb !== null && !(memoryGb > 0))) {
@@ -1367,6 +1372,7 @@ function ProposalCard({
         ...(Object.keys(advanced.models).length ? { models: advanced.models } : {}),
         ...(cpus !== null ? { cpus } : {}),
         ...(memoryGb !== null ? { memory_mb: Math.round(memoryGb * 1024) } : {}),
+        ...(parallel !== null ? { max_parallel_jobs: parallel } : {}),
       })
       setStarted({
         experiment_id: result.experiment_id,
@@ -1377,6 +1383,7 @@ function ProposalCard({
         models: advanced.models,
         cpus,
         memory_mb: memoryGb !== null ? Math.round(memoryGb * 1024) : null,
+        max_parallel_jobs: parallel,
       })
       setConfirmed(true)
       onConfirmed(result.experiment_id)
@@ -1797,6 +1804,8 @@ interface AdvancedChoices {
   /** Container limits, as typed; empty: the server defaults. */
   cpus?: string
   memoryGb?: string
+  /** Research jobs at the same time, as typed; empty: the server default. */
+  parallel?: string
 }
 
 let settingsRequest: Promise<ConsoleSettings> | null = null
@@ -1861,7 +1870,7 @@ function AdvancedSettings({
   const autonomy = value.autonomy ?? settings.autonomy_mode
   const sb = settings.sandbox
   const changed = Object.keys(value.models).length + (value.autonomy ? 1 : 0) + (value.cpus ? 1 : 0)
-    + (value.memoryGb ? 1 : 0)
+    + (value.memoryGb ? 1 : 0) + (value.parallel ? 1 : 0)
 
   return (
     <div className="proposal-advanced">
@@ -1893,6 +1902,15 @@ function AdvancedSettings({
             {ideation && field('ideation_seats', 'Ideation seats (comma-separated)')}
             {ideation && field('ideation_chair', 'Ideation chair')}
             {OVERSIGHT_MODEL_ROLES.map(([role, label]) => field(role, label))}
+          </div>
+          <div className="advanced-group">
+            <div className="advanced-title">Research jobs</div>
+            <label className="advanced-field">
+              <span>At the same time</span>
+              <input type="number" min="1" max="16" step="1" value={value.parallel ?? ''}
+                placeholder={String(settings.max_parallel_jobs)} onChange={(e) => onChange({ ...value, parallel: e.target.value })} />
+            </label>
+            <div className="proposal-hint">jobs whose inputs are ready run together, each with its own agent, sharing the container</div>
           </div>
           {sb.docker && (
             <div className="advanced-group">
@@ -1980,6 +1998,9 @@ function StartedProposal({
         {budget && <><dt>Budget</dt><dd>{budget}</dd></>}
         {started?.autonomy_mode && (
           <><dt>Decisions</dt><dd>{started.autonomy_mode === 'autonomous' ? 'Autonomous' : 'Supervised'}</dd></>
+        )}
+        {started?.max_parallel_jobs != null && started.max_parallel_jobs > 1 && (
+          <><dt>Parallel jobs</dt><dd>{started.max_parallel_jobs}</dd></>
         )}
         {(started?.cpus || started?.memory_mb) && (
           <><dt>Container</dt><dd>{[started.cpus ? `${started.cpus} CPUs` : '', started.memory_mb ? `${started.memory_mb / 1024} GB` : '']

@@ -60,6 +60,7 @@ Limits of the Claude Code sessions that do the work.
 | `agent.research_max_turns` | int | `200` | Turn limit of one research session. |
 | `agent.research_timeout_minutes` | float | `60` | Time limit of one research job. |
 | `agent.phase_max_turns` | int | `30` | Turn limit of the screening, planning, analysis and writing sessions. |
+| `agent.max_parallel_jobs` | int | `1` | Research jobs that may run at the same time, each with its own agent, when the plan's dependencies allow it. They share the container (CPUs, memory, /app). |
 | `agent.max_research_iterations` | int | `10` | Maximum research jobs executed in one research cycle. |
 | `agent.max_followup_cycles` | int | `2` | How often analysis may send the campaign back for more research. |
 

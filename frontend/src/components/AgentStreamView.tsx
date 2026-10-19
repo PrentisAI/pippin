@@ -313,7 +313,9 @@ function buildTimeline(events: StreamEvent[]): TimelineRow[] {
       flush(false)
       const d = evt.data ?? {}
       const badge = d.index != null ? `Job ${d.index}/${d.total ?? '?'}` : 'Job'
-      rows.push({ kind: 'job', badge, title: str(d.title) || str(d.job_id) })
+      const alongside = Array.isArray(d.parallel_with) && d.parallel_with.length
+        ? ` · alongside ${(d.parallel_with as string[]).join(', ')}` : ''
+      rows.push({ kind: 'job', badge, title: `${str(d.job_id)}: ${str(d.title) || str(d.job_id)}${alongside}` })
       continue
     }
 
@@ -337,11 +339,12 @@ function buildTimeline(events: StreamEvent[]): TimelineRow[] {
       continue
     }
 
-    // Start a new row when the agent's turn changes or after a pause of more than 30 s
+    // Start a new row when the agent's turn or job changes, or after a pause of more than 30 s
     const prevTurn = agentBatch[0]?.turn
     const newTurn = evt.turn !== undefined && prevTurn !== undefined && evt.turn !== prevTurn
     const gap = ts > 0 && batchTs > 0 && ts - batchTs > 30
-    if (newTurn || gap) flush(false)
+    const otherJob = info.lane === 'agent' && agentBatch.length > 0 && (evt.data?.job_id ?? '') !== (agentBatch[0].data?.job_id ?? '')
+    if (newTurn || gap || otherJob) flush(false)
 
     batchTs = ts || batchTs
     if (info.lane === 'oversight') oversightBatch.push(evt)
@@ -436,9 +439,11 @@ function AgentBlock({ events }: { events: StreamEvent[] }) {
   const totalSeconds = events.reduce(
     (sum, e) => sum + (e.event_type === 'tool_call_result' ? Number(e.data?.duration_seconds) || 0 : 0), 0)
 
+  const job = str(events[0]?.data?.job_id)
   return (
     <div className={`agent-block${open ? ' open' : ''}`}>
       <div className="agent-block-header" onClick={() => setOpen(!open)}>
+        {job && <span className="agent-job">{job}</span>}
         <span className="agent-label">{label}</span>
         <span className={`agent-status ${running ? 'running' : 'done'}`}>
           {running ? <span className="spinner" /> : totalSeconds > 0 ? `${totalSeconds.toFixed(0)}s` : ''}

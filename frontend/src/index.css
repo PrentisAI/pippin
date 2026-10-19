@@ -2390,3 +2390,10 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 }
 .resources-hint { font-size: 10px; color: var(--fg-dim); }
 .resources-actions { display: flex; justify-content: flex-end; gap: 6px; }
+
+/* The job an agent block belongs to (several jobs may run at once) */
+.agent-job {
+  font: 600 9px 'IBM Plex Mono', monospace; padding: 1px 5px; border-radius: 3px;
+  background: var(--accent-dim); color: var(--accent); flex-shrink: 0; max-width: 140px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}

@@ -265,6 +265,11 @@ class AgentConfig(_Section):
         default=30, ge=1,
         description="Turn limit of the screening, planning, analysis and writing sessions.",
     )
+    max_parallel_jobs: int = Field(
+        default=1, ge=1, le=16,
+        description="Research jobs that may run at the same time, each with its own agent, when the plan's "
+                    "dependencies allow it. They share the container (CPUs, memory, /app).",
+    )
     max_research_iterations: int = Field(
         default=10, ge=1, description="Maximum research jobs executed in one research cycle.",
     )

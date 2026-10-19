@@ -60,8 +60,15 @@ class DependencyGraph:
                 raise ValueError(
                     f"Dependency edge references unknown target job: {edge.to_job_id}"
                 )
-            self._children[edge.from_job_id].append(edge.to_job_id)
-            self._parents[edge.to_job_id].append(edge.from_job_id)
+            self._add_edge(edge.from_job_id, edge.to_job_id)
+        # planning agents state dependencies on the jobs themselves
+        for job in plan.jobs:
+            for parent in job.dependencies:
+                if parent not in self._jobs or parent == job.job_id:
+                    logger.warning("Job %s depends on %r, which is not a job of the plan; ignored",
+                                   job.job_id, parent)
+                    continue
+                self._add_edge(parent, job.job_id)
 
         # Internal status tracker (decoupled from the ExperimentJob models)
         self._status: dict[str, _JobStatus] = {
@@ -83,9 +90,14 @@ class DependencyGraph:
         logger.info(
             "DependencyGraph initialised: %d jobs, %d edges, %d ready",
             len(self._jobs),
-            len(plan.dependency_edges),
+            sum(len(c) for c in self._children.values()),
             sum(1 for s in self._status.values() if s == "ready"),
         )
+
+    def _add_edge(self, parent: str, child: str) -> None:
+        if child not in self._children[parent]:
+            self._children[parent].append(child)
+            self._parents[child].append(parent)
 
     # ------------------------------------------------------------------
     # Scheduling queries

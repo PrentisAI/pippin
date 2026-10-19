@@ -156,7 +156,11 @@ class TerminalIteration:
             if done:
                 return True
 
-    async def run(self, job: ExperimentJob, plan: ExperimentPlan, iteration_number: int = 0) -> IterationResult:
+    async def run(self, job: ExperimentJob, plan: ExperimentPlan, iteration_number: int = 0, *,
+                  concurrent: list[str] | None = None) -> IterationResult:
+        """Run *job*; *concurrent* names jobs that run at the same time in the same /app."""
+        self._job_id = job.job_id
+        self._concurrent = list(concurrent or [])
         iter_id = f"job_{job.job_id}_{uuid.uuid4().hex[:6]}"
         start = time.time()
         deadline = start + self._config.agent.research_timeout_minutes * 60
@@ -314,6 +318,12 @@ class TerminalIteration:
         others = [j.job_id for j in plan.jobs if j.job_id != job.job_id]
         if others:
             parts.append("Other jobs of the plan (done separately, not by you): " + ", ".join(others))
+        if getattr(self, "_concurrent", None):
+            parts.append(
+                "These jobs run AT THE SAME TIME as yours, by other agents in the same /app and container: "
+                + ", ".join(self._concurrent) + f". Put your files under /app/{job.job_id}/ (or name them "
+                "after your job), do not change or delete their files, and share the container's CPUs "
+                "and memory with them.")
         if self._task_instruction:
             parts.append(f"## Instructions from the researcher\n\n{self._task_instruction}")
         parts.append("Explore the working directory first, then do the job. Verify your results, and "
@@ -327,10 +337,12 @@ class TerminalIteration:
     def _create_loop(self, max_turns: int) -> Any:
         from aurora.core.agent_session import make_claude_code_loop
 
+        job_id = getattr(self, "_job_id", "")
+
         async def stream_callback(event: StreamEvent) -> None:
             await self._bus.publish(Event(
                 name=event.event_type,
-                data=event.data,
+                data={**event.data, "job_id": job_id},
                 source="terminal_iteration",
             ))
 
@@ -352,4 +364,73 @@ class TerminalIteration:
             live_transcript_path=live_path,
             text_callback=self._text_callback,
             session_callback=self._session_callback,
+            transcript_tag=job_id,
         )
+
+
+class RunningJobs:
+    """The research jobs running now, one agent each.
+
+    Messages, pauses and stops go to one job (by ID) or, without one, to all of them.  A message
+    sent while no job runs is given to the next one that starts.
+    """
+
+    def __init__(self) -> None:
+        self.active: dict[str, Any] = {}
+        self._waiting: list[str] = []
+
+    def add(self, job_id: str, runner: Any) -> None:
+        self.active[job_id] = runner
+        if self._waiting and hasattr(runner, "_pending_messages"):
+            runner._pending_messages.extend(self._waiting)
+            self._waiting.clear()
+
+    def remove(self, job_id: str) -> None:
+        self.active.pop(job_id, None)
+
+    def _targets(self, job: str | None = None) -> list[Any]:
+        if job and job in self.active:
+            return [self.active[job]]
+        if job:
+            logger.info("No running job %r; addressing all running jobs", job)
+        return list(self.active.values())
+
+    @property
+    def job_ids(self) -> list[str]:
+        return list(self.active)
+
+    @property
+    def paused(self) -> bool:
+        return any(getattr(r, "paused", False) for r in self.active.values())
+
+    async def inject_message(self, message: str, job: str | None = None) -> None:
+        targets = [r for r in self._targets(job) if hasattr(r, "inject_message")]
+        if not targets:
+            self._waiting.append(message)
+        for r in targets:
+            await r.inject_message(message)
+
+    def interrupt(self, job: str | None = None) -> None:
+        for r in self._targets(job):
+            if hasattr(r, "interrupt"):
+                r.interrupt()
+
+    def request_stop(self) -> None:
+        for r in self.active.values():
+            if hasattr(r, "request_stop"):
+                r.request_stop()
+
+    def pause_for_decision(self, job: str | None = None) -> list[str]:
+        """Pause *job* (or all running jobs) for a decision; the IDs of those paused."""
+        paused = []
+        for jid, r in list(self.active.items()):
+            if (not job or job == jid or job not in self.active) and hasattr(r, "pause_for_decision"):
+                r.pause_for_decision()
+                paused.append(jid)
+        return paused
+
+    async def resume_after_decision(self, text: str, jobs: list[str]) -> None:
+        for jid in jobs:
+            r = self.active.get(jid)
+            if r is not None and hasattr(r, "resume_after_decision"):
+                await r.resume_after_decision(text)

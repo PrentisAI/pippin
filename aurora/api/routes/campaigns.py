@@ -348,6 +348,7 @@ class StartExperimentRequest(BaseModel):
     mock_mode: bool | None = None
     cpus: float | None = None          # sandbox.cpus
     memory_mb: int | None = None       # sandbox.memory_mb
+    max_parallel_jobs: int | None = None   # agent.max_parallel_jobs
 
 
 def default_skip_phases(instruction: str) -> list[str]:
@@ -376,6 +377,8 @@ def _experiment_config(campaign: CampaignState, run_id: str, req: StartExperimen
         raw.setdefault("sandbox", {})["cpus"] = req.cpus
     if req.memory_mb:
         raw.setdefault("sandbox", {})["memory_mb"] = req.memory_mb
+    if req.max_parallel_jobs:
+        raw.setdefault("agent", {})["max_parallel_jobs"] = req.max_parallel_jobs
     if req.inputs or req.data_paths:
         raw["inputs"] = list(raw.get("inputs", [])) + req.inputs + req.data_paths
     if req.autonomy_mode:
@@ -822,6 +825,7 @@ class ConfirmProposalBody(BaseModel):
     max_cost_usd: float | None = None   # null: no limit; omitted: the proposal's default
     cpus: float | None = None           # container limits; empty: the base config's
     memory_mb: int | None = None
+    max_parallel_jobs: int | None = None
 
 
 @campaign_router.post("/{campaign_id}/proposals/{proposal_id}/confirm")
@@ -840,6 +844,7 @@ async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProp
         skip_phases=body.skip_phases if body.skip_phases is not None else proposal.suggested_skip,
         ideation_mode=body.ideation_mode or p.get("ideation_mode", ""),
         models=body.models, autonomy_mode=body.autonomy_mode, cpus=body.cpus, memory_mb=body.memory_mb,
+        max_parallel_jobs=body.max_parallel_jobs,
         max_cost_usd=body.max_cost_usd if "max_cost_usd" in body.model_fields_set else proposal.max_cost_usd)
     result = await _start(campaign, req)
     proposal.confirmed = True
@@ -854,6 +859,7 @@ async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProp
         "models": cfg.models.model_dump() if cfg else (req.models or {}),
         "cpus": cfg.sandbox.cpus if cfg else req.cpus,
         "memory_mb": cfg.sandbox.memory_mb if cfg else req.memory_mb,
+        "max_parallel_jobs": cfg.agent.max_parallel_jobs if cfg else req.max_parallel_jobs,
     }
     campaign.note(f"Experiment started: {result['experiment_id']}")
     return {"status": "started", "experiment_id": result["experiment_id"],
@@ -1055,6 +1061,7 @@ async def get_settings() -> dict[str, Any]:
         "autonomy_mode": cfg.human.autonomy.value,
         "ideation_mode": cfg.ideation.mode,
         "max_cost_usd": default_max_cost(),
+        "max_parallel_jobs": cfg.agent.max_parallel_jobs,
         "sandbox": {"docker": cfg.sandbox.docker, "cpus": cfg.sandbox.cpus, "memory_mb": cfg.sandbox.memory_mb,
                     "host_cpus": host[0], "host_memory_mb": host[1]},
         "model_suggestions": [m for m in MODEL_SUGGESTIONS if served is None or m in served],

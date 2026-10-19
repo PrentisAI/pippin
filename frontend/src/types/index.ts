@@ -191,6 +191,7 @@ export interface ConfirmedSettings {
   models?: Partial<Record<string, string | string[]>>
   cpus?: number | null
   memory_mb?: number | null
+  max_parallel_jobs?: number | null
 }
 
 export interface ConversationMessage {
@@ -245,6 +246,7 @@ export interface ConsoleSettings {
   autonomy_mode: AutonomyMode
   ideation_mode: IdeationMode
   max_cost_usd: number | null
+  max_parallel_jobs: number
   sandbox: { docker: boolean; cpus: number; memory_mb: number; host_cpus: number; host_memory_mb: number }
   model_suggestions: string[]
 }

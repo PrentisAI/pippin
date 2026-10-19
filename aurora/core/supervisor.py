@@ -44,10 +44,11 @@ class SupervisorVerdict:
     reason: str = ""
     suggestion: str = ""
     timestamp: float = field(default_factory=time.time)
+    job: str = ""           # the research job it is about, when several run at once
 
     def to_dict(self) -> dict[str, Any]:
         return {"outcome": self.outcome.value, "reason": self.reason,
-                "suggestion": self.suggestion, "timestamp": self.timestamp}
+                "suggestion": self.suggestion, "timestamp": self.timestamp, "job": self.job}
 
 
 def parse_verdicts(text: str) -> list[SupervisorVerdict]:
@@ -66,7 +67,8 @@ def parse_verdicts(text: str) -> list[SupervisorVerdict]:
         if outcome not in (AuditOutcome.CONTINUE, AuditOutcome.ADVISE,
                            AuditOutcome.INTERRUPT, AuditOutcome.ESCALATE, AuditOutcome.WITHDRAW):
             outcome = AuditOutcome.ADVISE
-        verdicts.append(SupervisorVerdict(outcome, str(v.get("reason", "")), str(v.get("suggestion", ""))))
+        verdicts.append(SupervisorVerdict(outcome, str(v.get("reason", "")), str(v.get("suggestion", "")),
+                                          job=str(v.get("job") or "")))
     return verdicts
 
 
@@ -141,10 +143,10 @@ class Supervisor:
         The campaign workspace; the supervisor may read files under it.
     docker_container:
         The campaign container, for read-only ``docker exec`` inspection.
-    advise_callback(message):
-        Sends a message to the research agent.
-    interrupt_callback(message):
-        Stops the research agent's current action, then sends the message.
+    advise_callback(message, job):
+        Sends a message to the research agent of *job* ("" for all).
+    interrupt_callback(message, job):
+        Stops that agent's current action, then sends the message.
     escalate_callback(verdict):
         Opens a human gate.
     withdraw_callback(verdict):
@@ -163,8 +165,8 @@ class Supervisor:
         base_url: str,
         cwd: str | Path,
         docker_container: str | None = None,
-        advise_callback: Callable[[str], Awaitable[None]] | None = None,
-        interrupt_callback: Callable[[str], Awaitable[None]] | None = None,
+        advise_callback: Callable[[str, str], Awaitable[None]] | None = None,
+        interrupt_callback: Callable[[str, str], Awaitable[None]] | None = None,
         escalate_callback: Callable[[SupervisorVerdict], Awaitable[None]] | None = None,
         withdraw_callback: Callable[[SupervisorVerdict], Awaitable[None]] | None = None,
         broadcast_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
@@ -286,11 +288,11 @@ class Supervisor:
         text = verdict.suggestion or verdict.reason
         if verdict.outcome == AuditOutcome.ADVISE and self._advise:
             logger.info("Live auditor advises: %s", verdict.reason)
-            await self._advise(f"[Live auditor — advice]\n{text}")
+            await self._advise(f"[Live auditor — advice]\n{text}", verdict.job)
         elif verdict.outcome == AuditOutcome.INTERRUPT and self._interrupt:
             logger.warning("Live auditor interrupts: %s", verdict.reason)
             await self._interrupt(f"[Live auditor — your last action was stopped]\n{text}\n"
-                                  "Correct course before you continue.")
+                                  "Correct course before you continue.", verdict.job)
         elif verdict.outcome == AuditOutcome.ESCALATE and self._escalate:
             logger.warning("Live auditor escalates: %s", verdict.reason)
             await self._escalate(verdict)
@@ -310,7 +312,10 @@ You receive the agent's live transcript (JSONL entries: thinking, tool_call, too
 text, error) in updates. You may read the campaign workspace ({self._cwd}).{container}
 
 After every update, end your reply with exactly one verdict line:
-VERDICT {{"outcome": "continue|advise|interrupt|escalate|withdraw", "reason": "...", "suggestion": "..."}}
+VERDICT {{"outcome": "continue|advise|interrupt|escalate|withdraw", "reason": "...", "suggestion": "...", "job": "..."}}
+
+Several research jobs may run at the same time, each with its own agent; every transcript entry
+says which ("job"). Put the job your verdict is about in "job" (empty if it concerns all).
 
 - continue — reasonable progress. The default; early exploration is normal.
 - advise — a likely problem the agent can fix while it keeps working: a wrong method or

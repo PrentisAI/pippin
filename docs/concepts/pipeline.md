@@ -20,6 +20,14 @@ other points, can open a **human gate**.
 | **Analysis** | Claude Code session | a verdict: sufficient, or which phase should run again (research, planning or ideation) |
 | **Writing** | Claude Code session | the report (Markdown with figures) |
 
+Research runs the plan's jobs in the order of their dependencies. With
+`agent.max_parallel_jobs` above 1 (default 1; *Advanced settings* on the
+proposal card), jobs whose inputs are ready run at the same time, each with its
+own research agent, and a new one starts as soon as another finishes. They share
+the container (its CPUs, memory and `/app`) and are told which jobs run beside
+them; give the container more resources accordingly. The live auditor watches
+all of them, and the front desk can address one job or all.
+
 Each phase agent starts a fresh session and is told where the earlier phases'
 outputs and transcripts are, so it reads what it needs instead of inheriting a
 long context.
