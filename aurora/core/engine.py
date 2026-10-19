@@ -24,6 +24,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import re
 import uuid
 from datetime import UTC, datetime
 from enum import Enum
@@ -82,6 +84,37 @@ class CampaignPhase(str, Enum):
     WRITING = "writing"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class ResearcherDirection(BaseModel):
+    """How the researcher's message at the screening gate is read."""
+
+    basis: str = Field(description="Exactly one ID from the lists (a proposal like prop_1a2b3c4d, or a meeting "
+                                   "idea like idea_p03), or exactly 'new' for a direction of their own; "
+                                   "nothing else")
+    interpretation: str = Field(description="One or two sentences: how you understood the message")
+    changes: str = Field(description="Only the changes the researcher asks for to that proposal or idea; "
+                                     "an empty string if they ask for none or if basis is 'new'")
+    title: str = Field(description="For 'new': a short title of their direction; empty otherwise")
+    description: str = Field(description="For 'new': their direction written out as a research proposal "
+                                         "(question, approach), keeping everything they said; empty otherwise")
+
+
+_DEVELOP_DIRECTION = """\
+The researcher has chosen the direction of this campaign (below). Work within it: develop it into \
+the strongest version you can (a sharper question, a testable hypothesis, a concrete method) and \
+raise what is wrong with it, but do not propose a different direction.
+
+{direction}"""
+
+
+_DIRECTION_PROMPT = """\
+A research campaign's screening rejected the proposals from ideation, and the researcher has now \
+said which direction to pursue. Read their message the way a colleague would and work out what \
+they mean: one of the proposals as it is ("the latest one is fine"), one of the ideas presented at \
+the meeting ("go with the e-bike idea"), one of them with changes, or a direction of their own. \
+Refer to it by its ID. Do not add ideas the researcher did not ask for. If the message only \
+approves without naming one, they mean the latest proposal."""
 
 
 class CampaignStopped(Exception):
@@ -206,6 +239,7 @@ class ResearchEngine:
         self._sessions: SessionRegistry | None = None
         self.cost_usd: float = 0.0
         self._prior_cost = 0.0      # spent before this run, when resuming (from cost.json)
+        self._finishing = False     # run_campaign is cleaning up (container, front desk)
         self._stop_requested: str | None = None
 
         # Cross-phase context: each phase writes its transcript to disk,
@@ -257,7 +291,9 @@ class ResearchEngine:
         status, summary = "completed", ""
 
         try:
-            if self._execution_backend is not None:
+            checkpoint = self._load_checkpoint() if resume else None
+            finished = checkpoint is not None and checkpoint.phase == CampaignPhase.COMPLETED.value
+            if self._execution_backend is not None and not finished:   # nothing left to run: no container
                 await self._execution_backend.setup()
                 logger.info("Execution backend started (container=%s)",
                             getattr(self._execution_backend, "container_id", None) or "none, local")
@@ -265,7 +301,6 @@ class ResearchEngine:
                 if resume:
                     await self._restore_container_files()
 
-            checkpoint = self._load_checkpoint() if resume else None
             start_phase = CampaignPhase(checkpoint.phase) if checkpoint else CampaignPhase.IDEATION
             research_cycle = checkpoint.research_cycle if checkpoint else 0
             self._current_round = research_cycle
@@ -308,6 +343,11 @@ class ResearchEngine:
             # instruction from a human gate (or a screening rejection), passed to the next phase
             guidance = (checkpoint.metadata.get("guidance", "") if checkpoint
                         and start_phase == CampaignPhase.IDEATION else "")
+            # the researcher chose a direction and asked for ideation but not screening on it
+            skip_screening = bool(checkpoint.metadata.get("skip_screening")) if checkpoint else False
+
+            def meta(**extra: Any) -> dict[str, Any]:
+                return {"screening_rejections": rejections, "skip_screening": skip_screening, **extra}
 
             while current != CampaignPhase.COMPLETED:
                 self._check_budget()
@@ -324,6 +364,18 @@ class ResearchEngine:
                     proposal = proposal or self._load_latest_proposal()
                     if proposal is None:
                         raise RuntimeError("Screening needs a proposal, but ideation was skipped and none exists.")
+                    if skip_screening and proposal.score is None:
+                        # the researcher's direction, developed by ideation; they chose not to screen it
+                        skip_screening = False
+                        proposal = proposal.model_copy(update={"selected": True})
+                        self._workspace.atomic_write_json(
+                            self._workspace.proposal_path(proposal.proposal_id, self._current_round), proposal)
+                        await self._publish("screening_skipped", proposal_id=proposal.proposal_id,
+                                            reason="the researcher chose not to screen their direction")
+                        current = after(CampaignPhase.SCREENING)
+                        self._save_checkpoint(current, research_cycle, proposal_id=proposal.proposal_id,
+                                              metadata=meta())
+                        continue
                     if proposal.score is not None:
                         # resumed after this proposal was screened: keep its verdict
                         await self._publish("phase_started", phase="screening")
@@ -342,36 +394,49 @@ class ResearchEngine:
                             guidance = (f"The previous proposal '{proposal.title}' was rejected at screening: "
                                         f"{proposal.score.explanation if proposal.score else ''}")
                             current = CampaignPhase.IDEATION
-                            self._save_checkpoint(current, research_cycle,
-                                                  metadata={"screening_rejections": rejections,
-                                                            "guidance": guidance})
+                            self._save_checkpoint(current, research_cycle, metadata=meta(guidance=guidance))
                             continue
                         self._save_checkpoint(current, research_cycle, proposal_id=proposal.proposal_id,
-                                              metadata={"screening_rejections": rejections})
+                                              metadata=meta())
                         decision = await self.human_gate.request(
                             "screening", "Screening keeps rejecting the proposals",
                             f"Screening rejected {rejections} proposals. Latest: '{proposal.title}' "
                             f"(score {proposal.score.composite if proposal.score else '?'}/10).\n"
-                            "continue: pursue the latest proposal anyway; instruct: run ideation again "
-                            "with your guidance; propose: pursue your own proposal (your message), "
-                            "without more ideation or screening; stop: end the campaign.",
+                            "continue: pursue the latest proposal anyway (a message goes to planning); "
+                            "instruct: run ideation again with your guidance; propose: say which direction "
+                            "to pursue, in your words (one of the proposals, with changes, or your own idea), "
+                            "and whether it goes through ideation and/or screening again (by default "
+                            "neither); stop: end the campaign.",
                             options=["continue", "instruct", "propose", "stop"])
                         if decision.action == "stop":
                             raise CampaignStopped(f"stopped at screening: {decision.message or 'human decision'}")
                         if decision.action == "instruct":
                             guidance = decision.message
                             current = CampaignPhase.IDEATION
+                            self._save_checkpoint(current, research_cycle, metadata=meta(guidance=guidance))
                             continue
                         if decision.action == "propose":
-                            # the researcher's own direction: no ideation, no screening, no audit of
-                            # the rejected screening; planning starts from it
-                            proposal = await self._adopt_researcher_proposal(decision.message)
-                            following = after(CampaignPhase.SCREENING)
-                            self._save_checkpoint(following, research_cycle, proposal_id=proposal.proposal_id,
-                                                  plan_id=plan.plan_id if plan else None)
-                            current = following
+                            # the researcher chose the direction; it goes through ideation and/or
+                            # screening only if they asked for it, otherwise planning starts from it
+                            # (no audit of the rejected screening)
+                            proposal = await self._adopt_researcher_proposal(decision.message, decision.rerun)
+                            if "ideation" in decision.rerun:
+                                guidance = _DEVELOP_DIRECTION.format(direction=self._direction_text(proposal))
+                                skip_screening = "screening" not in decision.rerun
+                                current = CampaignPhase.IDEATION
+                                self._save_checkpoint(current, research_cycle, metadata=meta(guidance=guidance))
+                            elif "screening" in decision.rerun:
+                                proposal = proposal.model_copy(update={"selected": False})
+                                current = CampaignPhase.SCREENING
+                                self._save_checkpoint(current, research_cycle, proposal_id=proposal.proposal_id,
+                                                      metadata=meta())
+                            else:
+                                current = after(CampaignPhase.SCREENING)
+                                self._save_checkpoint(current, research_cycle, proposal_id=proposal.proposal_id,
+                                                      metadata=meta())
                             continue
                         proposal = proposal.model_copy(update={"selected": True})
+                        guidance = decision.message      # a note for planning, if any
 
                 elif current == CampaignPhase.PLANNING:
                     proposal = proposal or self._load_latest_proposal()
@@ -433,7 +498,7 @@ class ResearchEngine:
                     guidance = await self._fire_milestone(current, following, len(all_iterations)) or guidance
                 self._save_checkpoint(following, research_cycle,
                                       proposal_id=proposal.proposal_id if proposal else None,
-                                      plan_id=plan.plan_id if plan else None)
+                                      plan_id=plan.plan_id if plan else None, metadata=meta())
                 current = following
 
             summary = (f"Campaign completed with {len(all_iterations)} research jobs and "
@@ -453,6 +518,7 @@ class ResearchEngine:
             status, summary = "failed", f"Campaign failed: {exc}"
             logger.exception("Campaign failed")
         finally:
+            self._finishing = True
             self._phase = {"completed": CampaignPhase.COMPLETED}.get(status, CampaignPhase.FAILED)
             self.human_gate.cancel_all("campaign ended")
             await self._stop_supervisor()
@@ -555,25 +621,123 @@ class ResearchEngine:
             created_at=datetime.now(UTC),
         )
 
-    async def _adopt_researcher_proposal(self, text: str) -> RoundtableProposal:
-        """Make the researcher's own proposal the direction of the campaign."""
+    async def _adopt_researcher_proposal(self, text: str, rerun: list[str] | None = None) -> RoundtableProposal:
+        """Make the direction the researcher chose at the screening gate the campaign's proposal.
+
+        The message is read, not copied: it may pick one of this round's proposals ("the latest
+        one is fine"), change one, or describe an idea of the researcher's own.  The model's
+        reading is shown to the researcher; if it fails, the message itself becomes the direction.
+        """
         text = text.strip()
-        first = next((ln.strip().lstrip("#*- ").strip() for ln in text.splitlines() if ln.strip()), "")
-        proposal = RoundtableProposal(
-            proposal_id=f"prop_{uuid.uuid4().hex[:8]}",
-            title=first[:100] or "Researcher's proposal",
-            description=text,
-            research_questions=[text[:500]],
-            selected=True,
-            decision={"mode": "researcher", "note": "written by the researcher at a human gate"},
-            created_at=datetime.now(UTC),
-        )
+        candidates = self._round_proposals()
+        ideas = self._meeting_ideas()
+        reading: ResearcherDirection | None = None
+        try:
+            answer = await self._router.generate_structured(
+                PipelineStage.IDEA_SCREENING,
+                [Message.system(_DIRECTION_PROMPT),
+                 Message.user(self._direction_request(text, candidates, ideas))],
+                ResearcherDirection, temperature=0.0, max_tokens=4000)
+            reading = ResearcherDirection.model_validate(dict(answer))      # all fields present
+        except Exception as exc:
+            logger.warning("Could not interpret the researcher's direction (%s); using the message as it is", exc)
+
+        basis = reading.basis.strip() if reading else ""
+        base = next((c for c in candidates if c.proposal_id == basis), None)
+        idea = ideas.get(basis)
+        changes = reading.changes.strip() if reading else ""
+        if re.match(r"^(none|no changes|n/?a)\b", changes, re.I):
+            changes = ""
+        note = {"mode": "researcher", "message": text}
+        if base is None and idea is not None:
+            # an idea from the meeting that did not become the proposal
+            base = RoundtableProposal(
+                proposal_id=basis, title=idea["headline"] or f"{idea['seat']}'s idea",
+                description=idea["content"], research_questions=[idea["headline"]] if idea["headline"] else [],
+                created_at=datetime.now(UTC))
+        if base is not None:
+            proposal = base.model_copy(update={
+                "proposal_id": f"prop_{uuid.uuid4().hex[:8]}",
+                "description": base.description + (f"\n\nChanges asked for by the researcher: {changes}"
+                                                    if changes else ""),
+                "selected": True,
+                "decision": {**note, "basis": base.proposal_id, "interpretation": reading.interpretation,
+                             "changes": changes},
+                "created_at": datetime.now(UTC),
+            })
+        else:
+            changes = ""
+            title = (reading.title if reading and reading.title else "") or next(
+                (ln.strip().lstrip("#*- ").strip() for ln in text.splitlines() if ln.strip()), "")
+            proposal = RoundtableProposal(
+                proposal_id=f"prop_{uuid.uuid4().hex[:8]}",
+                title=title[:100] or "Researcher's proposal",
+                description=(reading.description if reading and reading.description else text),
+                research_questions=[text[:500]],
+                selected=True,
+                decision={**note, "basis": "new",
+                          "interpretation": reading.interpretation if reading else "the message as written"},
+                created_at=datetime.now(UTC),
+            )
         # the newest proposal of the round, so later phases and a resume use it
         self._workspace.atomic_write_json(
             self._workspace.proposal_path(proposal.proposal_id, self._current_round), proposal)
         await self._publish("proposal_from_researcher", proposal_id=proposal.proposal_id, title=proposal.title,
-                            text=text)
+                            text=text, basis=proposal.decision.get("basis"),
+                            basis_title=base.title if base is not None else "",
+                            interpretation=proposal.decision.get("interpretation", ""),
+                            changes=proposal.decision.get("changes", ""), rerun=list(rerun or []))
         return proposal
+
+    @staticmethod
+    def _direction_text(proposal: RoundtableProposal) -> str:
+        parts = [f"Title: {proposal.title}", proposal.hypothesis or "", proposal.description,
+                 f"The researcher's words: \"{proposal.decision.get('message', '')}\""]
+        return "\n\n".join(p for p in parts if p)
+
+    def _round_proposals(self) -> list[RoundtableProposal]:
+        """This round's proposals, oldest first."""
+        rd = self._workspace.phases_dir / "ideation" / f"round_{self._current_round}"
+        out = []
+        for path in sorted((p for p in rd.glob("*.json") if not p.name.startswith("meeting_state")),
+                           key=lambda p: p.stat().st_mtime):
+            try:
+                out.append(RoundtableProposal.model_validate_json(path.read_text(encoding="utf-8")))
+            except ValueError:
+                continue
+        return out
+
+    def _meeting_ideas(self) -> dict[str, dict[str, str]]:
+        """The ideas presented at this round's last ideation meeting, by ID (``idea_p01``, ...)."""
+        from aurora.agents.roundtable.seat import headline
+        rd = self._workspace.phases_dir / "ideation" / f"round_{self._current_round}"
+        ideas: dict[str, dict[str, str]] = {}
+        for name in ("meeting_state.finished.json", "meeting_state.json"):
+            try:
+                state = json.loads((rd / name).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            for c in state.get("contributions", []):
+                if c.get("kind") == "presentation" and c.get("content"):
+                    ideas[f"idea_{c['seat_id']}"] = {"seat": c["seat_id"], "model": c.get("model_id", ""),
+                                                     "content": c["content"], "headline": headline(c["content"])}
+        return ideas
+
+    def _direction_request(self, text: str, candidates: list[RoundtableProposal],
+                           ideas: dict[str, dict[str, str]] | None = None) -> str:
+        blocks = []
+        for i, c in enumerate(candidates, 1):
+            score = f"{c.score.composite:g}/10 — {c.score.explanation[:400]}" if c.score else "not screened"
+            latest = " (the latest)" if i == len(candidates) else ""
+            blocks.append(f"### {c.proposal_id}{latest}: {c.title}\nScreening: {score}\n"
+                          f"{(c.hypothesis or c.description)[:1500]}")
+        idea_blocks = [f"### {key}: {i['headline']} (presented by {i['seat']}, {i['model']})\n{i['content'][:1500]}"
+                       for key, i in (ideas or {}).items()]
+        return (f"## Campaign objective\n{self._config.objective[:2000]}\n\n"
+                f"## Proposals from ideation, oldest first\n\n" + "\n\n".join(blocks or ["(none)"])
+                + ("\n\n## Ideas presented at the last ideation meeting\n\n" + "\n\n".join(idea_blocks)
+                   if idea_blocks else "")
+                + f"\n\n## The researcher's message\n{text}")
 
     def _single_job_plan(self, proposal: RoundtableProposal | None) -> ExperimentPlan:
         """Plan used when planning is skipped: one job that carries out the proposal or objective."""
@@ -584,6 +748,37 @@ class ResearchEngine:
             jobs=[ExperimentJob(job_id="main", skill_name="Carry out the research",
                                 parameters={"description": what[:2000]})],
         )
+
+    @property
+    def resources(self) -> dict[str, Any]:
+        """The container's resource limits (as configured; live if the container runs)."""
+        sb = self._config.sandbox
+        return {"docker": sb.docker, "cpus": sb.cpus, "memory_mb": sb.memory_mb,
+                "container": getattr(self._execution_backend, "container_id", None)}
+
+    async def update_resources(self, cpus: float | None = None, memory_mb: int | None = None) -> dict[str, Any]:
+        """Change the container's CPU and memory limits while the campaign runs.
+
+        The running container is updated in place (nothing restarts), the new limits are kept for
+        the rest of the campaign, and a research agent at work is told.
+        """
+        from aurora.core.docker_backend import DockerBackend
+        backend = self._execution_backend
+        if isinstance(backend, DockerBackend):
+            await backend.update_resources(cpus, memory_mb)
+        sb = self._config.sandbox
+        old = (sb.cpus, sb.memory_mb)
+        sb.cpus = sb.cpus if cpus is None else cpus
+        sb.memory_mb = sb.memory_mb if memory_mb is None else memory_mb
+        await self._publish("resources_updated", cpus=sb.cpus, memory_mb=sb.memory_mb,
+                            old_cpus=old[0], old_memory_mb=old[1], live=bool(getattr(backend, "container_id", None)))
+        runner = self.current_iteration_runner
+        if runner is not None and (sb.cpus, sb.memory_mb) != old:
+            await runner.inject_message(
+                f"[Note] The container's limits were changed by the researcher: now {sb.cpus:g} CPUs and "
+                f"{sb.memory_mb / 1024:g} GB of memory (before: {old[0]:g} CPUs, {old[1] / 1024:g} GB). "
+                "Adjust parallelism and memory use accordingly.")
+        return self.resources
 
     @property
     def phase(self) -> CampaignPhase:
@@ -616,7 +811,9 @@ class ResearchEngine:
         if self.current_iteration_runner is not None and hasattr(self.current_iteration_runner, "request_stop"):
             self.current_iteration_runner.request_stop()
         task = self._main_task
-        if task is not None and not task.done() and task is not asyncio.current_task():
+        # once the campaign is cleaning up, cancelling it would leave the container running and
+        # the result unreported; the clean-up finishes by itself
+        if task is not None and not task.done() and task is not asyncio.current_task() and not self._finishing:
             task.cancel()
 
     def pause(self) -> None:
@@ -676,6 +873,8 @@ class ResearchEngine:
                 allow_network=sandbox.network,
                 tests_dir=sandbox.tests_dir,
                 campaign_dir=str(self._workspace.campaign_dir),
+                workspace_dir=str(self._workspace.campaign_dir / "workspace") if sandbox.mount_workspace else "",
+                agent=self._container_agent_settings(),
             )
         # Without a container the Claude Code sessions still run, confined to the workspace
         elif self._execution_backend is None and not self._config.mock_mode:
@@ -763,6 +962,19 @@ class ResearchEngine:
         if n:
             logger.info("%d skills available to the agents in %s", n, dest)
 
+    def _container_agent_settings(self) -> dict[str, str] | None:
+        """What the container needs to run research agents itself (sandbox.agent_in_container)."""
+        import shutil
+        sb = self._config.sandbox
+        if not (sb.agent_in_container and sb.docker and sb.mount_workspace):
+            return None
+        claude = shutil.which("claude")
+        if not claude:
+            logger.warning("agent_in_container: the claude executable was not found; agents work from the host")
+            return None
+        return {"claude": os.path.realpath(claude), "upstream": self._config.claude_code_base_url,
+                "key": self._config.api_key_value}
+
     async def _sync_container_files(self) -> None:
         """Copy the container's /app to <campaign>/workspace (after every research job).
 
@@ -771,6 +983,8 @@ class ResearchEngine:
         backend = self._execution_backend
         if backend is None or not getattr(backend, "container_id", None) or not self._workspace:
             return
+        if getattr(backend, "mounted", False):
+            return          # /app is the workspace directory: nothing to copy
         try:
             await backend.extract_workspace(self._workspace.campaign_dir / "workspace")
         except Exception:
@@ -780,6 +994,8 @@ class ResearchEngine:
         """On resume, put the files of the previous run (saved to <campaign>/workspace) back into /app."""
         container = getattr(self._execution_backend, "container_id", None)
         saved = self._workspace.campaign_dir / "workspace"
+        if getattr(self._execution_backend, "mounted", False):
+            return          # mounted as /app: the files are there already
         if not container or not saved.is_dir() or not any(saved.iterdir()):
             return
         proc = await asyncio.create_subprocess_exec(
@@ -796,11 +1012,19 @@ class ResearchEngine:
             return
         import shutil
         container = getattr(self._execution_backend, "container_id", None)
+        mounted = getattr(self._execution_backend, "mounted", False)
         for item in self._config.inputs:
             src = Path(item).expanduser().resolve()
             if not src.exists():
                 raise FileNotFoundError(f"inputs entry not found: {src}")
-            if container:
+            if mounted:     # /app is <campaign>/workspace: copy there on the host
+                dest = self._workspace.campaign_dir / "workspace" / "inputs" / src.name
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                if src.is_dir():
+                    shutil.copytree(src, dest, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src, dest)
+            elif container:
                 await self._execution_backend.exec_command("mkdir -p /app/inputs")
                 proc = await asyncio.create_subprocess_exec(
                     "docker", "cp", str(src), f"{container}:/app/inputs/{src.name}",
@@ -966,7 +1190,7 @@ Be specific: cite file names and concrete observations.
         if decision.action == "stop":
             raise CampaignStopped(f"stopped at the {completed_phase.value} audit: {decision.message or 'human decision'}")
         await self._distill_phase_skills(completed_phase)
-        return decision.message if decision.action == "instruct" else ""
+        return decision.message if decision.action in ("instruct", "continue") else ""
 
     @staticmethod
     def _read_audit_report(path: Path) -> dict[str, Any]:
@@ -1652,6 +1876,8 @@ Be specific: cite file names and concrete observations.
             watchdog.cancel()
             self._update_frontdesk_status(agent_status="idle")
             await self._stop_supervisor()
+            # a live-auditor question is about research work that is over now
+            self.human_gate.close_source("supervisor", "the research phase ended")
             self.current_iteration_runner = None
             if getattr(runner, "transcript_path", None):
                 self._phase_transcripts.append({"phase": "research", "path": runner.transcript_path})
@@ -1678,6 +1904,8 @@ Be specific: cite file names and concrete observations.
         lines = [f"## Research objective\n\n{self._config.objective}"]
         if proposal is not None:
             lines.append(f"## Chosen direction: {proposal.title}")
+            if proposal.decision.get("mode") == "researcher":
+                lines.append(f"The researcher chose this direction: \"{proposal.decision.get('message', '')}\"")
             for label, value in (("Hypothesis", proposal.hypothesis or proposal.description),
                                  ("Questions", "; ".join(proposal.research_questions)),
                                  ("Method", "; ".join(proposal.proposed_methods)),
@@ -1711,6 +1939,10 @@ Be specific: cite file names and concrete observations.
         async def escalate(verdict: SupervisorVerdict) -> None:
             asyncio.create_task(self._supervisor_gate(verdict))
 
+        async def withdraw(verdict: SupervisorVerdict) -> None:
+            self.human_gate.close_source("supervisor", verdict.reason or "no decision needed",
+                                         decided_by="auditor")
+
         async def broadcast(data: dict) -> None:
             name = data.get("event_type", "supervisor_event")
             await self._bus.publish(Event(name=name, data=data.get("data", {}), source="supervisor"))
@@ -1728,28 +1960,40 @@ Be specific: cite file names and concrete observations.
             advise_callback=advise,
             interrupt_callback=interrupt,
             escalate_callback=escalate,
+            withdraw_callback=withdraw,
             broadcast_callback=broadcast,
         )
         await self._supervisor.start(transcript_path)
 
     async def _supervisor_gate(self, verdict: Any) -> None:
-        """The live auditor escalated: pause the agent's current action and ask the human."""
+        """The live auditor escalated: pause the agent where it is and ask the human.
+
+        The agent's session waits (its job clock stands still, other messages wait too) until
+        the decision, which it then receives and goes on from where it stopped.
+        """
         runner = self.current_iteration_runner
-        if runner is not None:
-            runner.interrupt()
-            await runner.inject_message("[Paused] The live auditor asked the researcher for a decision. "
-                                        "Wait for their answer before you continue.")
+        paused = runner is not None and hasattr(runner, "pause_for_decision")
+        if paused:
+            runner.pause_for_decision()
+        title = f"The live auditor escalated: {verdict.reason[:120]}"
         decision = await self.human_gate.request(
-            "supervisor", f"The live auditor escalated: {verdict.reason[:120]}",
-            f"{verdict.reason}\n\nSuggestion: {verdict.suggestion}\n\ncontinue: let the agent go on; "
-            "instruct: send it your instruction; stop: end the campaign.")
-        runner = self.current_iteration_runner
-        if decision.action == "stop":
-            self.request_stop(f"stopped after a live-auditor escalation: {decision.message or 'human decision'}")
-        elif runner is not None:
-            text = (f"[Decision of the researcher]\n{decision.message}" if decision.action == "instruct"
-                    else "[Decision of the researcher] Continue as planned.")
-            await runner.inject_message(text)
+            "supervisor", title,
+            f"{verdict.reason}\n\nSuggestion: {verdict.suggestion}\n\nThe research agent is paused until "
+            "you decide. continue: let it go on; instruct: send it your instruction; stop: end the campaign.")
+        if decision.action == "stop" and decision.decided_by != "auditor":
+            if decision.decided_by != "system":     # system: the campaign is ending anyway
+                self.request_stop(f"stopped after a live-auditor escalation: {decision.message or 'human decision'}")
+            return
+        if not paused or runner is not self.current_iteration_runner:
+            return
+        why = f"You were paused because the live auditor asked the researcher: {verdict.reason}"
+        if decision.decided_by == "auditor":
+            text = f"[Resumed] {why}\nThe auditor withdrew the question: {decision.message}\nContinue where you stopped."
+        elif decision.message.strip() and decision.decided_by != "system":
+            text = f"[Decision of the researcher] {why}\n\n{decision.message}\n\nContinue where you stopped."
+        else:
+            text = f"[Decision of the researcher] {why}\nContinue where you stopped."
+        await runner.resume_after_decision(text)
 
     async def _stop_supervisor(self) -> None:
         if self._supervisor is not None:
@@ -1795,16 +2039,31 @@ Be specific: cite file names and concrete observations.
             await self._publish("agent_interrupted", reason=reason, by="human")
             return {"status": "interrupted"}
 
-        async def answer_gate(gate_id: str, action: str, message: str) -> dict[str, Any]:
+        async def answer_gate(gate_id: str, action: str, message: str,
+                              rerun: list[str] | None = None) -> dict[str, Any]:
             try:
-                ok = self.human_gate.resolve(gate_id, action, message, decided_by="frontdesk")
+                ok = self.human_gate.resolve(gate_id, action, message, decided_by="frontdesk", rerun=rerun)
             except ValueError as exc:
                 return {"status": "error", "reason": str(exc)}
             return {"status": "recorded" if ok else "no such open gate"}
 
+        async def set_resources(cpus: float | None, memory_mb: int | None) -> dict[str, Any]:
+            from aurora.core.docker_backend import host_limits
+            max_cpus, max_mem = await host_limits()
+            if (cpus is not None and not 0 < cpus <= max_cpus) or (
+                    memory_mb is not None and not 256 <= memory_mb <= (max_mem or memory_mb)):
+                return {"status": "error", "reason": f"the Docker host has {max_cpus} CPUs and "
+                                                     f"{max_mem / 1024:.0f} GB of memory"}
+            try:
+                return {"status": "updated", **await self.update_resources(cpus, memory_mb)}
+            except RuntimeError as exc:
+                return {"status": "error", "reason": str(exc)}
+
         def status() -> str:
             st = self._frontdesk_status
             st.open_gates = [g.to_dict() for g in self.human_gate.pending]
+            sb = self._config.sandbox
+            st.container = f"{sb.cpus:g} CPUs, {sb.memory_mb / 1024:g} GB memory" if sb.docker else ""
             st.cost_usd = self._spent()
             return st.format()
 
@@ -1876,7 +2135,8 @@ Be specific: cite file names and concrete observations.
             base_url=self._config.api_base_url,
             system_prompt=CAMPAIGN_PROMPT + f"\nCampaign objective: {self._config.objective}\n",
             workspace_root=self._workspace.root if self._workspace else None,
-            tools=campaign_tools(relay=relay, interrupt=interrupt, answer_gate=answer_gate),
+            tools=campaign_tools(relay=relay, interrupt=interrupt, answer_gate=answer_gate,
+                                 set_resources=set_resources if self._config.sandbox.docker else None),
             status_fn=status,
             broadcast_fn=broadcast,
         )

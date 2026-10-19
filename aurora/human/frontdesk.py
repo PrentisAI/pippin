@@ -57,6 +57,7 @@ class SystemStatus:
     agent_status: str = "idle"
     supervisor_status: str = ""
     open_gates: list[dict[str, Any]] = field(default_factory=list)
+    container: str = ""     # e.g. "4 CPUs, 8 GB memory"
     cost_usd: float = 0.0
     budget_usd: float | None = None
     current_job: str = ""
@@ -80,6 +81,8 @@ class SystemStatus:
             lines += [f"  {a}" for a in self.recent_actions[-8:]]
         if self.supervisor_status:
             lines.append(f"Live auditor's last verdict: {self.supervisor_status}")
+        if self.container:
+            lines.append(f"Container limits: {self.container}")
         for g in self.open_gates:
             lines.append(f"OPEN HUMAN GATE {g['gate_id']} ({g['source']}): {g['title']}\n"
                          f"  {g.get('detail', '')}\n  actions: {', '.join(g.get('options', []))}")
@@ -106,8 +109,10 @@ A campaign runs these phases in order; any can be skipped:
 Between phases a milestone auditor reviews the output: pass, reject (the phase revises its
 work) or escalate (the researcher decides). A human gate is a point where the campaign waits
 for the researcher's decision: continue, instruct, or stop. The gate that opens when
-screening keeps rejecting proposals also offers propose: the researcher's own proposal is
-pursued directly, without more ideation or screening.
+screening keeps rejecting proposals also offers propose: the researcher says in their own
+words which direction to pursue (one of the proposals, with or without changes, or their own
+idea) and whether it goes through ideation and/or screening again first; by default neither,
+and planning starts from it.
 To start an experiment from the researcher's own idea, skip ideation: the instruction itself
 is then the direction.
 """
@@ -124,14 +129,19 @@ What you can do:
   differently, call relay_to_agent with a clear, self-contained instruction. The agent
   receives it while it works. Before the research phase there is no research agent yet:
   say so, and the instruction will be passed on when research starts.
+- Container resources: when the researcher wants more (or fewer) CPUs or memory for the
+  experiment's container, call set_container_resources; it takes effect at once, nothing restarts.
 - Interrupt: when the researcher wants the research agent to stop its current action, call
   interrupt_agent (and relay the new instruction, if any). To stop the whole campaign, the
   researcher uses the Stop button.
 - Human gates: when the status shows an OPEN HUMAN GATE, explain it briefly and help the
   researcher decide. Once they have clearly decided, call answer_gate with one of the
-  actions the gate offers: continue, instruct (with their instruction), propose (with their
-  proposal, where offered) or stop. Never answer a gate on your own. For propose, pass the
-  researcher's proposal in their own words, complete; ask for it if they have not given it.
+  actions the gate offers: continue (optionally with a note), instruct (with their
+  instruction), propose (where offered: their choice of direction) or stop. Never answer a
+  gate on your own. For propose, pass what the researcher said about the direction in their
+  own words, complete; it is interpreted against the proposals on file. Ask whether it should
+  go through ideation (the seats develop it), screening (it is scored), both, or neither
+  (planning starts from it at once) unless they said so, and pass that as rerun.
 
 Be brief and concrete. Reply in the researcher's language.
 
@@ -343,7 +353,8 @@ def campaign_tools(
     *,
     relay: Callable[[str], Awaitable[dict[str, Any]]],
     interrupt: Callable[[str], Awaitable[dict[str, Any]]],
-    answer_gate: Callable[[str, str, str], Awaitable[dict[str, Any]]],
+    answer_gate: Callable[..., Awaitable[dict[str, Any]]],
+    set_resources: Callable[[float | None, int | None], Awaitable[dict[str, Any]]] | None = None,
 ) -> list[FrontDeskTool]:
     """Tools of the front desk of a running campaign."""
     async def _relay(p: dict[str, Any]) -> Any:
@@ -353,9 +364,11 @@ def campaign_tools(
         return await interrupt(str(p.get("reason", "requested by the researcher")))
 
     async def _answer(p: dict[str, Any]) -> Any:
-        return await answer_gate(str(p.get("gate_id", "")), str(p.get("action", "")), str(p.get("message", "")))
+        rerun = p.get("rerun") if isinstance(p.get("rerun"), list) else []
+        return await answer_gate(str(p.get("gate_id", "")), str(p.get("action", "")), str(p.get("message", "")),
+                                 [str(x) for x in rerun])
 
-    return [
+    tools = [
         FrontDeskTool(
             "relay_to_agent",
             "Send an instruction from the researcher to the research agent; it receives the message "
@@ -374,10 +387,29 @@ def campaign_tools(
                 "gate_id": {"type": "string"},
                 "action": {"type": "string", "enum": ["continue", "instruct", "propose", "stop"]},
                 "message": {"type": "string",
-                            "description": "the instruction, for 'instruct'; the researcher's proposal, for 'propose'"},
+                            "description": "the instruction, for 'instruct'; the researcher's words on the direction, for 'propose'; an optional note, for 'continue'"},
+                "rerun": {"type": "array", "items": {"type": "string", "enum": ["ideation", "screening"]},
+                          "description": "for 'propose': the phases the researcher wants the direction to go "
+                                         "through again before planning; empty (the default) for neither"},
             }, "required": ["gate_id", "action"]},
             _answer),
     ]
+    if set_resources is not None:
+        async def _resources(p: dict[str, Any]) -> Any:
+            cpus = p.get("cpus")
+            mem = p.get("memory_gb")
+            return await set_resources(float(cpus) if cpus else None, int(float(mem) * 1024) if mem else None)
+
+        tools.append(FrontDeskTool(
+            "set_container_resources",
+            "Change the CPU and memory limits of the experiment's container while it runs (nothing "
+            "restarts). Only when the researcher asks for it.",
+            {"type": "object", "properties": {
+                "cpus": {"type": "number", "description": "number of CPUs"},
+                "memory_gb": {"type": "number", "description": "memory in GB"},
+            }},
+            _resources))
+    return tools
 
 
 def _truncate(obj: Any, max_len: int = 200) -> Any:

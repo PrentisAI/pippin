@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -95,6 +96,11 @@ def permission_args(cwd: str | Path, docker_container: str | None = None,
     return ["--permission-mode", "dontAsk", "--allowedTools", *allowed]
 
 
+# Inside its own container the agent may do anything there: the container is the sandbox.
+IN_CONTAINER_TOOLS = ["Bash", "Read", "Edit", "Write", "MultiEdit", "Glob", "Grep", "NotebookEdit",
+                      "WebSearch", "WebFetch", "TodoWrite", "Skill"]
+
+
 class ClaudeCodeLoop:
     """Agentic loop driven by Claude Code CLI via subprocess + stream-json.
 
@@ -124,8 +130,15 @@ class ClaudeCodeLoop:
         allow_host_bash: bool = False,
         max_budget_usd: float | None = None,
         session_callback: Any = None,
+        app_on_host: str | None = None,
+        container_agent: dict[str, str] | None = None,
     ) -> None:
+        # run Claude Code inside the campaign container: {"container": id, plus env such as
+        # ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN / HOME} (see DockerBackend.agent_env)
+        self._container_agent = container_agent
+        self._pidfile = ""
         self._session_callback = session_callback
+        self._app_on_host = app_on_host     # host directory mounted as the container's /app
         self._max_budget_usd = max_budget_usd
         self._model = model
         self._api_key = api_key
@@ -141,13 +154,24 @@ class ClaudeCodeLoop:
         self._live_transcript_fd: Any = None
         self._text_callback = text_callback
         self._allow_host_bash = allow_host_bash
+        # pausing (interrupt) keeps the session: it waits for the next message
+        self._held = False          # interrupted; nothing sent since
+        self._interrupts = 0        # interrupts whose "stopped" result has not come yet
+        self._new_turn = False      # a message sent after an interrupt starts a new turn
+        self._request_n = 0
 
     def _permission_args(self) -> list[str]:
         return permission_args(self._cwd, self._docker_container, self._allow_host_bash)
 
     async def inject_message(self, message: str) -> None:
-        """Inject a user message into the running agent's conversation via stdin."""
+        """Inject a user message into the running agent's conversation via stdin.
+
+        After :meth:`interrupt` the message resumes the paused session.
+        """
         if self._process and self._process.stdin and self._process.returncode is None:
+            if self._held or self._interrupts:
+                self._new_turn = True
+            self._held = False
             try:
                 msg = json.dumps({
                     "type": "user",
@@ -162,19 +186,45 @@ class ClaudeCodeLoop:
                 logger.warning("Failed to inject message into agent: %s", e)
 
     def interrupt(self) -> None:
-        """Send SIGINT to the Claude Code subprocess (equivalent to Ctrl+C).
+        """Pause the agent: stop its current action and wait for the next message.
 
-        The process handles SIGINT gracefully — it stops the current
-        tool call, emits a result event, and the session remains usable
-        for subsequent ``inject_message`` calls.
+        Uses Claude Code's ``interrupt`` control request, which ends the current turn but keeps
+        the session (a SIGINT would end the process).  The session waits until
+        :meth:`inject_message` sends the next message, then goes on with its whole context.
         """
+        if self._process and self._process.stdin and self._process.returncode is None:
+            self._request_n += 1
+            request = {"type": "control_request", "request_id": f"aurora_{self._request_n}",
+                       "request": {"subtype": "interrupt"}}
+            try:
+                self._process.stdin.write((json.dumps(request) + "\n").encode())
+                self._held = True
+                self._interrupts += 1
+                logger.info("Claude Code session paused (pid=%d)", self._process.pid)
+            except Exception as e:
+                logger.warning("Failed to interrupt Claude Code process: %s", e)
+
+    @property
+    def paused(self) -> bool:
+        """Interrupted and waiting for the next message."""
+        return self._held
+
+    def terminate(self) -> None:
+        """End the session now (SIGINT; Claude Code exits)."""
+        if self._container_agent and self._pidfile and self._process and self._process.returncode is None:
+            # docker exec does not pass signals on: signal Claude Code inside the container
+            import subprocess
+            subprocess.Popen(["docker", "exec", self._container_agent["container"], "sh", "-c",
+                              f"kill -INT $(cat {self._pidfile}) 2>/dev/null"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
         if self._process and self._process.returncode is None:
             import signal
             try:
                 self._process.send_signal(signal.SIGINT)
                 logger.info("SIGINT sent to Claude Code process (pid=%d)", self._process.pid)
             except OSError as e:
-                logger.warning("Failed to interrupt Claude Code process: %s", e)
+                logger.warning("Failed to stop Claude Code process: %s", e)
 
     async def _emit(self, event_type: str, data: dict[str, Any] | None = None) -> None:
         if self._stream is not None:
@@ -203,7 +253,15 @@ class ClaudeCodeLoop:
     ) -> dict[str, Any]:
         docker_preamble = ""
         root = Path(self._cwd).resolve()
-        if self._docker_container:
+        if self._container_agent:
+            docker_preamble = (
+                "\n## Where you work\n"
+                "You run inside a Docker container (as root), working directory /app. Run commands "
+                "directly; install what you need. Keep your code, data and results in /app: it is "
+                f"saved on the host. The campaign's other files (plans, earlier phases' outputs, "
+                f"transcripts) are at {root}, read-only.\n"
+            )
+        elif self._docker_container:
             c = self._docker_container
             docker_preamble = (
                 f"\n## Where you work\n"
@@ -212,10 +270,24 @@ class ClaudeCodeLoop:
                 f"Options such as -i, -e KEY=VALUE or -d are fine. Put pipes, redirects and multi-step "
                 f"commands inside the bash -lc '...' string. There is no shell on the host.\n"
                 f"You can read and edit files on the host only under {root} (with the Read/Edit/Write "
-                f"tools). The container does not see that directory. To move a file into the "
-                f"container: docker exec -i {c} bash -lc 'cat > /app/x.py' < relative/path/x.py (or a "
-                f"heredoc). Keep your code, data and results in /app.\n"
+                f"tools). Keep your code, data and results in /app.\n"
             )
+            if self._app_on_host:
+                docker_preamble += (
+                    f"The container's /app is the host directory {self._app_on_host}: the same files, "
+                    f"seen from both sides at once. To look at a file you made in /app (a figure, say), "
+                    f"open {self._app_on_host}/<path> with Read. Files written in the container belong "
+                    f"to root, so change them from inside the container (docker exec), not with "
+                    f"Edit/Write.\n")
+            else:
+                docker_preamble += (
+                    f"The container does not see {root}. To move a file into the container: "
+                    f"docker exec -i {c} bash -lc 'cat > /app/x.py' < relative/path/x.py (or a heredoc). "
+                    f"To look at a file from the container (a figure, say), copy it to the host, one file "
+                    f"per command, then open it with Read:\n"
+                    f"  docker exec {c} cat /app/output/fig.png > {root}/view/fig.png\n"
+                    f"Copy only into {root}/view/; other ways out of the container are refused.\n")
+                (root / "view").mkdir(exist_ok=True)
         elif self._allow_host_bash:
             docker_preamble = f"\n## Where you work\nYour working directory is {root}.\n"
         else:
@@ -228,13 +300,26 @@ class ClaudeCodeLoop:
         full_system = system_prompt + docker_preamble
 
         env = claude_code_env(self._api_key, self._base_url)
+        claude: list[str] = ["claude"]
+        permissions = self._permission_args()
+        if self._container_agent:
+            # docker exec runs Claude Code in the container; the key stays out (the proxy adds it)
+            env = {k: v for k, v in env.items() if not k.startswith("ANTHROPIC_")}
+            agent = dict(self._container_agent)
+            container = agent.pop("container")
+            self._pidfile = f"/aurora/home/.session_{uuid.uuid4().hex[:8]}.pid"
+            claude = ["docker", "exec", "-i", "-w", "/app",
+                      *[x for k, v in agent.items() for x in ("-e", f"{k}={v}")],
+                      container, "sh", "-c", f'echo $$ > {self._pidfile}; exec /aurora/bin/claude "$@"',
+                      "aurora-agent"]
+            permissions = ["--permission-mode", "dontAsk", "--allowedTools", *IN_CONTAINER_TOOLS]
 
         cmd = [
-            "claude", "-p",
+            *claude, "-p",
             "--output-format", "stream-json",
             "--input-format", "stream-json",
             "--verbose",
-            *self._permission_args(),
+            *permissions,
             "--model", self._model,
         ]
         if self._max_budget_usd is not None:
@@ -264,7 +349,8 @@ class ClaudeCodeLoop:
         result_error: str | None = None
         hit_turn_limit = False
         got_result = False
-        final_text_parts: list[str] = []
+        final_text_parts: list[str] = []   # everything the agent said
+        last_reply = ""                     # its reply at the end of the last turn
         tool_calls: list[dict[str, Any]] = []
         trajectory: list[TrajectoryEntry] = []
         pending_tool_name: str | None = None
@@ -421,11 +507,17 @@ class ClaudeCodeLoop:
                             break
 
                 elif event_type == "result":
-                    result_text = event.get("result", "")
+                    result_text = event.get("result") or ""
                     usage = event.get("usage") or {}
-                    cost_usd = float(event.get("total_cost_usd") or 0.0)
-                    if event.get("is_error"):
+                    cost_usd = max(cost_usd, float(event.get("total_cost_usd") or 0.0))
+                    # the end of a turn we interrupted ourselves: not an error, and not the end
+                    ours = event.get("subtype") == "error_during_execution" and self._interrupts > 0
+                    if ours:
+                        self._interrupts -= 1
+                    elif event.get("is_error"):
                         result_error = f"{event.get('subtype', 'error')}: {result_text[:500]}"
+                    else:
+                        result_error = None
                     logger.info(
                         "[claude-code result] subtype=%s stop_reason=%s is_error=%s num_turns=%s "
                         "empty_result=%s input=%s cache_read=%s output=%s",
@@ -434,7 +526,8 @@ class ClaudeCodeLoop:
                         usage.get("input_tokens"), usage.get("cache_read_input_tokens"),
                         usage.get("output_tokens"),
                     )
-                    final_text_parts.append(result_text)
+                    if result_text.strip():
+                        last_reply = result_text
                     _track(TrajectoryEntry(
                         timestamp=time.time(), turn=turns,
                         event_type="text", data={"text": result_text},
@@ -444,6 +537,9 @@ class ClaudeCodeLoop:
                             await self._text_callback(result_text)
                         except Exception:
                             pass
+                    if self._held or (ours and self._new_turn):
+                        continue    # paused: wait for the next message, which starts a new turn
+                    self._new_turn = False
                     got_result = True
                     break
 
@@ -479,7 +575,7 @@ class ClaudeCodeLoop:
                                         "cost_usd": round(cost_usd, 4), "error": result_error})
 
         return {
-            "final_text": "\n".join(final_text_parts),
+            "final_text": last_reply or "\n".join(final_text_parts),
             "tool_calls": tool_calls,
             "turns": turns,
             "cost_usd": cost_usd,
@@ -491,12 +587,13 @@ class ClaudeCodeLoop:
     async def close(self) -> None:
         if self._process and self._process.returncode is None:
             if getattr(self, "_cancelled", False):
-                self.interrupt()
+                self.terminate()
             if self._process.stdin:
                 self._process.stdin.close()
             try:
                 await asyncio.wait_for(self._process.wait(), timeout=5 if getattr(self, "_cancelled", False) else 30)
             except TimeoutError:
+                self.terminate()            # inside the container, if it runs there
                 self._process.terminate()
                 try:
                     await asyncio.wait_for(self._process.wait(), timeout=10)

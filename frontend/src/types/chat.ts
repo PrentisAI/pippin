@@ -13,9 +13,11 @@ export type KnownEventType =
   | 'run_finished'
   | 'run_error'
   | 'autonomy_changed'
+  | 'resources_updated'
   // Phase results
   | 'ideation_complete'
   | 'proposal_from_researcher'
+  | 'screening_skipped'
   | 'screening_complete'
   | 'planning_complete'
   | 'planning_fallback'
@@ -47,6 +49,7 @@ export type KnownEventType =
   | 'supervisor_advise'
   | 'supervisor_interrupt'
   | 'supervisor_escalate'
+  | 'supervisor_withdraw'
   | 'human_gate_opened'
   | 'human_gate_resolved'
   // The researcher and the front desk

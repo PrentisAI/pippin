@@ -150,7 +150,12 @@ def make_claude_code_loop(config: AuroraConfig, *, model: str, max_turns: int,
 
     *max_budget_usd* (the campaign's remaining budget) is enforced by Claude Code itself.
     """
+    from pathlib import Path
+
     from aurora.llm.agent_loops import ClaudeCodeLoop
+    sb = config.sandbox
+    if sb.docker and sb.mount_workspace and kwargs.get("docker_container") and kwargs.get("cwd"):
+        kwargs.setdefault("app_on_host", str(Path(kwargs["cwd"]) / "workspace"))
     return ClaudeCodeLoop(
         model=model,
         api_key=config.api_key_value,

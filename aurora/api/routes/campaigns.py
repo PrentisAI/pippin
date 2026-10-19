@@ -152,7 +152,21 @@ class ExperimentRunState:
             "error": self.error,
             "pending_decision": self.pending_decision(),
             "decisions_made": len(self.decision_history),
+            "resources": self.engine.resources if self.engine is not None else self._saved_resources(),
         }
+
+    def _saved_resources(self) -> dict[str, Any] | None:
+        """Limits a resume or re-run would use: the saved request's, else the base config's."""
+        try:
+            row = store.get_experiment(self.run_id) or {}
+            req = json.loads(row.get("config_json") or "{}").get("request") or {}
+            sb = base_config().get("sandbox", {})
+            from aurora.config import SandboxConfig
+            d = SandboxConfig.model_validate(sb)
+            return {"docker": d.docker, "cpus": req.get("cpus") or d.cpus,
+                    "memory_mb": req.get("memory_mb") or d.memory_mb, "container": None}
+        except Exception:
+            return None
 
 
 class ExperimentProposal:
@@ -332,6 +346,8 @@ class StartExperimentRequest(BaseModel):
     ideation_mode: str = ""            # roundtable | independent
     max_cost_usd: float | None = None
     mock_mode: bool | None = None
+    cpus: float | None = None          # sandbox.cpus
+    memory_mb: int | None = None       # sandbox.memory_mb
 
 
 def default_skip_phases(instruction: str) -> list[str]:
@@ -356,6 +372,10 @@ def _experiment_config(campaign: CampaignState, run_id: str, req: StartExperimen
         raw["models"] = {**raw.get("models", {}), **{k: v for k, v in req.models.items() if v not in ("", None)}}
     if req.docker_image:
         raw.setdefault("sandbox", {})["image"] = req.docker_image
+    if req.cpus:
+        raw.setdefault("sandbox", {})["cpus"] = req.cpus
+    if req.memory_mb:
+        raw.setdefault("sandbox", {})["memory_mb"] = req.memory_mb
     if req.inputs or req.data_paths:
         raw["inputs"] = list(raw.get("inputs", [])) + req.inputs + req.data_paths
     if req.autonomy_mode:
@@ -395,6 +415,8 @@ async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any,
             if run.status == "awaiting_human":
                 run.status = "running"
             run.decision_history.append({**data, "timestamp": time.time()})
+        elif name == "resources_updated":     # changed live (console or front desk): a resume keeps it
+            _update_saved_request(run.run_id, cpus=data.get("cpus"), memory_mb=data.get("memory_mb"))
         elif name == "frontdesk_response":
             run.chat_history.append({"role": "assistant", "text": data.get("text", ""), "timestamp": time.time()})
         run.cost_usd = engine.total_cost_usd
@@ -417,6 +439,10 @@ async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any,
                                           "report": report, "cost_usd": result.cost_usd,
                                           "wall_time": result.total_wall_time_seconds},
                                  "timestamp": time.time()})
+        except asyncio.CancelledError:
+            # cancelled from outside (server shutting down): record it instead of staying "running"
+            run.status, run.error = "stopped", "the run was cancelled"
+            raise
         except Exception as exc:
             logger.exception("Experiment %s crashed", run.run_id)
             run.status, run.error = "failed", str(exc)
@@ -516,6 +542,7 @@ class DecisionRequest(BaseModel):
     action: str            # continue | instruct | propose | stop (approve / override / abort also accepted)
     message: str = ""
     gate_id: str = ""      # default: the oldest open gate
+    rerun: list[str] = []  # for propose: run the direction through "ideation" and/or "screening" first
 
 
 @campaign_router.post("/{campaign_id}/experiments/{exp_id}/decide")
@@ -529,12 +556,10 @@ async def submit_decision(campaign_id: str, exp_id: str, req: DecisionRequest) -
     action = _GATE_ACTIONS.get(req.action.lower())
     if action is None:
         raise HTTPException(400, f"Unknown action {req.action!r}; use continue, instruct, propose or stop")
-    if action == "continue" and req.message.strip():
-        action = "instruct"     # a continue with a message is an instruction
     if action == "instruct" and not req.message.strip():
         raise HTTPException(400, "An instruction needs a message")
     try:
-        resolved = run.engine.human_gate.resolve(gate_id, action, req.message)
+        resolved = run.engine.human_gate.resolve(gate_id, action, req.message, rerun=req.rerun)
     except ValueError as exc:     # an action this gate does not offer, or a proposal without text
         raise HTTPException(400, str(exc)) from exc
     if not resolved:
@@ -555,9 +580,57 @@ async def set_experiment_autonomy(campaign_id: str, exp_id: str, req: SetAutonom
     if run.engine is not None:
         run.engine.human_gate.set_autonomy(req.autonomy_mode)
     store.update_experiment(exp_id, autonomy_mode=req.autonomy_mode)
+    _update_saved_request(exp_id, autonomy_mode=req.autonomy_mode)   # a resume keeps the mode
     await run.broadcast({"type": "experiment_event", "run_id": exp_id, "event_type": "autonomy_changed",
                          "data": {"old_mode": old, "new_mode": req.autonomy_mode}, "timestamp": time.time()})
     return {"ok": True, "autonomy_mode": req.autonomy_mode, "previous_mode": old}
+
+
+class SetResourcesRequest(BaseModel):
+    cpus: float | None = None
+    memory_mb: int | None = None
+
+
+async def _check_resources(cpus: float | None, memory_mb: int | None) -> None:
+    from aurora.core.docker_backend import host_limits
+    max_cpus, max_mem = await host_limits()
+    if cpus is not None and not 0 < cpus <= max_cpus:
+        raise HTTPException(400, f"cpus must be between 0 and {max_cpus} (the CPUs of the Docker host)")
+    if memory_mb is not None and not 256 <= memory_mb <= (max_mem or memory_mb):
+        raise HTTPException(400, f"memory_mb must be between 256 and {max_mem} (the memory of the Docker host)")
+
+
+@campaign_router.put("/{campaign_id}/experiments/{exp_id}/resources")
+async def set_experiment_resources(campaign_id: str, exp_id: str, req: SetResourcesRequest) -> dict[str, Any]:
+    """Change the container's CPU and memory limits, live if the experiment runs; a resume or
+    re-run keeps them."""
+    run = _get_run(campaign_id, exp_id)
+    if req.cpus is None and req.memory_mb is None:
+        raise HTTPException(400, "Give cpus and/or memory_mb")
+    await _check_resources(req.cpus, req.memory_mb)
+    live = run.engine is not None and run.status in ("starting", "running", "awaiting_human")
+    if live:
+        try:
+            resources = await run.engine.update_resources(req.cpus, req.memory_mb)
+        except RuntimeError as exc:      # docker refused, e.g. less memory than the container uses
+            raise HTTPException(409, str(exc)) from exc
+    else:
+        _update_saved_request(exp_id, **{k: v for k, v in (("cpus", req.cpus), ("memory_mb", req.memory_mb))
+                                         if v is not None})
+        saved = _saved_request(exp_id)
+        resources = {"cpus": saved.cpus, "memory_mb": saved.memory_mb}
+    return {"ok": True, "live": live, **resources}
+
+
+def _update_saved_request(exp_id: str, **fields: Any) -> None:
+    """Change settings of the saved request, which a resume or re-run starts from."""
+    row = store.get_experiment(exp_id)
+    if not row:
+        return
+    config = json.loads(row.get("config_json") or "{}")
+    if "request" in config:
+        config["request"].update(fields)
+        store.update_experiment(exp_id, config_json=json.dumps(config))
 
 
 def _saved_request(exp_id: str) -> StartExperimentRequest:
@@ -747,6 +820,8 @@ class ConfirmProposalBody(BaseModel):
     autonomy_mode: str = ""
     ideation_mode: str = ""             # roundtable | independent; empty: the proposal's
     max_cost_usd: float | None = None   # null: no limit; omitted: the proposal's default
+    cpus: float | None = None           # container limits; empty: the base config's
+    memory_mb: int | None = None
 
 
 @campaign_router.post("/{campaign_id}/proposals/{proposal_id}/confirm")
@@ -764,7 +839,7 @@ async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProp
         model=body.model or p.get("model", ""),
         skip_phases=body.skip_phases if body.skip_phases is not None else proposal.suggested_skip,
         ideation_mode=body.ideation_mode or p.get("ideation_mode", ""),
-        models=body.models, autonomy_mode=body.autonomy_mode,
+        models=body.models, autonomy_mode=body.autonomy_mode, cpus=body.cpus, memory_mb=body.memory_mb,
         max_cost_usd=body.max_cost_usd if "max_cost_usd" in body.model_fields_set else proposal.max_cost_usd)
     result = await _start(campaign, req)
     proposal.confirmed = True
@@ -777,6 +852,8 @@ async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProp
         "max_cost_usd": cfg.budget.max_cost_usd if cfg else req.max_cost_usd,
         "autonomy_mode": cfg.human.autonomy.value if cfg else req.autonomy_mode,
         "models": cfg.models.model_dump() if cfg else (req.models or {}),
+        "cpus": cfg.sandbox.cpus if cfg else req.cpus,
+        "memory_mb": cfg.sandbox.memory_mb if cfg else req.memory_mb,
     }
     campaign.note(f"Experiment started: {result['experiment_id']}")
     return {"status": "started", "experiment_id": result["experiment_id"],
@@ -967,14 +1044,18 @@ MODEL_SUGGESTIONS = [
 async def get_settings() -> dict[str, Any]:
     """Settings a new experiment gets unless the proposal card changes them."""
     from aurora.config import AuroraConfig
+    from aurora.core.docker_backend import host_limits
     from aurora.core.requirements import available_models
 
     cfg = AuroraConfig.model_validate({**base_config(), "objective": "defaults"})
+    host = await host_limits()
     served = available_models(cfg.api_base_url) if "openrouter.ai" in cfg.api_base_url else None
     return {
         "models": cfg.models.model_dump(),
         "autonomy_mode": cfg.human.autonomy.value,
         "ideation_mode": cfg.ideation.mode,
         "max_cost_usd": default_max_cost(),
+        "sandbox": {"docker": cfg.sandbox.docker, "cpus": cfg.sandbox.cpus, "memory_mb": cfg.sandbox.memory_mb,
+                    "host_cpus": host[0], "host_memory_mb": host[1]},
         "model_suggestions": [m for m in MODEL_SUGGESTIONS if served is None or m in served],
     }

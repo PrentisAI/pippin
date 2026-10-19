@@ -286,6 +286,17 @@ class SandboxConfig(_Section):
     cpus: float = Field(default=4.0, gt=0, description="CPU limit of the container.")
     memory_mb: int = Field(default=8192, gt=0, description="Memory limit of the container in MB.")
     network: bool = Field(default=True, description="Allow internet access from the container.")
+    agent_in_container: bool = Field(
+        default=False,
+        description="Experimental: run research agents inside the container, with full freedom there. "
+                    "The API key stays in a small proxy container; the campaign container gets a random "
+                    "token. Needs mount_workspace and an image with glibc (not Alpine).",
+    )
+    mount_workspace: bool = Field(
+        default=True,
+        description="Mount <campaign>/workspace as the container's /app, so the agents' files are on "
+                    "the host as they are written (no copying). Turn off if Docker runs on another machine.",
+    )
     allow_host_bash: bool = Field(
         default=False,
         description="With docker: false, let agents run shell commands directly on this machine. "

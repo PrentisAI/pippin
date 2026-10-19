@@ -16,8 +16,9 @@ card, choose the ideation mode (*Round table* or *Independent*) when ideation
 runs, set the budget (US$20 by default; empty means no limit), or ask the front
 desk to change the instruction, then **confirm** to start the experiment.
 *Advanced settings* on the card set whether decisions wait for you
-(supervised or autonomous) and the model of every role: the agents of each
-phase, the ideation seats and chair, both auditors and the front desk.
+(supervised or autonomous), the model of every role (the agents of each
+phase, the ideation seats and chair, both auditors and the front desk), and the
+container's CPUs and memory.
 
 An **experiment** is one campaign. Its page shows
 
@@ -30,7 +31,9 @@ An **experiment** is one campaign. Its page shows
   reports, transcripts, the report) and, while it runs, the container's `/app`
   (`app (live container)`). You can open and edit files; edits to container
   files go straight into the running container;
-- the **cost** so far.
+- the **cost** so far;
+- the container's **CPU and memory limits** (*Container*): click to change them,
+  at once while the experiment runs, or for its resume or re-run.
 
 ## Talking to a running experiment
 
@@ -42,9 +45,12 @@ experiment and relays instructions to the research agent while it works (see
 
 When the experiment needs a decision, an approval bar appears with the
 reason. Choose **Continue**, write an instruction and **Send instruction**, or
-**Stop**. When screening keeps rejecting the proposals, you can also write your
-own proposal and choose **Use as my proposal**: planning starts from it, without
-more ideation. The *Supervised / Autonomous* switch changes whether such gates wait
+**Stop**. A message with **Continue** is passed on as a note. When screening keeps
+rejecting the proposals, you can also write which direction to pursue (one of
+the proposals, with changes, or your own idea) and choose **Choose the
+direction**: the stream shows how your message was understood. Tick *ideation*
+and/or *screening* next to the button to run your direction through them first;
+otherwise planning starts from it at once. The *Supervised / Autonomous* switch changes whether such gates wait
 for you.
 
 ## Stop, resume, re-run

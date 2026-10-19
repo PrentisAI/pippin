@@ -33,6 +33,11 @@ logger = logging.getLogger(__name__)
 _MAX_TEST_RETRIES = 3
 
 
+CRASH_NOTE = ("[Resumed] Your session stopped unexpectedly; if you ran something big in the container, "
+              "it may have run out of memory and taken your session with it. Check what you had done, "
+              "then continue the job; keep memory use within the container's limit.")
+
+
 class TerminalIteration:
     """Runs research jobs as Claude Code sessions in the execution backend."""
 
@@ -77,23 +82,79 @@ class TerminalIteration:
         self.cost_usd: float = 0.0
         self._pending_messages: list[str] = []
         self._stop_requested = False
+        # time the agent spent paused (waiting for a decision) does not count against its job
+        self._paused_since: float | None = None
+        self._paused_total = 0.0
+        # paused until the researcher decides: other messages wait for the decision
+        self._awaiting_decision = False
+        self._held_messages: list[str] = []
 
     async def inject_message(self, message: str) -> None:
-        """Send *message* to the running session, or queue it for the next one."""
+        """Send *message* to the running session (resuming it if paused), or queue it for the next one.
+        While the agent waits for the researcher's decision, messages wait with it."""
+        if self._awaiting_decision:
+            self._held_messages.append(message)
+            return
+        self._resume_clock()
         if self._current_loop is not None:
             await self._current_loop.inject_message(message)
         else:
             self._pending_messages.append(message)
 
     def interrupt(self) -> None:
-        """Interrupt the current tool call of the running session (SIGINT)."""
+        """Pause the running session: its current action stops and it waits for the next message
+        (:meth:`inject_message`).  The job's clock stands still meanwhile."""
         if self._current_loop is not None:
             self._current_loop.interrupt()
+            if self._paused_since is None:
+                self._paused_since = time.time()
+
+    @property
+    def paused(self) -> bool:
+        return self._paused_since is not None
+
+    def pause_for_decision(self) -> None:
+        """Pause the agent until :meth:`resume_after_decision`; nothing else wakes it."""
+        self.interrupt()
+        self._awaiting_decision = self._current_loop is not None
+
+    async def resume_after_decision(self, text: str) -> None:
+        """Give the agent the decision (and any message that came meanwhile); it goes on."""
+        self._awaiting_decision = False
+        messages, self._held_messages = [text, *self._held_messages], []
+        await self.inject_message("\n\n".join(messages))
 
     def request_stop(self) -> None:
         """Stop the running job and do not start further sessions."""
         self._stop_requested = True
-        self.interrupt()
+        self._awaiting_decision = False
+        self._resume_clock()
+        if self._current_loop is not None:
+            self._current_loop.terminate()
+
+    def _resume_clock(self) -> None:
+        if self._paused_since is not None:
+            self._paused_total += time.time() - self._paused_since
+            self._paused_since = None
+
+    def _paused_for(self) -> float:
+        """Seconds paused so far in this job."""
+        return self._paused_total + (time.time() - self._paused_since if self._paused_since else 0.0)
+
+    async def _wait_working(self, task: asyncio.Task, seconds: float) -> bool:
+        """Wait until *task* is done or the agent has worked *seconds* (paused time not counted)."""
+        end = time.time() + seconds
+        counted = self._paused_for()
+        while True:
+            paused = self._paused_for()
+            end += paused - counted          # move the end by the time spent paused
+            counted = paused
+            left = end - time.time()
+            if left <= 0 and not self.paused:
+                return task.done()
+            done, _ = await asyncio.wait({task}, timeout=max(min(left, 5.0), 0.5))
+            if done:
+                return True
 
     async def run(self, job: ExperimentJob, plan: ExperimentPlan, iteration_number: int = 0) -> IterationResult:
         iter_id = f"job_{job.job_id}_{uuid.uuid4().hex[:6]}"
@@ -118,7 +179,7 @@ class TerminalIteration:
                 if self._stop_requested:
                     errors.append("stopped by request")
                     break
-                remaining = deadline - time.time()
+                remaining = deadline + self._paused_for() - time.time()
                 if remaining < 30:
                     errors.append("research time limit reached")
                     break
@@ -132,8 +193,17 @@ class TerminalIteration:
                     logger.warning("Could not continue session %s: %s", resume_id, result["error"])
                     continuing, resume_id = False, None
                     message = message.replace(CONTINUE_NOTE, RESTART_NOTE)
-                    result = await self._run_session(message, deadline - time.time(), None)
+                    result = await self._run_session(message, deadline + self._paused_for() - time.time(), None)
                 continuing = False
+                if (str(result.get("error") or "").startswith("Claude Code exited without a result")
+                        and self.session_id and not self._stop_requested):
+                    # the agent's process died (in the container: perhaps out of memory); go on with
+                    # the same session once rather than lose the job
+                    logger.warning("Research session of job %s ended abruptly; continuing it", job.job_id)
+                    turns += result.get("turns", 0)
+                    cost += result.get("cost_usd", 0.0)
+                    result = await self._run_session(CRASH_NOTE, deadline + self._paused_for() - time.time(),
+                                                     self.session_id)
                 if result.get("final_text"):
                     summary = result["final_text"]
                 turns += result.get("turns", 0)
@@ -191,19 +261,19 @@ class TerminalIteration:
         task = asyncio.create_task(loop.run(self._build_system_prompt(), message))
         timed_out = False
         try:
-            done, _ = await asyncio.wait({task}, timeout=max(time_left * 0.8, 1.0))
+            done = await self._wait_working(task, max(time_left * 0.8, 1.0))
             if not done:
                 await loop.inject_message(
                     f"[Time] About {time_left * 0.2 / 60:.0f} minutes are left for this job. Finish the "
                     "current step, save your results and write the summary; do not start new analyses.")
-                done, _ = await asyncio.wait({task}, timeout=time_left * 0.2)
+                done = await self._wait_working(task, time_left * 0.2)
             if not done:
                 timed_out = True
                 loop.interrupt()
                 await loop.inject_message(
                     "[Time is up] Stop now. Save what you have and reply with a short summary of what is "
                     "done, where the outputs are, and what is unfinished.")
-                done, _ = await asyncio.wait({task}, timeout=grace)
+                done = await self._wait_working(task, grace)
             if not done:
                 task.cancel()
                 return {"error": "research time limit reached", "turns": 0, "timed_out": True}
@@ -275,6 +345,8 @@ class TerminalIteration:
             max_turns=max_turns,
             max_budget_usd=self._budget_fn() if self._budget_fn else None,
             docker_container=getattr(self._backend, "container_id", None),
+            container_agent=({"container": self._backend.container_id, **self._backend.agent_env}
+                             if getattr(self._backend, "agent_env", None) else None),
             cwd=self._cwd,
             stream_callback=stream_callback,
             live_transcript_path=live_path,

@@ -32,8 +32,14 @@ it answers with a verdict:
 |---|---|
 | **continue** | nothing (most updates) |
 | **advise** | its suggestion is sent to the research agent, which keeps working |
-| **interrupt** | the agent's current action is stopped (SIGINT) and the correction sent |
+| **interrupt** | the agent's current action is stopped and the correction sent; it goes on in the same session |
 | **escalate** | the agent is paused and a human gate opens |
+| **withdraw** | after an escalation: no human decision is needed after all; the gate closes and the agent goes on |
+
+A paused agent keeps its session: it waits where it stopped, with everything it
+had read and done, and its job's time limit stands still. Messages that arrive
+meanwhile (advice, instructions) wait with it. When you decide, the agent
+receives your decision together with those messages and continues.
 
 The live auditor can read the workspace and inspect the container read-only;
 it cannot edit files or change the plan — it advises, the agent decides.

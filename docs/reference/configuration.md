@@ -74,6 +74,8 @@ Where the agents' commands run.
 | `sandbox.cpus` | float | `4.0` | CPU limit of the container. |
 | `sandbox.memory_mb` | int | `8192` | Memory limit of the container in MB. |
 | `sandbox.network` | bool | `true` | Allow internet access from the container. |
+| `sandbox.agent_in_container` | bool | `false` | Experimental: run research agents inside the container, with full freedom there. The API key stays in a small proxy container; the campaign container gets a random token. Needs mount_workspace and an image with glibc (not Alpine). |
+| `sandbox.mount_workspace` | bool | `true` | Mount <campaign>/workspace as the container's /app, so the agents' files are on the host as they are written (no copying). Turn off if Docker runs on another machine. |
 | `sandbox.allow_host_bash` | bool | `false` | With docker: false, let agents run shell commands directly on this machine. Only for trusted tasks on a disposable machine. |
 | `sandbox.tests_dir` | str | `""` | Optional acceptance tests (a directory with test.sh or pytest files) run in the container after each research job; a job counts as done when they pass. |
 

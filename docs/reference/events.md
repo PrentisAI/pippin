@@ -34,7 +34,9 @@ result = await engine.run_campaign()
 | `ideation_stream` | `seat`, `model`, `kind`, `item`, `round`, `text` (so far), `thinking` (end of the reasoning); about once a second while a seat writes a turn. Web console only, not stored |
 | `ideation_turn` | `seat`, `model`, `kind` (presentation, remarks, response, open), `item`, `round`, `content`, `citations`, `headline`; `error` if the turn failed |
 | `ideation_complete` | `proposal_id`, `title`, `hypothesis` |
-| `proposal_from_researcher` | `proposal_id`, `title`, `text` (the researcher's own proposal, from the screening gate) |
+| `resources_updated` | `cpus`, `memory_mb`, `old_cpus`, `old_memory_mb`, `live` |
+| `proposal_from_researcher` | `proposal_id`, `title`, `text` (the researcher's message at the screening gate), `basis` (the proposal they meant, or `new`), `basis_title`, `interpretation`, `changes`, `rerun` (phases it goes through first) |
+| `screening_skipped` | `proposal_id`, `reason` (the researcher's direction, developed by ideation, is not screened) |
 | `screening_complete` | `proposal_id`, `selected`, `score` |
 | `planning_complete` | `plan_id`, `num_jobs` |
 | `planning_fallback` | `reason` (no valid plan; one job carries out the whole proposal) |
@@ -63,7 +65,7 @@ result = await engine.run_campaign()
 |---|---|
 | `milestone_audit_started` | `completed_phase`, `next_phase`, `attempt` |
 | `milestone_audit` | `completed_phase`, `next_phase`, `verdict`, `attempt`, `summary`, `recommendations`, `report_path` |
-| `supervisor_continue` / `_advise` / `_interrupt` / `_escalate` | `outcome`, `reason`, `suggestion` |
+| `supervisor_continue` / `_advise` / `_interrupt` / `_escalate` / `_withdraw` | `outcome`, `reason`, `suggestion` |
 | `human_gate_opened` | `gate_id`, `source`, `title`, `detail`, `options` |
 | `human_gate_resolved` | `gate_id`, `action`, `message`, `decided_by`, `source`, `title` |
 | `instruction_relayed` | `message` |

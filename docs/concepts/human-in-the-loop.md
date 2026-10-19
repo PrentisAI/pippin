@@ -17,9 +17,9 @@ Each gate shows what happened and asks for one of these answers:
 
 | Answer | Effect |
 |---|---|
-| **continue** | go on as planned |
+| **continue** | go on as planned; a message, if you write one, is passed on as a note (at the screening gate: to planning) |
 | **instruct** | go on, following your message (it is sent to the agent or the next phase) |
-| **propose** | screening gate only: pursue your own research proposal (your message) instead; ideation and screening do not run again and planning starts from it |
+| **propose** | screening gate only: say in your own words which direction to pursue — one of the proposals ("the latest one is fine"), one of them with changes, or your own idea. A model reads your message against the proposals and the meeting's ideas on file, and the stream shows how it was understood. By default planning starts from it at once; you can also have it go through ideation (the seats develop your direction without changing it), screening (it is scored; if rejected, the gate asks you again), or both |
 | **stop** | end the campaign (it can be resumed later) |
 
 To start a campaign from your own idea in the first place, skip ideation

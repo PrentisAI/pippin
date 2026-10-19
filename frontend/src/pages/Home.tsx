@@ -18,6 +18,7 @@ import {
   type AutonomyMode,
   type ConfirmedSettings,
   type ConsoleSettings,
+  type ContainerResources,
   type GateAction,
   type IdeationMode,
   type ModelSettings,
@@ -864,6 +865,15 @@ function ExperimentView({
             {run?.autonomy_mode || '—'}
           </div>
         </div>
+        {run?.resources?.docker && (
+          <ResourcesStat
+            campaignId={campaignId}
+            experimentId={experimentId}
+            resources={run.resources}
+            live={isActive}
+            onChanged={fetchRun}
+          />
+        )}
         <div className="exp-controls">
           {run?.report && (
             <button className="exp-ctrl-btn rerun" title={run.report} onClick={handleOpenReport}>
@@ -977,6 +987,8 @@ function ApprovalBar({
   onResolved: () => void
 }) {
   const [message, setMessage] = useState('')
+  // For "Choose the direction": run it through these phases again first
+  const [rerun, setRerun] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -990,7 +1002,8 @@ function ApprovalBar({
     setSubmitting(true)
     setError(null)
     try {
-      await api.experiments.decide(campaignId, experimentId, action, message.trim(), gateId)
+      await api.experiments.decide(campaignId, experimentId, action, message.trim(), gateId,
+        action === 'propose' ? rerun : [])
       setMessage('')
       onResolved()
     } catch (err) {
@@ -1013,8 +1026,8 @@ function ApprovalBar({
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           placeholder={offers('propose')
-            ? 'An instruction (for “Send instruction”), or your own research proposal (for “Use as my proposal”)'
-            : 'Instruction for the agent (required for “Send instruction”)'}
+            ? 'Optional note for “Continue”; guidance for a new ideation round (“Send instruction”); or which direction to pursue, in your words (“Choose the direction”): one of the proposals, with changes, or your own idea'
+            : 'Optional note for “Continue”; required for “Send instruction”'}
           rows={offers('propose') ? 4 : 2}
         />
         {offers('continue') && (
@@ -1029,10 +1042,25 @@ function ApprovalBar({
         )}
         {offers('propose') && (
           <button className="btn-sm btn-modify" disabled={submitting || !message.trim()}
-            title="Pursue the text above as the research proposal: no more ideation or screening, planning starts from it"
+            title="Your text says which direction to pursue (one of the proposals, with changes, or your own idea); it is interpreted and shown in the stream, then planning starts from it, without more ideation or screening"
             onClick={() => decide('propose')}>
-            {'➜'} Use as my proposal
+            {'➜'} Choose the direction
           </button>
+        )}
+        {offers('propose') && (
+          <span className="approval-rerun" title="Before planning, run your direction through these phases again (by default neither)">
+            then also:
+            {['ideation', 'screening'].map((ph) => (
+              <label key={ph}>
+                <input
+                  type="checkbox"
+                  checked={rerun.includes(ph)}
+                  onChange={(e) => setRerun((prev) => e.target.checked ? [...prev, ph] : prev.filter((x) => x !== ph))}
+                />
+                {ph}
+              </label>
+            ))}
+          </span>
         )}
         <span className="approval-spacer" />
         {offers('stop') && (
@@ -1325,12 +1353,20 @@ function ProposalCard({
         setError('The budget must be a positive number of US$, or empty for no limit')
         return
       }
+      const cpus = advanced.cpus?.trim() ? Number(advanced.cpus) : null
+      const memoryGb = advanced.memoryGb?.trim() ? Number(advanced.memoryGb) : null
+      if ((cpus !== null && !(cpus > 0)) || (memoryGb !== null && !(memoryGb > 0))) {
+        setError('CPUs and memory must be positive numbers, or empty for the defaults')
+        return
+      }
       const result = await api.proposals.confirm(campaignId, proposal.proposal_id, {
         skip_phases: skipPhases,
         max_cost_usd: maxCost,
         ideation_mode: ideationMode,
         ...(advanced.autonomy ? { autonomy_mode: advanced.autonomy } : {}),
         ...(Object.keys(advanced.models).length ? { models: advanced.models } : {}),
+        ...(cpus !== null ? { cpus } : {}),
+        ...(memoryGb !== null ? { memory_mb: Math.round(memoryGb * 1024) } : {}),
       })
       setStarted({
         experiment_id: result.experiment_id,
@@ -1339,6 +1375,8 @@ function ProposalCard({
         max_cost_usd: maxCost,
         autonomy_mode: advanced.autonomy,
         models: advanced.models,
+        cpus,
+        memory_mb: memoryGb !== null ? Math.round(memoryGb * 1024) : null,
       })
       setConfirmed(true)
       onConfirmed(result.experiment_id)
@@ -1680,6 +1718,75 @@ export default function Home() {
 
 
 // ---------------------------------------------------------------------------
+// Container limits of an experiment, changeable at any time
+// ---------------------------------------------------------------------------
+
+function ResourcesStat({ campaignId, experimentId, resources, live, onChanged }: {
+  campaignId: string
+  experimentId: string
+  resources: ContainerResources
+  live: boolean
+  onChanged: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [cpus, setCpus] = useState('')
+  const [memGb, setMemGb] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const gb = resources.memory_mb / 1024
+
+  const open = () => {
+    setCpus(String(resources.cpus))
+    setMemGb(String(gb))
+    setError(null)
+    setEditing(true)
+  }
+  const apply = async () => {
+    const c = Number(cpus)
+    const m = Number(memGb)
+    if (!(c > 0) || !(m > 0)) {
+      setError('Positive numbers, please')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      await api.experiments.setResources(campaignId, experimentId, c, Math.round(m * 1024))
+      setEditing(false)
+      onChanged()
+    } catch (err) {
+      setError(describeError(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="stat resources-stat">
+      <div className="stat-label">Container</div>
+      <div className="stat-value mono" style={{ cursor: 'pointer' }} onClick={editing ? undefined : open}
+        title={live ? 'Click to change the CPU and memory limits now; nothing restarts'
+          : 'Click to change the limits a resume or re-run will use'}>
+        {resources.cpus} CPU · {Number.isInteger(gb) ? gb : gb.toFixed(1)} GB
+      </div>
+      {editing && (
+        <div className="resources-pop">
+          <label>CPUs <input type="number" min="0.5" step="0.5" value={cpus} onChange={(e) => setCpus(e.target.value)} /></label>
+          <label>Memory (GB) <input type="number" min="1" step="1" value={memGb} onChange={(e) => setMemGb(e.target.value)} /></label>
+          <div className="resources-hint">{live ? 'Applied to the running container at once. Less memory than it uses now can kill running processes.'
+            : 'Used when the experiment is resumed or re-run.'}</div>
+          {error && <div className="tl-detail tone-error">{error}</div>}
+          <div className="resources-actions">
+            <button className="btn-sm" disabled={saving} onClick={() => setEditing(false)}>Cancel</button>
+            <button className="btn-sm btn-approve" disabled={saving} onClick={apply}>{saving ? 'Applying…' : 'Apply'}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Advanced settings of a proposal: autonomy and the model of each role
 // ---------------------------------------------------------------------------
 
@@ -1687,6 +1794,9 @@ interface AdvancedChoices {
   autonomy: AutonomyMode | null
   /** Only the roles the researcher changed; the rest keep the server defaults. */
   models: Partial<Record<keyof ModelSettings, string | string[]>>
+  /** Container limits, as typed; empty: the server defaults. */
+  cpus?: string
+  memoryGb?: string
 }
 
 let settingsRequest: Promise<ConsoleSettings> | null = null
@@ -1749,7 +1859,9 @@ function AdvancedSettings({
     </label>
   )
   const autonomy = value.autonomy ?? settings.autonomy_mode
-  const changed = Object.keys(value.models).length + (value.autonomy ? 1 : 0)
+  const sb = settings.sandbox
+  const changed = Object.keys(value.models).length + (value.autonomy ? 1 : 0) + (value.cpus ? 1 : 0)
+    + (value.memoryGb ? 1 : 0)
 
   return (
     <div className="proposal-advanced">
@@ -1782,6 +1894,23 @@ function AdvancedSettings({
             {ideation && field('ideation_chair', 'Ideation chair')}
             {OVERSIGHT_MODEL_ROLES.map(([role, label]) => field(role, label))}
           </div>
+          {sb.docker && (
+            <div className="advanced-group">
+              <div className="advanced-title">Container <span className="proposal-hint">
+                can also be changed while the experiment runs · this machine: {sb.host_cpus} CPUs, {Math.round(sb.host_memory_mb / 1024)} GB
+              </span></div>
+              <label className="advanced-field">
+                <span>CPUs</span>
+                <input type="number" min="0.5" step="0.5" max={sb.host_cpus} value={value.cpus ?? ''}
+                  placeholder={String(sb.cpus)} onChange={(e) => onChange({ ...value, cpus: e.target.value })} />
+              </label>
+              <label className="advanced-field">
+                <span>Memory (GB)</span>
+                <input type="number" min="1" step="1" max={Math.floor(sb.host_memory_mb / 1024)} value={value.memoryGb ?? ''}
+                  placeholder={String(sb.memory_mb / 1024)} onChange={(e) => onChange({ ...value, memoryGb: e.target.value })} />
+              </label>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1851,6 +1980,10 @@ function StartedProposal({
         {budget && <><dt>Budget</dt><dd>{budget}</dd></>}
         {started?.autonomy_mode && (
           <><dt>Decisions</dt><dd>{started.autonomy_mode === 'autonomous' ? 'Autonomous' : 'Supervised'}</dd></>
+        )}
+        {(started?.cpus || started?.memory_mb) && (
+          <><dt>Container</dt><dd>{[started.cpus ? `${started.cpus} CPUs` : '', started.memory_mb ? `${started.memory_mb / 1024} GB` : '']
+            .filter(Boolean).join(', ')}</dd></>
         )}
         {models.map(([role, v]) => (
           <Fragment key={role}>

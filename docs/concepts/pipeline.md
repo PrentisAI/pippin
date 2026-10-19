@@ -31,8 +31,8 @@ objective itself the direction; skipping planning gives a single job.
 
 A campaign gets one Docker container for its whole life. The agents run every
 command in it (`docker exec`); on the host they can only read and write files in
-the campaign directory. When the campaign ends, the container's `/app` is
-copied to `<campaign>/workspace/` and the container is removed. See
+the campaign directory. The container's `/app` is the campaign's `workspace/`
+directory on the host; when the campaign ends the container is removed. See
 [Sandbox and security](../guide/sandbox.md).
 
 ## What the campaign knows: the mental model
@@ -66,9 +66,8 @@ budget limit, a human *stop*, or a crash) and continued with
 progress is kept as far as possible:
 
 - **Finished phases and jobs** are not repeated (`checkpoint.json`).
-- **Files** written on the host are on disk; the container's `/app` is copied
-  to `<campaign>/workspace/` when the campaign ends and after every research
-  job, and put back into the new container on resume.
+- **Files** are on disk: the container's `/app` is the host's
+  `<campaign>/workspace/`, which the new container mounts again on resume.
 - **An interrupted agent session** (screening, planning, a research job,
   analysis, writing, a milestone audit) is continued in the same Claude Code
   session (`sessions.json`), with what it had read, thought and written so far,

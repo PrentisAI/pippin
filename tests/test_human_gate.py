@@ -76,3 +76,16 @@ async def test_propose_only_where_offered_and_with_text():
     assert (await offered).action == "propose"
     gate.resolve(first.gate_id, "stop")
     await plain
+
+
+async def test_rerun_is_kept_only_for_propose():
+    gate, _ = make_gate(autonomy="supervised")
+    opts = ["continue", "instruct", "propose", "stop"]
+    first = asyncio.create_task(gate.request("screening", "t", "d", options=opts))
+    second = asyncio.create_task(gate.request("screening", "t", "d", options=opts))
+    await asyncio.sleep(0.01)
+    a, b = gate.pending
+    gate.resolve(a.gate_id, "propose", "my idea", rerun=["screening", "bogus", "ideation"])
+    gate.resolve(b.gate_id, "continue", "", rerun=["ideation"])
+    assert (await first).rerun == ["ideation", "screening"]
+    assert (await second).rerun == []

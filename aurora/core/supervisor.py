@@ -12,7 +12,8 @@ Outcomes (Section 3.3 of the paper):
 * ``continue``  — nothing to do;
 * ``advise``    — the suggestion is sent to the research agent, which keeps working;
 * ``interrupt`` — the agent's current action is stopped and the correction sent;
-* ``escalate``  — the engine opens a human gate.
+* ``escalate``  — the engine opens a human gate; the agent is paused until the human decides;
+* ``withdraw``  — the auditor takes back its escalation; the question is closed and the agent goes on.
 
 The supervisor advises; it cannot change the pipeline itself.
 """
@@ -63,7 +64,7 @@ def parse_verdicts(text: str) -> list[SupervisorVerdict]:
         except ValueError:
             outcome = AuditOutcome.ADVISE
         if outcome not in (AuditOutcome.CONTINUE, AuditOutcome.ADVISE,
-                           AuditOutcome.INTERRUPT, AuditOutcome.ESCALATE):
+                           AuditOutcome.INTERRUPT, AuditOutcome.ESCALATE, AuditOutcome.WITHDRAW):
             outcome = AuditOutcome.ADVISE
         verdicts.append(SupervisorVerdict(outcome, str(v.get("reason", "")), str(v.get("suggestion", ""))))
     return verdicts
@@ -146,6 +147,8 @@ class Supervisor:
         Stops the research agent's current action, then sends the message.
     escalate_callback(verdict):
         Opens a human gate.
+    withdraw_callback(verdict):
+        Closes the gate an escalation opened.
     broadcast_callback(event):
         Publishes supervisor events (``{"event_type", "data"}``).
     """
@@ -163,6 +166,7 @@ class Supervisor:
         advise_callback: Callable[[str], Awaitable[None]] | None = None,
         interrupt_callback: Callable[[str], Awaitable[None]] | None = None,
         escalate_callback: Callable[[SupervisorVerdict], Awaitable[None]] | None = None,
+        withdraw_callback: Callable[[SupervisorVerdict], Awaitable[None]] | None = None,
         broadcast_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> None:
         self._run_dir = Path(run_dir)
@@ -175,6 +179,7 @@ class Supervisor:
         self._advise = advise_callback
         self._interrupt = interrupt_callback
         self._escalate = escalate_callback
+        self._withdraw = withdraw_callback
         self._broadcast = broadcast_callback
         self._process: asyncio.subprocess.Process | None = None
         self._tailer: TranscriptTailer | None = None
@@ -289,6 +294,9 @@ class Supervisor:
         elif verdict.outcome == AuditOutcome.ESCALATE and self._escalate:
             logger.warning("Live auditor escalates: %s", verdict.reason)
             await self._escalate(verdict)
+        elif verdict.outcome == AuditOutcome.WITHDRAW and self._withdraw:
+            logger.info("Live auditor withdraws its escalation: %s", verdict.reason)
+            await self._withdraw(verdict)
 
     def _build_prompt(self) -> str:
         container = (f"\nThe agent works in Docker container `{self._container}`; you may inspect it "
@@ -302,7 +310,7 @@ You receive the agent's live transcript (JSONL entries: thinking, tool_call, too
 text, error) in updates. You may read the campaign workspace ({self._cwd}).{container}
 
 After every update, end your reply with exactly one verdict line:
-VERDICT {{"outcome": "continue|advise|interrupt|escalate", "reason": "...", "suggestion": "..."}}
+VERDICT {{"outcome": "continue|advise|interrupt|escalate|withdraw", "reason": "...", "suggestion": "..."}}
 
 - continue — reasonable progress. The default; early exploration is normal.
 - advise — a likely problem the agent can fix while it keeps working: a wrong method or
@@ -313,7 +321,14 @@ VERDICT {{"outcome": "continue|advise|interrupt|escalate", "reason": "...", "sug
   compute on a known-wrong setup, fabricates results). The action is stopped and your
   suggestion sent.
 - escalate — a decision only a human should make (the objective looks wrong or infeasible,
-  repeated advice is ignored, a risky or costly step). The human is asked.
+  repeated advice is ignored, a risky or costly step). The human is asked; the agent is
+  paused until they answer.
+- withdraw — after an escalation, if you find that no human decision is needed after all,
+  take it back (the reason says why); the question is closed and the agent goes on.
+
+Allowed and expected: to look at a figure or other file it made in the container, the agent
+opens it on the host (the container's /app is <workspace>/workspace, or it copies one file to
+<workspace>/view/). That is not a sandbox violation.
 
 Advise sparingly and only when fairly confident; most updates should be continue.
 Wait for the first transcript update."""

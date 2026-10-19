@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from aurora.cli import main
 from aurora.config import AuroraConfig
 from aurora.core.engine import ResearchEngine
@@ -127,19 +129,29 @@ async def test_stop_then_resume_continues_from_the_checkpoint(tmp_path):
     assert result.manuscript_path
 
 
-async def test_researcher_proposal_at_the_screening_gate(tmp_path):
-    """When screening keeps rejecting, the researcher's own proposal goes straight to planning."""
-    import asyncio
+def _gate_engine(tmp_path, cid, monkeypatch, reading=None):
+    """A campaign whose screening rejects everything; *reading* is how the model reads the
+    researcher's direction (None: the model call fails)."""
+    from aurora.core import engine as engine_mod
+    from aurora.llm.router import LLMRouter
 
-    from aurora.models.roundtable import RoundtableProposal
+    real = LLMRouter.generate_structured
 
-    cfg = AuroraConfig(objective="Citi Bike usage", mock_mode=True, campaign_id="t7",
+    async def fake(self, stage, messages, schema, **kw):
+        if schema is engine_mod.ResearcherDirection:
+            if reading is None:
+                raise RuntimeError("model unavailable")
+            return reading(messages[-1].content)
+        return await real(self, stage, messages, schema, **kw)
+
+    monkeypatch.setattr(LLMRouter, "generate_structured", fake)
+    cfg = AuroraConfig(objective="Citi Bike usage", mock_mode=True, campaign_id=cid,
                        workspace={"root": str(tmp_path)}, human={"autonomy": "supervised"})
     engine = ResearchEngine(cfg)
     screened, planned = [], []
 
     async def reject(proposal):
-        screened.append(proposal.title)
+        screened.append(proposal)
         return proposal.model_copy(update={"selected": False})
 
     real_planning = engine._run_planning
@@ -150,6 +162,12 @@ async def test_researcher_proposal_at_the_screening_gate(tmp_path):
 
     engine._run_screening = reject
     engine._run_planning = plan
+    return engine, screened, planned
+
+
+async def _answer_gate(engine, action, message, rerun=None):
+    import asyncio
+
     task = asyncio.create_task(engine.run_campaign())
     for _ in range(200):
         await asyncio.sleep(0.05)
@@ -157,14 +175,84 @@ async def test_researcher_proposal_at_the_screening_gate(tmp_path):
             break
     [gate] = engine.human_gate.pending
     assert "propose" in gate.options
-    my_idea = "E-bikes as a friction isolator\nDo e-bikes flatten seasonality and weather response?"
-    engine.human_gate.resolve(gate.gate_id, "propose", my_idea)
-    result = await asyncio.wait_for(task, timeout=60)
+    engine.human_gate.resolve(gate.gate_id, action, message, rerun=rerun)
+    return await asyncio.wait_for(task, timeout=60)
+
+
+async def test_researcher_picks_a_proposal_at_the_screening_gate(tmp_path, monkeypatch):
+    """'The latest one is fine' means the latest proposal, not a proposal titled with that sentence."""
+    import re
+
+    from aurora.core.engine import ResearcherDirection
+
+    def read(request):
+        latest = re.findall(r"### (prop_\w+) \(the latest\)", request)[0]
+        return ResearcherDirection(basis=latest, interpretation="continue with the latest proposal",
+                                   changes="also look at weather", title="", description="")
+
+    engine, screened, planned = _gate_engine(tmp_path, "t7", monkeypatch, read)
+    result = await _answer_gate(engine, "propose", "I think the latest proposal is fine, add weather")
     assert result.status == "completed", result.summary
-    assert len(screened) == 3                                     # no screening after the proposal
+    assert len(screened) == 3                                     # no screening after the decision
+    chosen = planned[0]
+    assert chosen.title == screened[-1].title                     # the latest proposal, kept
+    assert chosen.decision["basis"] == screened[-1].proposal_id
+    assert "also look at weather" in chosen.description
+    assert engine._load_latest_proposal().proposal_id == chosen.proposal_id
+    assert "The researcher chose this direction" in engine._campaign_brief(chosen)
+
+
+async def test_researcher_direction_falls_back_to_the_message(tmp_path, monkeypatch):
+    engine, _, planned = _gate_engine(tmp_path, "t7b", monkeypatch, None)
+    my_idea = "E-bikes as a friction isolator\nDo e-bikes flatten seasonality and weather response?"
+    result = await _answer_gate(engine, "propose", my_idea)
+    assert result.status == "completed", result.summary
     assert planned[0].title == "E-bikes as a friction isolator" and planned[0].description == my_idea
-    assert engine._load_latest_proposal().proposal_id == planned[0].proposal_id
-    assert isinstance(planned[0], RoundtableProposal)
+
+
+async def test_continue_with_a_note_keeps_the_proposal(tmp_path, monkeypatch):
+    engine, screened, planned = _gate_engine(tmp_path, "t7c", monkeypatch, None)
+    notes = []
+    real_planning = engine._run_planning
+
+    async def plan(proposal, guidance=""):
+        notes.append(guidance)
+        return await real_planning(proposal, guidance)
+
+    engine._run_planning = plan
+    result = await _answer_gate(engine, "continue", "keep it short")
+    assert result.status == "completed", result.summary
+    assert len(screened) == 3 and planned[0].proposal_id == screened[-1].proposal_id
+    assert "keep it short" in notes[0]
+
+
+@pytest.mark.parametrize("rerun", [["ideation"], ["screening"], ["ideation", "screening"]])
+async def test_chosen_direction_can_go_through_ideation_or_screening_again(tmp_path, monkeypatch, rerun):
+    engine, screened, planned = _gate_engine(tmp_path, f"t7{len(rerun)}{rerun[0][0]}", monkeypatch, None)
+    rejected = list(screened)
+    ideation_guidance = []
+    real_ideation = engine._run_roundtable
+
+    async def ideation(guidance=""):
+        ideation_guidance.append(guidance)
+        return await real_ideation(guidance)
+
+    async def screen(proposal):           # rejects ideation's proposals, passes everything after the gate
+        rejected.append(proposal)
+        passed = len(rejected) > 3
+        return proposal.model_copy(update={"selected": passed})
+
+    engine._run_roundtable = ideation
+    engine._run_screening = screen
+    result = await _answer_gate(engine, "propose", "E-bikes as a friction isolator", rerun)
+    assert result.status == "completed", result.summary
+    assert len(ideation_guidance) == 3 + ("ideation" in rerun)
+    if "ideation" in rerun:
+        assert "E-bikes as a friction isolator" in ideation_guidance[-1]
+        assert "do not propose a different direction" in ideation_guidance[-1]
+    assert len(rejected) == 3 + ("screening" in rerun)
+    if rerun == ["screening"]:
+        assert planned[0].title == "E-bikes as a friction isolator"
 
 
 async def test_resume_at_the_screening_gate_does_not_screen_again(tmp_path):
@@ -231,3 +319,54 @@ async def test_cost_carries_over_to_a_resumed_campaign(tmp_path):
     assert result.status == "stopped" and "budget" in result.summary
     assert result.cost_usd >= 5.1
     assert json.loads((tmp_path / "t9" / "cost.json").read_text())["cost_usd"] >= 5.1
+
+
+async def test_unanswered_live_auditor_question_does_not_break_the_finish(tmp_path):
+    """A live-auditor gate left open when research ends is closed; the campaign still finishes
+    cleanly (it used to be cancelled while cleaning up and stay 'running')."""
+    import asyncio
+
+    cfg = AuroraConfig(objective="x", mock_mode=True, campaign_id="t10", workspace={"root": str(tmp_path)},
+                       skip_phases=["ideation", "screening"], human={"autonomy": "supervised"})
+    engine = ResearchEngine(cfg)
+    resolved = []
+    real_loop = engine._run_research_loop
+
+    async def loop_with_question(*args, **kwargs):
+        # the live auditor asks the researcher during research, and nobody answers
+        asyncio.create_task(engine.human_gate.request("supervisor", "The live auditor escalated", "d"))
+        while not engine.human_gate.pending:
+            await asyncio.sleep(0.01)
+        return await real_loop(*args, **kwargs)
+
+    async def on_event(event):
+        if event.name == "human_gate_resolved":
+            resolved.append((event.data["source"], event.data["decided_by"], event.data["action"]))
+
+    engine._run_research_loop = loop_with_question
+    engine.event_bus.subscribe_all(on_event)
+    result = await asyncio.wait_for(engine.run_campaign(), timeout=60)
+    assert result.status == "completed", result.summary
+    assert resolved == [("supervisor", "system", "continue")]
+    assert engine.human_gate.pending == []
+
+
+async def test_a_stop_while_cleaning_up_does_not_cancel_the_clean_up(tmp_path):
+    import asyncio
+
+    cfg = AuroraConfig(objective="x", mock_mode=True, campaign_id="t11", workspace={"root": str(tmp_path)},
+                       skip_phases=["ideation", "screening"])
+    engine = ResearchEngine(cfg)
+    real_stop = engine._stop_frontdesk
+
+    async def stop_frontdesk():
+        async def late_stop():                   # e.g. a gate answered 'stop' as the campaign ends
+            engine.request_stop("a late stop")
+
+        await asyncio.create_task(late_stop())
+        await asyncio.sleep(0.05)
+        await real_stop()
+
+    engine._stop_frontdesk = stop_frontdesk
+    result = await asyncio.wait_for(engine.run_campaign(), timeout=60)
+    assert result.status == "completed", result.summary

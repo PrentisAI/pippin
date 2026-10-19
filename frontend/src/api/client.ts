@@ -90,10 +90,16 @@ export const api = {
       request<ExperimentSummary>(experimentPath(campaignId, expId), { method: 'DELETE' }),
 
     /** Answer the experiment's open human gate. `instruct` needs a message. */
-    decide: (campaignId: string, expId: string, action: GateAction, message = '', gateId = '') =>
+    decide: (campaignId: string, expId: string, action: GateAction, message = '', gateId = '', rerun: string[] = []) =>
       request<{ ok: boolean; decision_id: string; action: GateAction }>(
         `${experimentPath(campaignId, expId)}/decide`,
-        post({ action, message, gate_id: gateId }),
+        post({ action, message, gate_id: gateId, rerun }),
+      ),
+
+    setResources: (campaignId: string, expId: string, cpus: number | null, memoryMb: number | null) =>
+      request<{ ok: boolean; live: boolean; cpus: number; memory_mb: number }>(
+        `${experimentPath(campaignId, expId)}/resources`,
+        { method: 'PUT', body: JSON.stringify({ cpus, memory_mb: memoryMb }) },
       ),
 
     setAutonomyMode: (campaignId: string, expId: string, mode: AutonomyMode) =>
@@ -123,6 +129,8 @@ export const api = {
       ideation_mode?: string
       autonomy_mode?: string
       models?: Record<string, unknown>
+      cpus?: number
+      memory_mb?: number
     }) =>
       request<{ status: string; experiment_id: string; skip_phases: string[]; active_phases: string[] }>(
         `/campaigns/${campaignId}/proposals/${proposalId}/confirm`,

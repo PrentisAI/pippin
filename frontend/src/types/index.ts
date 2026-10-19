@@ -102,6 +102,15 @@ export interface ExperimentSummary {
   error: string | null
   pending_decision: PendingDecision | null
   decisions_made: number
+  /** The container's limits: live while it runs, else what a resume or re-run would use. */
+  resources?: ContainerResources | null
+}
+
+export interface ContainerResources {
+  docker: boolean
+  cpus: number
+  memory_mb: number
+  container?: string | null
 }
 
 export interface ExperimentEventRecord {
@@ -180,6 +189,8 @@ export interface ConfirmedSettings {
   max_cost_usd?: number | null
   autonomy_mode?: AutonomyMode | string | null
   models?: Partial<Record<string, string | string[]>>
+  cpus?: number | null
+  memory_mb?: number | null
 }
 
 export interface ConversationMessage {
@@ -234,5 +245,6 @@ export interface ConsoleSettings {
   autonomy_mode: AutonomyMode
   ideation_mode: IdeationMode
   max_cost_usd: number | null
+  sandbox: { docker: boolean; cpus: number; memory_mb: number; host_cpus: number; host_memory_mb: number }
   model_suggestions: string[]
 }

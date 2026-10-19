@@ -2370,3 +2370,23 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 .meeting-body.live { max-height: 220px; }
 .meeting-body.thinking { max-height: 90px; color: var(--fg-dim); font-style: italic; }
 .meeting-wait { font-size: 10.5px; color: var(--fg-dim); margin-top: 3px; font-style: italic; }
+
+.approval-rerun { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; color: var(--fg-muted); }
+.approval-rerun label { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
+
+/* Container limits on the experiment header */
+.resources-stat { position: relative; }
+.resources-pop {
+  position: absolute; top: 100%; left: 0; z-index: 20; margin-top: 6px;
+  display: flex; flex-direction: column; gap: 6px; min-width: 210px;
+  padding: 10px 12px; border-radius: 8px;
+  background: var(--bg-raised); border: 1px solid var(--border); box-shadow: 0 6px 20px rgba(0,0,0,.25);
+  font-size: 11px; color: var(--fg-muted);
+}
+.resources-pop label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.resources-pop input {
+  width: 80px; padding: 3px 6px; border-radius: 4px; font: inherit;
+  background: var(--bg-surface); border: 1px solid var(--border); color: var(--fg);
+}
+.resources-hint { font-size: 10px; color: var(--fg-dim); }
+.resources-actions { display: flex; justify-content: flex-end; gap: 6px; }

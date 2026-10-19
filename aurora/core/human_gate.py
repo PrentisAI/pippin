@@ -6,10 +6,12 @@ rejecting proposals, and, if configured, before the campaign finishes.
 
 Every gate is answered with one of these actions:
 
-* ``continue`` — go on as planned;
+* ``continue`` — go on as planned (a message, if any, is passed on as a note);
 * ``instruct`` — go on, following the human's message;
-* ``propose`` — (only where a gate offers it, e.g. screening) use the human's message as the
-  research proposal instead of one from ideation;
+* ``propose`` — (only where a gate offers it, e.g. screening) the human's message says which
+  direction to pursue: one of the proposals, with or without changes, or their own idea.  The
+  decision may ask for the direction to go through ``ideation`` and/or ``screening`` again
+  (``rerun``); by default it goes straight on;
 * ``stop`` — end the campaign.
 
 Anyone may answer: the web console (approval bar), the front desk agent (when
@@ -38,6 +40,7 @@ logger = logging.getLogger(__name__)
 Action = Literal["continue", "instruct", "propose", "stop"]
 ACTIONS: tuple[str, ...] = ("continue", "instruct", "stop")     # offered by every gate
 NEEDS_MESSAGE = {"instruct", "propose"}
+RERUN_PHASES = ("ideation", "screening")    # what a chosen direction may go through again
 
 
 @dataclass
@@ -57,8 +60,9 @@ class GateRequest:
 class GateDecision:
     action: Action
     message: str = ""
-    decided_by: str = "human"   # human | frontdesk | autonomous | timeout
+    decided_by: str = "human"   # human | frontdesk | autonomous | timeout | system | auditor
     gate_id: str = ""
+    rerun: list[str] = field(default_factory=list)   # for propose: phases the direction goes through
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -125,7 +129,8 @@ class HumanGate:
         self._record(req, decision)
         return decision
 
-    def resolve(self, gate_id: str, action: str, message: str = "", *, decided_by: str = "human") -> bool:
+    def resolve(self, gate_id: str, action: str, message: str = "", *, decided_by: str = "human",
+                rerun: list[str] | None = None) -> bool:
         """Answer an open gate. Returns False when no such gate is waiting."""
         entry = self._pending.get(gate_id)
         if entry is None or entry[1].done():
@@ -135,8 +140,17 @@ class HumanGate:
             raise ValueError(f"action must be one of {tuple(options)}, got {action!r}")
         if action in NEEDS_MESSAGE and not message.strip():
             raise ValueError(f"'{action}' needs a message")
-        entry[1].set_result(GateDecision(action, message, decided_by=decided_by, gate_id=gate_id))  # type: ignore[arg-type]
+        rerun = [p for p in RERUN_PHASES if p in (rerun or [])] if action == "propose" else []
+        entry[1].set_result(GateDecision(action, message, decided_by=decided_by, gate_id=gate_id,  # type: ignore[arg-type]
+                                         rerun=rerun))
         return True
+
+    def close_source(self, source: str, reason: str, *, decided_by: str = "system") -> None:
+        """Close the open gates of *source* that no longer matter (the research phase ended, or
+        the live auditor withdrew its question); the campaign goes on."""
+        for gate_id, (req, _) in list(self._pending.items()):
+            if req.source == source:
+                self.resolve(gate_id, "continue", reason, decided_by=decided_by)
 
     def cancel_all(self, reason: str = "campaign stopped") -> None:
         for gate_id in list(self._pending):
@@ -149,7 +163,7 @@ class HumanGate:
         propose = "propose" in req.options
         prompt = (f"\n=== Human gate: {req.title} ===\n{req.detail}\n"
                   "Answer: [c]ontinue, [i]nstruct (then type the instruction), "
-                  + ("[p]ropose (then type your proposal on one line), " if propose else "") + "[s]top > ")
+                  + ("[p]ropose (then type the direction on one line), " if propose else "") + "[s]top > ")
         while req.gate_id in self._pending:
             answer = (await asyncio.to_thread(_read_line, prompt)).strip().lower()
             if answer in ("c", "continue"):
@@ -160,10 +174,13 @@ class HumanGate:
                 text = await asyncio.to_thread(_read_line, "Instruction > ")
                 self.resolve(req.gate_id, "instruct", text.strip())
             elif propose and answer in ("p", "propose"):
-                text = (await asyncio.to_thread(_read_line, "Proposal > ")).strip()
+                text = (await asyncio.to_thread(_read_line, "Direction > ")).strip()
                 if not text:
                     continue
-                self.resolve(req.gate_id, "propose", text)
+                again = (await asyncio.to_thread(
+                    _read_line, "Run it through [i]deation, [s]creening, [b]oth or [n]either first? > ")).strip().lower()
+                rerun = {"i": ["ideation"], "s": ["screening"], "b": ["ideation", "screening"]}.get(again[:1], [])
+                self.resolve(req.gate_id, "propose", text, rerun=rerun)
             else:
                 continue
             return

@@ -35,12 +35,14 @@ class AuditOutcome(str, Enum):
     - advise    — a suggestion is sent to the agent, which keeps working
     - interrupt — the agent's current action is stopped and the correction sent
     - escalate  — a human gate opens: a decision only the human should make
+    - withdraw  — the auditor takes back its escalation: no human decision is needed after all
     """
 
     CONTINUE = "continue"
     ADVISE = "advise"
     INTERRUPT = "interrupt"
     ESCALATE = "escalate"
+    WITHDRAW = "withdraw"
 
     # Legacy values kept for backward compatibility with old AuditorAgent
     VALIDATE = "validate"

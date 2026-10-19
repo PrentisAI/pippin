@@ -46,6 +46,7 @@ const DECIDED_BY_LABELS: Record<string, string> = {
   autonomous: 'autonomous mode',
   timeout: 'timeout (no answer)',
   system: 'the system',
+  auditor: 'the live auditor (it withdrew the question)',
 }
 
 const GATE_ACTION_LABELS: Record<string, string> = {
@@ -112,6 +113,9 @@ function describeEvent(event: StreamEvent): Described {
     }
     case 'run_error':
       return system('error', 'The run crashed', str(d.error))
+    case 'resources_updated':
+      return system('info', `Container limits: ${String(d.cpus)} CPUs, ${Number(d.memory_mb) / 1024} GB`
+        + ` (before: ${String(d.old_cpus)} CPUs, ${Number(d.old_memory_mb) / 1024} GB)`)
     case 'autonomy_changed':
       return system('info', `Mode switched: ${d.old_mode ?? '?'} → ${d.new_mode ?? '?'}`)
 
@@ -129,7 +133,15 @@ function describeEvent(event: StreamEvent): Described {
     case 'mental_model_invalid':
       return system('warning', 'The analysis returned an invalid mental model; the previous one is kept', str(d.reason))
     case 'proposal_from_researcher':
-      return system('success', `Your proposal: ${str(d.title)} — planning starts from it`, str(d.text) || undefined)
+      return system('success',
+        d.basis && d.basis !== 'new'
+          ? `Your direction: “${str(d.basis_title)}”${d.changes ? ', with your changes' : ''}`
+          : `Your direction: ${str(d.title)}`,
+        lines(d.interpretation ? `Understood as: ${str(d.interpretation)}` : '',
+          d.changes ? `Changes: ${str(d.changes)}` : '', `You wrote: “${str(d.text)}”`,
+          Array.isArray(d.rerun) && d.rerun.length ? `Next: ${(d.rerun as string[]).join(' and ')}` : ''))
+    case 'screening_skipped':
+      return system('info', 'Screening skipped — you chose not to screen your direction')
     case 'ideation_complete':
       return system('success', `Idea: ${str(d.title) || 'untitled'}`, str(d.hypothesis) || undefined)
     case 'screening_complete': {
@@ -218,6 +230,8 @@ function describeEvent(event: StreamEvent): Described {
     case 'supervisor_interrupt':
       return oversight('error', 'Live auditor · interrupted the agent', str(d.suggestion) || str(d.reason), 'interrupt',
         d.suggestion ? str(d.reason) || undefined : undefined)
+    case 'supervisor_withdraw':
+      return oversight('muted', 'Live auditor · question withdrawn', str(d.reason), 'withdraw')
     case 'supervisor_escalate':
       return oversight('warning', 'Live auditor · asks for your decision', str(d.reason), 'escalate',
         str(d.suggestion) || undefined)
