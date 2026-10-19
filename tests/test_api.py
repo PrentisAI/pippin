@@ -57,3 +57,13 @@ def test_missing_requirements_fail_the_request(client):
 
 def test_unknown_project_is_404(client):
     assert client.get("/api/campaigns/nope").status_code == 404
+
+
+def test_console_experiments_get_a_default_budget(client):
+    from aurora.api.routes import campaigns
+    cid = client.post("/api/campaigns/quick", json={"prompt": "p"}).json()["campaign_id"]
+    campaign = campaigns._ensure_campaign(cid)
+    req = campaigns.StartExperimentRequest(instruction="x", mock_mode=True)
+    assert campaigns._experiment_config(campaign, "r1", req).budget.max_cost_usd == campaigns.WEB_DEFAULT_MAX_COST_USD
+    req = campaigns.StartExperimentRequest(instruction="x", mock_mode=True, max_cost_usd=None)
+    assert campaigns._experiment_config(campaign, "r2", req).budget.max_cost_usd is None

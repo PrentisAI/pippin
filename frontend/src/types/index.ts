@@ -160,6 +160,7 @@ export interface Proposal {
   proposal_id: string
   kind: 'custom'
   params: { instruction: string; name?: string; inputs?: string[]; model?: string }
+  max_cost_usd?: number | null
   skip_phases: Phase[]
   active_phases: Phase[]
   summary: string

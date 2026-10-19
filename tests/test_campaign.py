@@ -70,3 +70,23 @@ async def test_independent_ideation(tmp_path):
     result = await ResearchEngine(cfg).run_campaign()
     assert result.status == "completed", result.summary
     assert result.proposal.decision["mode"] == "independent"
+
+
+async def test_stop_cancels_a_long_phase_promptly(tmp_path):
+    import asyncio
+    import time
+
+    cfg = AuroraConfig(objective="x", mock_mode=True, campaign_id="t5", workspace={"root": str(tmp_path)})
+    engine = ResearchEngine(cfg)
+
+    async def slow_ideation(guidance=""):
+        await asyncio.sleep(60)
+
+    engine._run_roundtable = slow_ideation
+    task = asyncio.create_task(engine.run_campaign())
+    await asyncio.sleep(0.5)
+    started = time.time()
+    engine.request_stop("stopped by the user")
+    result = await asyncio.wait_for(task, timeout=10)
+    assert result.status == "stopped" and "stopped by the user" in result.summary
+    assert time.time() - started < 5

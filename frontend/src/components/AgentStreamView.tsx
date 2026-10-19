@@ -113,6 +113,8 @@ function describeEvent(event: StreamEvent): Described {
       return system('info', `Mode switched: ${d.old_mode ?? '?'} → ${d.new_mode ?? '?'}`)
 
     // -- phase results -----------------------------------------------------------
+    case 'ideation_progress':
+      return ideationProgress(d)
     case 'ideation_complete':
       return system('success', `Idea: ${str(d.title) || 'untitled'}`, str(d.hypothesis) || undefined)
     case 'screening_complete': {
@@ -229,6 +231,8 @@ function describeEvent(event: StreamEvent): Described {
       return system('error', 'Front desk error', str(d.error))
     case 'instruction_relayed':
       return system('info', `Relayed to the agent: “${clip(str(d.message), 300)}”`)
+    case 'instruction_queued':
+      return system('info', `Instruction saved for the planning and research agents: “${clip(str(d.message), 300)}”`)
     case 'agent_interrupted':
       return system('warning', 'Agent interrupted', str(d.reason) || undefined)
     case 'agent_reply_to_human':
@@ -654,4 +658,34 @@ export function AgentStreamView({ events, campaignId, experimentId }: AgentStrea
       </div>
     </div>
   )
+}
+
+
+/** One line per step of the ideation meeting (`ideation_progress` events). */
+function ideationProgress(d: Record<string, unknown>): Described {
+  const system = (tone: Tone, text: string, detail?: string): Described => ({ lane: 'system', tone, text, detail })
+  const ideas = Array.isArray(d.ideas) ? (d.ideas as Array<Record<string, unknown>>) : []
+  const seats = Array.isArray(d.seats) ? (d.seats as Array<Record<string, unknown>>) : []
+  switch (d.step) {
+    case 'preparing':
+      return system('muted', `Ideation: ${seats.length} seats prepare their ideas`,
+        seats.map((s) => `${str(s.seat)}: ${str(s.model)}`).join('\n'))
+    case 'prepared':
+      return system('info', `Ideation: ${ideas.length} ideas ready${d.failed ? ` (${String(d.failed)} seats failed)` : ''}`,
+        ideas.map((i) => `${str(i.seat)} (${str(i.model)}): ${str(i.headline)}`).join('\n'))
+    case 'agenda_item':
+      return system('muted', `Meeting item ${String(d.item)}/${String(d.of)}: ${str(d.presenter)} presents`)
+    case 'item_notes':
+      return system('muted', `Chair's notes on ${str(d.presenter)} — ${String(d.threads ?? 0)} threads`, str(d.summary) || undefined)
+    case 'open_discussion':
+      return system('muted', 'Meeting: open discussion')
+    case 'chair_selecting':
+      return system('muted', `The chair compares ${String(d.candidates ?? '')} ideas`)
+    case 'chair_deciding':
+      return system('muted', 'The chair decides the direction')
+    case 'decided':
+      return system('success', `Chair chose ${str(d.chosen)}: ${clip(str(d.headline), 200)}`, str(d.rationale) || undefined)
+    default:
+      return system('muted', `Ideation: ${str(d.step)}`)
+  }
 }

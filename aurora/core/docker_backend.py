@@ -45,7 +45,9 @@ class DockerBackend:
     """
 
     def __init__(self, docker_image: str = "python:3.11-slim", *, cpus: float = 4.0, memory_mb: int = 8192,
-                 allow_network: bool = True, tests_dir: str = "", pull_timeout: float = 1800.0) -> None:
+                 allow_network: bool = True, tests_dir: str = "", pull_timeout: float = 1800.0,
+                 campaign_dir: str = "") -> None:
+        self._campaign_dir = campaign_dir
         self._image = docker_image
         self._cpus = cpus
         self._memory_mb = memory_mb
@@ -65,7 +67,7 @@ class DockerBackend:
             "docker", "run", "-d", "--init",
             "--cpus", str(self._cpus), "--memory", f"{self._memory_mb}m",
             "--network", "bridge" if self._allow_network else "none",
-            "--label", "aurora.campaign=1",
+            "--label", "aurora.campaign=1", "--label", f"aurora.campaign_dir={self._campaign_dir}",
             "-w", "/app", self._image, "sleep", "infinity", timeout=120)
         if code != 0:
             raise RuntimeError(f"Could not start a container from {self._image}: {err.strip()}")
@@ -113,3 +115,23 @@ class DockerBackend:
         if code != 0:
             logger.warning("Could not copy /app out of the container: %s", err.strip())
         return code == 0
+
+
+async def remove_orphaned_containers(under: Path) -> int:
+    """Remove campaign containers whose campaign directory is under *under*.
+
+    The web console calls this at start-up: no experiment survives a server
+    restart, so any such container was left behind by a crash.
+    """
+    code, out, _ = await _run("docker", "ps", "-a", "--filter", "label=aurora.campaign=1",
+                              "--format", '{{.ID}} {{.Label "aurora.campaign_dir"}}', timeout=30)
+    if code != 0:
+        return 0
+    removed = 0
+    root = str(Path(under).resolve())
+    for line in out.splitlines():
+        cid, _, campaign_dir = line.partition(" ")
+        if campaign_dir and (campaign_dir == root or campaign_dir.startswith(root + "/")):
+            await _run("docker", "rm", "-f", cid, timeout=60)
+            removed += 1
+    return removed

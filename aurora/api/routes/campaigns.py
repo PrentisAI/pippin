@@ -60,6 +60,16 @@ def base_config() -> dict[str, Any]:
     return data
 
 
+# Experiments started from the console get this cost limit unless the server's base
+# config sets budget.max_cost_usd or the researcher changes it on the proposal card
+WEB_DEFAULT_MAX_COST_USD = 20.0
+
+
+def default_max_cost() -> float | None:
+    budget = base_config().get("budget") or {}
+    return budget["max_cost_usd"] if "max_cost_usd" in budget else WEB_DEFAULT_MAX_COST_USD
+
+
 def _projects_root() -> Path:
     return store.data_dir / "projects"
 
@@ -139,6 +149,7 @@ class ExperimentProposal:
     """An experiment drafted by the project front desk, waiting for the researcher to confirm."""
 
     def __init__(self, params: dict[str, Any], skip_phases: list[str], summary: str) -> None:
+        self.max_cost_usd = default_max_cost()
         self.proposal_id = f"prop_{uuid.uuid4().hex[:8]}"
         self.kind = "custom"
         self.params = params
@@ -153,6 +164,7 @@ class ExperimentProposal:
             "proposal_id": self.proposal_id, "kind": self.kind, "params": self.params,
             "skip_phases": self.suggested_skip,
             "active_phases": [p for p in PHASES if p not in self.suggested_skip],
+            "max_cost_usd": self.max_cost_usd,
             "summary": self.summary, "created_at": self.created_at,
             "confirmed": self.confirmed, "superseded": self.superseded,
         }
@@ -335,8 +347,9 @@ def _experiment_config(campaign: CampaignState, run_id: str, req: StartExperimen
         raw.setdefault("human", {})["autonomy"] = req.autonomy_mode
     if req.ideation_mode:
         raw.setdefault("ideation", {})["mode"] = req.ideation_mode
-    if req.max_cost_usd is not None:
-        raw.setdefault("budget", {})["max_cost_usd"] = req.max_cost_usd
+    # an explicit null in the request means no cost limit
+    max_cost = req.max_cost_usd if "max_cost_usd" in req.model_fields_set else default_max_cost()
+    raw.setdefault("budget", {})["max_cost_usd"] = max_cost
     if req.mock_mode is not None:
         raw["mock_mode"] = req.mock_mode
     return AuroraConfig.model_validate(raw)
@@ -695,6 +708,7 @@ async def campaign_chat_send(campaign_id: str, body: ChatBody) -> dict[str, Any]
 class ConfirmProposalBody(BaseModel):
     skip_phases: list[str] | None = None
     model: str = ""
+    max_cost_usd: float | None = None   # null: no limit; omitted: the proposal's default
 
 
 @campaign_router.post("/{campaign_id}/proposals/{proposal_id}/confirm")
@@ -710,7 +724,8 @@ async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProp
     req = StartExperimentRequest(
         instruction=p["instruction"], name=p.get("name", ""), inputs=p.get("inputs", []),
         model=body.model or p.get("model", ""),
-        skip_phases=body.skip_phases if body.skip_phases is not None else proposal.suggested_skip)
+        skip_phases=body.skip_phases if body.skip_phases is not None else proposal.suggested_skip,
+        max_cost_usd=body.max_cost_usd if "max_cost_usd" in body.model_fields_set else proposal.max_cost_usd)
     result = await _start(campaign, req)
     proposal.confirmed = True
     campaign.note(f"Experiment started: {result['experiment_id']}")

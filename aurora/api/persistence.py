@@ -220,7 +220,7 @@ class Store:
     def recover_interrupted(self) -> int:
         """Mark any 'running'/'starting' experiments as 'interrupted' on startup."""
         cursor = self._conn.execute(
-            "UPDATE experiments SET status='interrupted', finished_at=? "
+            "UPDATE experiments SET status='stopped', error='the server was restarted', finished_at=? "
             "WHERE status IN ('running', 'starting', 'awaiting_human')",
             (time.time(),),
         )

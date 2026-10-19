@@ -51,6 +51,8 @@ export type KnownEventType =
   // The researcher and the front desk
   | 'chat_message'
   | 'instruction_relayed'
+  | 'instruction_queued'
+  | 'ideation_progress'
   | 'agent_interrupted'
   | 'agent_reply_to_human'
   | 'frontdesk_response'

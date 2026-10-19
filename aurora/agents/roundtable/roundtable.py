@@ -27,6 +27,7 @@ import logging
 import random
 import re
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 
 from aurora.agents.base import AgentContext
@@ -39,10 +40,23 @@ from aurora.models.roundtable import RoundtableProposal, SeatContribution
 logger = logging.getLogger(__name__)
 
 
+Progress = Callable[..., Awaitable[None]]
+
+
+def _headline(text: str) -> str:
+    """First non-empty line of a presentation, without Markdown markers."""
+    for line in text.splitlines():
+        line = line.strip().lstrip("#*- ").strip()
+        if line:
+            return line[:200]
+    return ""
+
+
 class Roundtable:
     """Runs the group meeting and returns the proposal for the chosen direction."""
 
-    def __init__(self, config: AuroraConfig, router: LLMRouter) -> None:
+    def __init__(self, config: AuroraConfig, router: LLMRouter, progress: Progress | None = None) -> None:
+        self._progress = progress
         self._config = config
         self._router = router
         self._contributions: list[SeatContribution] = []
@@ -88,8 +102,11 @@ class Roundtable:
         rnd.shuffle(order)
         labels = {chr(ord("A") + k): c for k, c in enumerate(order)}
         briefing = self._seats[0].briefing(context, topic)
+        await self._emit("chair_selecting", candidates=len(labels))
         selection = await self._chair.select(briefing, {lab: c.content for lab, c in labels.items()})
         chosen = next((labels[x] for x in re.findall(r"[A-Z]", selection.chosen) if x in labels), order[0])
+        await self._emit("decided", chosen=chosen.seat_id, headline=_headline(chosen.content),
+                         rationale=selection.rationale)
         writer = next(s for s in self._seats if s.agent_id == chosen.seat_id)
         final = await writer.write_proposal(
             context, topic, f"### {chosen.seat_id} — presentation\n\n{chosen.content}", None)
@@ -108,7 +125,8 @@ class Roundtable:
 
         agenda = self.seat_ids[:]
         rnd.shuffle(agenda)
-        for presenter in agenda:
+        for n, presenter in enumerate(agenda, 1):
+            await self._emit("agenda_item", item=n, of=len(agenda), presenter=presenter)
             start = len(self._contributions)
             speakers = [s for s in self._seats if s.agent_id != presenter]
             for k in range(1, self._config.ideation.rounds_per_item + 1):
@@ -122,7 +140,10 @@ class Roundtable:
                 if not speakers:
                     break
             self.notes.append(await self._chair.notes(presenter, self.transcript(self._contributions[start:])))
+            await self._emit("item_notes", presenter=presenter, summary=self.notes[-1].summary,
+                             threads=len(self.notes[-1].threads))
 
+        await self._emit("open_discussion")
         start = len(self._contributions)
         for k in range(1, self._config.ideation.rounds_per_item + 1):
             remarks = await self._parallel(
@@ -132,6 +153,7 @@ class Roundtable:
         self.notes.append(await self._chair.notes("open discussion", self.transcript(self._contributions[start:])))
 
         briefing = self._seats[0].briefing(context, topic)
+        await self._emit("chair_deciding")
         try:
             self.decision = await self._chair.decide(briefing, self.notes, self.transcript())
         except Exception as exc:
@@ -139,6 +161,8 @@ class Roundtable:
         # the chair sometimes writes a sentence instead of a bare seat ID
         named = [x for x in re.findall(r"p\d{2}", self.decision.chosen) if x in by_id]
         writer = by_id[named[0]] if named else self._seats[0]
+        await self._emit("decided", chosen=writer.agent_id, headline=self.decision.direction,
+                         rationale=self.decision.rationale)
         decision_txt = json.dumps(self.decision.model_dump(), ensure_ascii=False, indent=1)
         final = await writer.write_proposal(context, topic, self.transcript(), decision_txt)
         return self._proposal(final, topic, decision=self.decision.model_dump())
@@ -175,9 +199,21 @@ class Roundtable:
 
     # -- helpers ---------------------------------------------------------------
 
+    async def _emit(self, step: str, **data) -> None:
+        """Report meeting progress (``ideation_progress`` events) to whoever listens."""
+        if self._progress is not None:
+            try:
+                await self._progress("ideation_progress", step=step, **data)
+            except Exception:
+                logger.debug("ideation progress callback failed", exc_info=True)
+
     async def _prepare_all(self, context: AgentContext, topic: str, rnd: random.Random) -> list[SeatContribution]:
         """Every seat prepares its idea; fail loudly when too few seats could take part."""
+        await self._emit("preparing", seats=[{"seat": s.agent_id, "model": s.model_id} for s in self._seats])
         drafts = await self._parallel([s.prepare(context, topic) for s in self._seats], rnd)
+        await self._emit("prepared", ideas=[{"seat": d.seat_id, "model": d.model_id,
+                                             "headline": _headline(d.content)} for d in drafts],
+                         failed=len(self._seats) - len(drafts))
         if not drafts:
             raise RuntimeError(
                 "Every ideation seat failed to prepare an idea; check the API key and the model IDs "

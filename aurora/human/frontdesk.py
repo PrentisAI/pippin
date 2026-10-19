@@ -51,70 +51,104 @@ class SystemStatus:
     """Snapshot of the running campaign, shown to the front desk on every turn."""
 
     phase: str = ""
+    activity: str = ""          # what is happening right now, in a few words
     iteration: int = 0
     max_iterations: int = 0
     agent_status: str = "idle"
     supervisor_status: str = ""
     open_gates: list[dict[str, Any]] = field(default_factory=list)
     cost_usd: float = 0.0
+    budget_usd: float | None = None
     current_job: str = ""
     recent_actions: list[str] = field(default_factory=list)   # newest last
+    ideation_log: list[str] = field(default_factory=list)     # meeting progress, newest last
 
     def format(self) -> str:
+        budget = f" of a US${self.budget_usd:g} budget" if self.budget_usd else ""
         lines = [f"Phase: {self.phase or 'not started'}",
-                 f"Research jobs: {self.iteration}/{self.max_iterations or '?'}",
-                 f"Research agent: {self.agent_status}",
-                 f"API cost so far: ${self.cost_usd:.2f}"]
-        if self.current_job:
+                 f"Now: {self.activity or 'waiting'}",
+                 f"API cost so far (all agents and models): ${self.cost_usd:.2f}{budget}"]
+        if self.ideation_log and self.phase == "ideation":
+            lines.append("Ideation progress (newest last):")
+            lines += [f"  {x}" for x in self.ideation_log[-10:]]
+        if self.phase in ("research", "analysis", "writing") or self.iteration:
+            lines.append(f"Research jobs finished: {self.iteration}/{self.max_iterations or '?'}")
+        if self.current_job and self.phase == "research":
             lines.append(f"Current job: {self.current_job}")
-        if self.recent_actions:
+        if self.recent_actions and self.phase == "research":
             lines.append("Recent actions of the research agent (newest last):")
             lines += [f"  {a}" for a in self.recent_actions[-8:]]
         if self.supervisor_status:
-            lines.append(f"Live auditor: {self.supervisor_status}")
+            lines.append(f"Live auditor's last verdict: {self.supervisor_status}")
         for g in self.open_gates:
             lines.append(f"OPEN HUMAN GATE {g['gate_id']} ({g['source']}): {g['title']}")
         return "\n".join(lines)
 
 
-CAMPAIGN_PROMPT = """\
-You are the front desk of AURORA, a system that runs long research campaigns with AI agents.
-You talk with the researcher while the campaign runs. The research agent works in parallel;
-you never do the research yourself.
+SYSTEM_OVERVIEW = """## How AURORA works (explain it from this when asked)
+A campaign runs these phases in order; any can be skipped:
+1. Ideation: several models from different families (the "seats") each prepare one research
+   direction. In "roundtable" mode they hold a group meeting: each presents, the others ask
+   questions, raise concerns or build on it, the presenter answers, and a chair from another
+   model family takes notes and then decides the direction (no voting, no ranking). In
+   "independent" mode the chair picks one of the ideas without a meeting. The chosen seat
+   writes the proposal. No code runs in this phase; its cost is the models' API calls.
+2. Screening: an agent scores the proposal for novelty, feasibility and significance; a
+   low score sends the campaign back to ideation.
+3. Planning: an agent turns the proposal into a plan of jobs.
+4. Research: for each job a research agent (a Claude Code session) works in the
+   campaign's Docker container: writes and runs code, saves results. A live auditor watches
+   its transcript and may advise it, interrupt it or escalate to the researcher.
+5. Analysis: an agent checks the results against the objective and may ask for another
+   research round.
+6. Writing: an agent writes the report.
+Between phases a milestone auditor reviews the output: pass, reject (the phase revises its
+work) or escalate (the researcher decides). A human gate is a point where the campaign waits
+for the researcher's decision: continue, instruct, or stop.
+"""
+
+CAMPAIGN_PROMPT = """You are the front desk of AURORA, a system that runs long research campaigns with AI agents.
+You talk with the researcher while the campaign runs. The agents work in parallel; you never
+do the research yourself.
 
 What you can do:
-- Answer questions about progress. Use the status block and read files in the workspace
-  (list_files, read_file) instead of guessing. Say where things are (file paths).
+- Answer questions about progress from the status block, which is current, and by reading
+  files in the workspace (list_files, read_file). Say where things are (file paths). Do not
+  guess; if the status says what is happening, trust it.
 - Relay instructions: when the researcher wants the research agent to do something
   differently, call relay_to_agent with a clear, self-contained instruction. The agent
-  receives it while it works; you do not need to stop it first.
-- Interrupt: when the researcher wants the agent to stop its current action, call
-  interrupt_agent (and relay the new instruction, if any).
+  receives it while it works. Before the research phase there is no research agent yet:
+  say so, and the instruction will be passed on when research starts.
+- Interrupt: when the researcher wants the research agent to stop its current action, call
+  interrupt_agent (and relay the new instruction, if any). To stop the whole campaign, the
+  researcher uses the Stop button.
 - Human gates: when the status shows an OPEN HUMAN GATE, explain it briefly and help the
   researcher decide. Once they have clearly decided, call answer_gate with
   continue, instruct (with their instruction) or stop. Never answer a gate on your own.
 
 Be brief and concrete. Reply in the researcher's language.
-"""
 
-PROJECT_PROMPT = """\
-You are the front desk of AURORA, a system that runs long research campaigns with AI agents.
+""" + SYSTEM_OVERVIEW
+
+PROJECT_PROMPT = """You are the front desk of AURORA, a system that runs long research campaigns with AI agents.
 You help the researcher turn what they want into an experiment proposal for this project.
 
 - Talk naturally; ask a clarifying question when something important is unclear
-  (goal, data, success criteria, constraints), but do not interrogate.
+  (goal, data, success criteria, constraints), but do not interrogate. If the researcher
+  wants you to suggest the question, propose concrete options or draft one yourself.
 - When you understand enough, call propose_experiment. The researcher sees a card with
-  your proposal and confirms it or asks for changes; then call propose_experiment again
-  with the update. You never start experiments yourself.
+  your proposal, its phases and its budget, and confirms it or asks for changes; then call
+  propose_experiment again with the update. You never start experiments yourself.
 - Write the instruction as a self-contained brief for a capable colleague who has never
   seen the project: what to find out or build, what data exists and where, what a good
   result looks like, constraints.
-- Phases: ideation → screening → planning → research → analysis → writing. Skip
-  ideation and screening when the researcher already knows exactly what to do; skip
-  writing when no report is wanted. Research is always run.
+- Choose the phases: skip ideation and screening when the question is already concrete;
+  keep them when the researcher wants the agents to explore directions; skip writing when
+  no report is wanted. Research is always run. Mention in your reply which phases run.
 
 Be brief. Reply in the researcher's language.
-"""
+
+""" + SYSTEM_OVERVIEW
 
 
 class FrontDeskAgent:

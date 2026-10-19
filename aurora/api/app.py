@@ -64,6 +64,12 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
         recovered = store.recover_interrupted()
         if recovered:
             logger.info("Marked %d interrupted experiments as stopped", recovered)
+        import shutil
+        if shutil.which("docker"):
+            from aurora.core.docker_backend import remove_orphaned_containers
+            orphans = await remove_orphaned_containers(store.data_dir)
+            if orphans:
+                logger.info("Removed %d containers left behind by interrupted experiments", orphans)
         logger.info("AURORA API started; %d projects in %s",
                     len(store.list_campaigns()), store.data_dir)
 

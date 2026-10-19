@@ -573,7 +573,7 @@ function ChatArea({
           }
           const isUser = msg.role === 'user'
           return (
-            <div key={i} className={`msg-row${isUser ? ' user' : ''}`}>
+            <div key={`${msg.timestamp}-${i}`} className={`msg-row${isUser ? ' user' : ''}`}>
               <div className={`msg-avatar ${isUser ? 'human' : 'bot'}`}>
                 {isUser ? 'Y' : 'M'}
               </div>
@@ -581,6 +581,7 @@ function ChatArea({
                 <div className={`msg-bubble ${isUser ? 'user' : 'bot'}`}>{msg.text}</div>
                 {msg.proposal && isProjectTab && (
                   <ProposalCard
+                    key={msg.proposal.proposal_id}
                     proposal={msg.proposal}
                     campaignId={campaignId}
                     onConfirmed={(expId) => {
@@ -1270,6 +1271,7 @@ function ProposalCard({
   onConfirmed: (expId: string) => void
 }) {
   const [skipPhases, setSkipPhases] = useState<Phase[]>(proposal.skip_phases)
+  const [budget, setBudget] = useState<string>(proposal.max_cost_usd != null ? String(proposal.max_cost_usd) : '')
   const [confirming, setConfirming] = useState(false)
   const [confirmed, setConfirmed] = useState(proposal.confirmed)
   const [error, setError] = useState<string | null>(null)
@@ -1279,7 +1281,15 @@ function ProposalCard({
     setConfirming(true)
     setError(null)
     try {
-      const result = await api.proposals.confirm(campaignId, proposal.proposal_id, { skip_phases: skipPhases })
+      const maxCost = budget.trim() === '' ? null : Number(budget)
+      if (maxCost !== null && !(maxCost > 0)) {
+        setError('The budget must be a positive number of US$, or empty for no limit')
+        return
+      }
+      const result = await api.proposals.confirm(campaignId, proposal.proposal_id, {
+        skip_phases: skipPhases,
+        max_cost_usd: maxCost,
+      })
       setConfirmed(true)
       onConfirmed(result.experiment_id)
     } catch (err) {
@@ -1327,6 +1337,19 @@ function ProposalCard({
       {model && <div className="proposal-meta">Model: {model}</div>}
 
       <PhasePipelineSelector skipPhases={skipPhases} onChange={setSkipPhases} />
+
+      <label className="proposal-meta proposal-budget">
+        Budget: US$
+        <input
+          type="number"
+          min="1"
+          step="1"
+          value={budget}
+          placeholder="no limit"
+          onChange={(e) => setBudget(e.target.value)}
+        />
+        <span className="proposal-hint">the experiment stops cleanly when it is reached</span>
+      </label>
 
       {error && <div className="error-banner" style={{ margin: '0 0 8px' }}>Could not start the experiment: {error}</div>}
 

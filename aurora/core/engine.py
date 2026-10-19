@@ -193,11 +193,14 @@ class ResearchEngine:
         self._awaiting_agent_response: bool = False
 
         self._frontdesk_status: Any = None
+        # instructions relayed before the research agent existed
+        self._queued_instructions: list[str] = []
         # Web console project this campaign belongs to (scopes project skills)
         self.project_id: str = ""
 
         # Budget accounting
         self._started_at: float | None = None
+        self._main_task: asyncio.Task | None = None
         self.cost_usd: float = 0.0
         self._stop_requested: str | None = None
 
@@ -232,6 +235,7 @@ class ResearchEngine:
         campaign_start = datetime.now(UTC)
         import time as _time
         self._started_at = _time.time()
+        self._main_task = asyncio.current_task()
         from aurora.core.requirements import check_runtime_requirements
         check_runtime_requirements(self._config)
         self._setup()
@@ -330,7 +334,7 @@ class ResearchEngine:
 
                 elif current == CampaignPhase.PLANNING:
                     proposal = proposal or self._load_latest_proposal()
-                    plan = await self._run_planning(proposal, guidance)
+                    plan = await self._run_planning(proposal, self._with_queued(guidance))
                     guidance = ""
                     following = after(current)
 
@@ -339,7 +343,8 @@ class ResearchEngine:
                     completed_jobs = (checkpoint.completed_jobs if checkpoint
                                       and checkpoint.phase == CampaignPhase.RESEARCH.value else None)
                     loop_results = await self._run_research_loop(plan, completed_jobs=completed_jobs,
-                                                                 guidance=guidance, proposal=proposal)
+                                                                 guidance=self._with_queued(guidance),
+                                                                 proposal=proposal)
                     guidance = ""
                     all_iterations.extend(loop_results)
                     # analysis and writing on top of zero successful jobs would only restate
@@ -395,6 +400,13 @@ class ResearchEngine:
 
         except CampaignStopped as exc:
             status, summary = "stopped", f"Campaign stopped: {exc}"
+            logger.warning(summary)
+        except asyncio.CancelledError:
+            if not self._stop_requested:
+                raise
+            # request_stop() cancelled the running phase; finish cleanly as stopped
+            asyncio.current_task().uncancel()
+            status, summary = "stopped", f"Campaign stopped: {self._stop_requested}"
             logger.warning(summary)
         except Exception as exc:
             status, summary = "failed", f"Campaign failed: {exc}"
@@ -459,6 +471,12 @@ class ResearchEngine:
         if budget.max_cost_usd is not None and spent >= budget.max_cost_usd:
             raise CampaignStopped(f"cost budget of ${budget.max_cost_usd:g} used up (${spent:.2f} spent)")
 
+    def _with_queued(self, guidance: str) -> str:
+        """Guidance for the next phase plus instructions the researcher gave earlier."""
+        queued = "\n".join(f"- {m}" for m in self._queued_instructions)
+        parts = [guidance, f"Instructions from the researcher:\n{queued}" if queued else ""]
+        return "\n\n".join(p for p in parts if p)
+
     def _objective_proposal(self) -> RoundtableProposal:
         objective = self._config.objective.strip()
         return RoundtableProposal(
@@ -503,11 +521,16 @@ class ResearchEngine:
         return {"text": "No agent is running right now; the message was not delivered.", "relayed": False}
 
     def request_stop(self, reason: str = "stopped by the user") -> None:
-        """End the campaign at the next safe point (the running session is interrupted)."""
+        """Stop the campaign now: the running phase is cancelled, then everything is cleaned up."""
+        if self._stop_requested:
+            return
         self._stop_requested = reason
         self.human_gate.cancel_all(reason)
         if self.current_iteration_runner is not None and hasattr(self.current_iteration_runner, "request_stop"):
             self.current_iteration_runner.request_stop()
+        task = self._main_task
+        if task is not None and not task.done() and task is not asyncio.current_task():
+            task.cancel()
 
     def pause(self) -> None:
         """Pause the engine after the current iteration completes."""
@@ -565,6 +588,7 @@ class ResearchEngine:
                 memory_mb=sandbox.memory_mb,
                 allow_network=sandbox.network,
                 tests_dir=sandbox.tests_dir,
+                campaign_dir=str(self._workspace.campaign_dir),
             )
         # Without a container the Claude Code sessions still run, confined to the workspace
         elif self._execution_backend is None and not self._config.mock_mode:
@@ -1154,7 +1178,7 @@ Be specific: cite file names and concrete observations.
         topic = artifacts.current_goal if artifacts else self._config.objective
         if guidance:
             topic = f"{topic}\n\nGuidance for this round: {guidance}"
-        rt = Roundtable(config=self._config, router=self._router)
+        rt = Roundtable(config=self._config, router=self._router, progress=self._publish)
         proposal = await rt.run(ctx, topic=topic)
 
         self._workspace.atomic_write_json(
@@ -1594,8 +1618,12 @@ Be specific: cite file names and concrete observations.
                 return {"status": "error", "reason": "empty message"}
             runner = self.current_iteration_runner
             if runner is None:
-                return {"status": "not_delivered",
-                        "reason": f"no research agent is running now (phase: {self._phase.value})"}
+                # no research agent yet: the instruction goes to planning and research
+                self._queued_instructions.append(message)
+                await self._publish("instruction_queued", message=message, phase=self._phase.value)
+                return {"status": "queued",
+                        "reason": f"no research agent runs in the {self._phase.value} phase; the instruction "
+                                  "will be given to the planning and research agents"}
             self._awaiting_agent_response = True
             await runner.inject_message(
                 f"[Instruction from the researcher]\n{message}\n\nAcknowledge it in one or two "
@@ -1629,7 +1657,42 @@ Be specific: cite file names and concrete observations.
 
         async def on_event(event: Event) -> None:
             st = self._frontdesk_status
-            if event.name == "job_started":
+            d = event.data
+            if event.name == "phase_started":
+                st.phase = d.get("phase", st.phase)
+                st.activity = {
+                    "ideation": f"ideation ({d.get('mode', '')}): the seat models prepare research directions; "
+                                "no research agent runs yet",
+                    "screening": "the screening agent scores the proposal",
+                    "planning": "the planning agent writes the plan of jobs",
+                    "research": "the research agent works on the jobs in the container",
+                    "analysis": "the analysis agent checks the results",
+                    "writing": "the writing agent writes the report",
+                }.get(st.phase, st.phase)
+            elif event.name == "ideation_progress":
+                step = d.get("step")
+                text = {
+                    "preparing": f"{len(d.get('seats', []))} seats prepare their ideas",
+                    "prepared": "ideas ready: " + "; ".join(
+                        f"{i['seat']} ({i['model']}): {i['headline'][:90]}" for i in d.get("ideas", [])),
+                    "agenda_item": f"meeting item {d.get('item')}/{d.get('of')}: {d.get('presenter')} presents, "
+                                   "the others discuss",
+                    "item_notes": f"chair's notes on {d.get('presenter')}: {str(d.get('summary', ''))[:200]}",
+                    "open_discussion": "open discussion",
+                    "chair_selecting": "the chair compares the ideas",
+                    "chair_deciding": "the chair decides the direction",
+                    "decided": f"chosen: {d.get('chosen')} — {str(d.get('headline', ''))[:200]}",
+                }.get(step, str(step))
+                st.ideation_log = (st.ideation_log + [text])[-20:]
+                st.activity = f"ideation: {text[:200]}"
+            elif event.name == "milestone_audit_started":
+                st.activity = (f"the milestone auditor reviews the {d.get('completed_phase')} output "
+                               f"before {d.get('next_phase')}")
+            elif event.name == "milestone_audit":
+                st.activity = f"milestone audit {d.get('completed_phase')} → {d.get('next_phase')}: {d.get('verdict')}"
+            elif event.name == "human_gate_opened":
+                st.activity = f"waiting for the researcher's decision: {d.get('title')}"
+            elif event.name == "job_started":
                 st.current_job = f"{event.data.get('index')}/{event.data.get('total')} {event.data.get('title', '')}"
             elif event.name == "tool_call_start" and event.source == "terminal_iteration":
                 import time as _time
@@ -1643,7 +1706,7 @@ Be specific: cite file names and concrete observations.
                     f"Human gate {event.data.get('gate_id')} opened ({event.data.get('source')}): "
                     f"{event.data.get('title')}\n{event.data.get('detail', '')}", explain=True))
 
-        self._frontdesk_status = SystemStatus()
+        self._frontdesk_status = SystemStatus(budget_usd=self._config.budget.max_cost_usd)
         self._frontdesk = FrontDeskAgent(
             model=self._config.models.frontdesk,
             api_key=self._config.api_key_value,

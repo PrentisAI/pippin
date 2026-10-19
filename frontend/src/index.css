@@ -2296,3 +2296,6 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 .approval-actions .approval-spacer { flex: 1; }
 .btn-sm:disabled { opacity: .45; cursor: not-allowed; }
 .approval-desc { white-space: pre-wrap; max-height: 180px; overflow-y: auto; }
+
+.proposal-budget { display: flex; align-items: center; gap: 6px; margin: 6px 0 10px; }
+.proposal-budget input { width: 80px; padding: 2px 6px; font: inherit; }
