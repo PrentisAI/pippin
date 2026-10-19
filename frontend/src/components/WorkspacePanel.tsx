@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { UploadStatus } from './ProjectFiles'
+import { useFilePickers } from '../useFilePickers'
+import { fromDrop, uploadAll, type UploadItem, type UploadProgress } from '../upload'
 import { api, describeError } from '../api/client'
 import type { FileNode } from '../types'
 
@@ -281,6 +284,9 @@ export function WorkspacePanel({ campaignId, expId, openRequest }: WorkspacePane
   const [treeLoading, setTreeLoading] = useState(true)
   const [treeWidth, setTreeWidth] = useState(200)
   const treeRef = useRef<HTMLDivElement>(null)
+  const [upload, setUpload] = useState<UploadProgress | null>(null)
+  const uploadAbort = useRef<AbortController | null>(null)
+  const [dragging, setDragging] = useState(false)
 
   const fetchTree = useCallback(async () => {
     setTreeLoading(true)
@@ -295,6 +301,18 @@ export function WorkspacePanel({ campaignId, expId, openRequest }: WorkspacePane
   }, [campaignId, expId])
 
   useEffect(() => { fetchTree() }, [fetchTree])
+
+  // uploaded files go to inputs/ of the workspace: /app/inputs for the agents
+  const uploadFiles = async (items: UploadItem[]) => {
+    if (!items.length) return
+    const ctl = new AbortController()
+    uploadAbort.current = ctl
+    await uploadAll(items, (it) => api.workspace.uploadUrl(campaignId, expId, `workspace/inputs/${it.path}`),
+      setUpload, ctl.signal)
+    uploadAbort.current = null
+    fetchTree()
+  }
+  const pickers = useFilePickers(uploadFiles)
 
   const openFile = useCallback(async (path: string) => {
     const existing = openTabs.find(t => t.path === path)
@@ -482,12 +500,19 @@ export function WorkspacePanel({ campaignId, expId, openRequest }: WorkspacePane
         <div className="resize-handle" onMouseDown={handleResizeStart} />
 
         {/* Explorer sidebar (right) */}
-        <div className="ws-explorer" ref={treeRef} style={{ width: treeWidth }}>
+        <div className={`ws-explorer${dragging ? ' dragging' : ''}`} ref={treeRef} style={{ width: treeWidth }}
+          onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragging(true) } }}
+          onDragLeave={(e) => { if (e.currentTarget === e.target) setDragging(false) }}
+          onDrop={async (e) => { e.preventDefault(); setDragging(false); uploadFiles(await fromDrop(e.dataTransfer)) }}>
+          {pickers.inputs}
           <div className="ws-explorer-header">
             <span>EXPLORER</span>
             <span className="ws-branch-badge">{expId.split('_').pop() || expId}</span>
+            <button className="ws-refresh" onClick={() => pickers.pick('files')} title="Upload files to inputs/ (/app/inputs)">&#x21EA;</button>
+            <button className="ws-refresh" onClick={() => pickers.pick('folder')} title="Upload a folder to inputs/ (/app/inputs)">📁</button>
             <button className="ws-refresh" onClick={fetchTree} title="Refresh">&#x21BB;</button>
           </div>
+          {upload && <UploadStatus progress={upload} onCancel={() => uploadAbort.current?.abort()} />}
 
           <div className="ws-explorer-section">
             <div className="ws-section-label">WORKSPACE</div>

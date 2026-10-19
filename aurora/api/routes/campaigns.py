@@ -510,7 +510,9 @@ def _experiment_config(campaign: CampaignState, run_id: str, req: StartExperimen
     if req.based_on:
         raw["objective"] = req.instruction + _prior_runs_note(campaign, req.based_on)
     if req.inputs or req.data_paths:
-        raw["inputs"] = list(raw.get("inputs", [])) + req.inputs + req.data_paths
+        from aurora.api.routes.files import resolve_input  # project:<path> -> the project's files
+        raw["inputs"] = list(raw.get("inputs", [])) + [resolve_input(campaign.campaign_id, x)
+                                                       for x in req.inputs + req.data_paths]
     if req.autonomy_mode:
         raw.setdefault("human", {})["autonomy"] = req.autonomy_mode
     if req.ideation_mode:
@@ -924,7 +926,18 @@ async def experiment_websocket(websocket: WebSocket, campaign_id: str, exp_id: s
 # ---------------------------------------------------------------------------
 
 class ChatBody(BaseModel):
-    text: str
+    text: str = ""
+    # files sent with the message (already uploaded): paths in the project's files (project chat)
+    # or in the experiment's inputs/ (experiment chat)
+    attachments: list[str] = []
+
+
+def _with_attachments(text: str, attachments: list[str], where: str) -> str:
+    """The message as the front desk reads it: the text and what came with it."""
+    if not attachments:
+        return text
+    listed = "\n".join(f"- {a}" for a in attachments[:50])
+    return f"{text}\n\n[Attached by the researcher, {where}:\n{listed}]".strip()
 
 
 @campaign_router.post("/{campaign_id}/experiments/{exp_id}/chat/send")
@@ -936,18 +949,25 @@ async def exp_chat_send(campaign_id: str, exp_id: str, body: ChatBody) -> dict[s
     run = _get_run(campaign_id, exp_id)
     if not run.chat_history:
         run.chat_history = _chat_from_events(run.events or store.load_events(campaign_id, exp_id))
-    run.chat_history.append({"role": "user", "text": body.text, "timestamp": time.time()})
+    if not body.text.strip() and not body.attachments:
+        raise HTTPException(400, "An empty message")
+    run.chat_history.append({"role": "user", "text": body.text, "timestamp": time.time(),
+                             **({"attachments": body.attachments} if body.attachments else {})})
     await run.broadcast({"type": "experiment_event", "run_id": exp_id, "event_type": "chat_message",
-                         "data": {"role": "user", "text": body.text}, "timestamp": time.time()})
+                         "data": {"role": "user", "text": body.text,
+                                  **({"attachments": body.attachments} if body.attachments else {})},
+                         "timestamp": time.time()})
+    message = _with_attachments(body.text, [f"inputs/{a}" for a in body.attachments],
+                                "uploaded to the experiment's inputs/ (the agents see /app/inputs)")
     if run.engine is not None and _active(run):
-        reply = await run.engine.handle_user_message(body.text)
+        reply = await run.engine.handle_user_message(message)
         if run.engine._frontdesk is None and reply.get("text"):
             run.chat_history.append({"role": "assistant", "text": reply["text"], "timestamp": time.time()})
         return {"status": "sent", "run_id": exp_id, "response": reply.get("text", "")}
     if not run.frontdesk_enabled:
         return {"status": "frontdesk_off", "response": "The front desk of this experiment is off."}
     desk = _finished_desk(campaign, run)
-    reply = await desk.handle_user_message(body.text)
+    reply = await desk.handle_user_message(message)
     return {"status": "sent", "run_id": exp_id, "response": reply.get("text", "")}
 
 
@@ -956,7 +976,8 @@ def _chat_from_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     history = []
     for e in events:
         if e.get("event_type") == "chat_message" and (e.get("data") or {}).get("role", "user") == "user":
-            history.append({"role": "user", "text": e["data"].get("text", ""), "timestamp": e.get("timestamp")})
+            history.append({"role": "user", "text": e["data"].get("text", ""), "timestamp": e.get("timestamp"),
+                            **({"attachments": e["data"]["attachments"]} if e["data"].get("attachments") else {})})
         elif e.get("event_type") == "frontdesk_response":
             history.append({"role": "assistant", "text": e["data"].get("text", ""), "timestamp": e.get("timestamp")})
     return history
@@ -1146,6 +1167,10 @@ def _project_context(campaign: CampaignState) -> str:
         lines.append(f"  - {e.run_id}: {e.task_name} [{e.status}]")
     if len(lines) == 3:
         lines.append("  (none yet)")
+    from aurora.api.routes.files import project_files_summary
+    files = project_files_summary(campaign.campaign_id)
+    lines.append("Project files (uploaded; give them to an experiment as inputs: project:<path>):")
+    lines.extend(f"  - {f}" for f in files) if files else lines.append("  (none)")
     open_props = [p for p in campaign.proposals.values() if not p.confirmed and not p.superseded]
     if open_props:
         p = max(open_props, key=lambda p: p.created_at)
@@ -1153,6 +1178,37 @@ def _project_context(campaign: CampaignState) -> str:
                      f"Instruction: {p.params.get('instruction', '')[:800]}\n"
                      f"Phases: {' → '.join(x for x in PHASES if x not in p.suggested_skip)}")
     return "\n".join(lines)
+
+
+def _project_file_tools(campaign: CampaignState) -> list[Any]:
+    """The project front desk looks at the files the researcher uploaded."""
+    from aurora.api.routes.files import _inside, clean_rel, project_files_dir, read_preview
+    from aurora.human.frontdesk import FrontDeskTool
+    base = project_files_dir(campaign.campaign_id)
+
+    async def list_files(p: dict[str, Any]) -> Any:
+        rel = str(p.get("path") or "").strip("/")
+        folder = _inside(base, clean_rel(rel)) if rel else base
+        if not folder.is_dir():
+            return {"error": f"not a folder: {rel or '/'}"}
+        return [f"{q.name}/" if q.is_dir() else f"{q.name} ({q.stat().st_size} bytes)"
+                for q in sorted(folder.iterdir(), key=lambda q: (q.is_file(), q.name)) if not q.name.startswith(".")][:300]
+
+    async def read_file(p: dict[str, Any]) -> Any:
+        target = _inside(base, clean_rel(str(p.get("path") or "")))
+        if not target.is_file():
+            return {"error": f"not a file: {p.get('path')}"}
+        return read_preview(target)
+
+    path = {"type": "object", "properties": {"path": {"type": "string",
+                                                      "description": "relative to the project's files"}}}
+    return [
+        FrontDeskTool("list_project_files", "List a folder of the files the researcher uploaded to this project.",
+                      path, list_files),
+        FrontDeskTool("read_project_file", "Read the start of an uploaded file (e.g. a CSV's header and first "
+                      "rows) to understand the data; binary files report their size only.",
+                      {**path, "required": ["path"]}, read_file),
+    ]
 
 
 def _editable_keys() -> list[str]:
@@ -1231,7 +1287,9 @@ def _project_frontdesk(campaign: CampaignState) -> Any:
                                              "before the chair decides; independent: the chair picks one of "
                                              "the independent ideas (about four times cheaper)"},
             "inputs": {"type": "array", "items": {"type": "string"},
-                       "description": "paths on the server the researcher mentioned"},
+                       "description": "files and folders the agents get (in inputs/): project:<path> for the "
+                                      "project's uploaded files (see list_project_files), or paths on the "
+                                      "server the researcher mentioned"},
             "based_on": {"type": "array", "items": {"type": "string"},
                          "description": "IDs of earlier runs of this project the experiment builds on; their "
                                         "reports and findings are given to its agents"},
@@ -1263,7 +1321,8 @@ def _project_frontdesk(campaign: CampaignState) -> Any:
         }, "required": ["confirmed"]},
         lambda p: _default_settings_tool(p))
     agent = FrontDeskAgent(model=cfg.models.frontdesk, api_key=cfg.api_key_value, base_url=cfg.api_base_url,
-                           system_prompt=PROJECT_PROMPT, tools=[tool, defaults_tool, *_run_tools(campaign)],
+                           system_prompt=PROJECT_PROMPT,
+                           tools=[tool, defaults_tool, *_project_file_tools(campaign), *_run_tools(campaign)],
                            status_fn=lambda: _project_context(campaign))
     agent.restore([m for m in campaign.chat_history if m.get("role") in ("user", "assistant")])
     campaign.frontdesk = agent
@@ -1273,9 +1332,14 @@ def _project_frontdesk(campaign: CampaignState) -> Any:
 @campaign_router.post("/{campaign_id}/chat/send")
 async def campaign_chat_send(campaign_id: str, body: ChatBody) -> dict[str, Any]:
     campaign = _ensure_campaign(campaign_id)
-    campaign.chat_history.append({"role": "user", "text": body.text, "timestamp": time.time()})
+    if not body.text.strip() and not body.attachments:
+        raise HTTPException(400, "An empty message")
+    campaign.chat_history.append({"role": "user", "text": body.text, "timestamp": time.time(),
+                                  **({"attachments": body.attachments} if body.attachments else {})})
+    message = _with_attachments(body.text, body.attachments,
+                                "uploaded to the project's files (give them to an experiment as project:<path>)")
     try:
-        result = await _project_frontdesk(campaign).handle_user_message(body.text)
+        result = await _project_frontdesk(campaign).handle_user_message(message)
     except Exception as exc:
         logger.exception("Project front desk failed")
         campaign.chat_history.append({"role": "assistant", "text": f"Front desk error: {exc}",
@@ -1300,6 +1364,7 @@ class ConfirmProposalBody(BaseModel):
     cpus: float | None = None           # container limits; empty: the base config's
     memory_mb: int | None = None
     max_parallel_jobs: int | None = None
+    inputs: list[str] | None = None     # files for the agents (project:<path> for the project's files)
 
 
 @campaign_router.post("/{campaign_id}/proposals/{proposal_id}/confirm")
@@ -1314,7 +1379,8 @@ async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProp
     p = proposal.params
     memory_mb = body.memory_mb or (int(float(p["memory_gb"]) * 1024) if p.get("memory_gb") else None)
     req = StartExperimentRequest(
-        instruction=p["instruction"], name=p.get("name", ""), inputs=p.get("inputs", []),
+        instruction=p["instruction"], name=p.get("name", ""),
+        inputs=body.inputs if body.inputs is not None else p.get("inputs", []),
         model=body.model or p.get("model", ""),
         skip_phases=body.skip_phases if body.skip_phases is not None else proposal.suggested_skip,
         ideation_mode=body.ideation_mode or p.get("ideation_mode", ""),

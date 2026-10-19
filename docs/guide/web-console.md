@@ -78,6 +78,38 @@ Each project and run in the sidebar has a **⋮** menu (it appears on hover):
 
 The run menu also has **Stop** and **Re-run**.
 
+## Files
+
+Upload files and whole folders (with their structure) in the browser:
+
+- **With a message** — **+** in the chat box (*Upload files*, *Upload a
+  folder*; in the project chat also *From the project's files*), or drop files
+  and folders on the chat. Each appears as a card in the message box (images as
+  thumbnails) while it uploads; they are sent with your message, so the front
+  desk knows about them. In the project chat they go to the project's files, in
+  an experiment's chat to its `inputs/`.
+- **To the project** — *Files* in the project's ⋮ menu (or *Manage project
+  files* under **+**). Project files are shared by all
+  runs of the project. The *Files* window lists them (folders first, with sizes),
+  previews text files, makes folders and deletes; it shows how much the
+  project's files take of its limit.
+- **To an experiment** — on its proposal card, *+ files* picks project files
+  and folders as its inputs: when it starts they appear in its `inputs/`
+  (`/app/inputs` for the agents). The copies are copy-on-write clones where the
+  file system allows it (no extra space; the agents' changes do not reach the
+  originals). The front desk sees the project's files, can read the start of
+  text files (a CSV's header, say) and puts the ones an experiment needs on its
+  card.
+- **To a running experiment** — **+** in its chat, the upload buttons in its
+  *Files* panel, or drop files there: they go to its `inputs/`, where the agents
+  see them at once.
+
+Archives (`.zip`, `.tar.gz`, ...) are kept as they are; tick *unpack archives*
+in the *Files* window to unpack them into a folder of their name (entries that
+would land outside it are skipped). A file may be up to 20 GB and a project's
+files 200 GB (`uploads.max_file_gb`, `uploads.max_project_gb`, also in
+*Settings*); uploads also stop when the disk is nearly full.
+
 ## Search, Analytics and Settings
 
 The bar on the left also opens:

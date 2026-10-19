@@ -335,6 +335,14 @@ class SkillsConfig(_Section):
     )
 
 
+class UploadsConfig(_Section):
+    """Files researchers upload in the web console."""
+
+    max_file_gb: float = Field(default=20, gt=0, description="Largest file that can be uploaded (GB).")
+    max_project_gb: float = Field(default=200, gt=0,
+                                  description="Most a project's uploaded files may take in all (GB).")
+
+
 class SandboxConfig(_Section):
     """Where the agents' commands run."""
 
@@ -475,6 +483,7 @@ class AuroraConfig(_Section):
                     "copied to inputs/ in the agents' working directory (/app/inputs in the container).",
     )
     skills: SkillsConfig = Field(default_factory=lambda: SkillsConfig())
+    uploads: UploadsConfig = Field(default_factory=lambda: UploadsConfig())
     skills_dirs: list[str] = Field(
         default_factory=list,
         description="Directories of Claude Code skills (<name>/SKILL.md) written by you; every agent "

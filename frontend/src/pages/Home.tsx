@@ -3,7 +3,12 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { api, describeError } from '../api/client'
 import { AgentStreamView } from '../components/AgentStreamView'
 import { AnalyticsPanel, SearchPanel, SettingsPanel } from '../components/ConsolePanels'
-import { ConfirmDelete, InlineRename, ItemMenu, PencilIcon, RerunIcon, StopIcon, TrashIcon } from '../components/ItemMenu'
+import { ProjectFilesDialog } from '../components/ProjectFiles'
+import { useFilePickers } from '../useFilePickers'
+import { fromDrop } from '../upload'
+import { useAttachments } from '../useAttachments'
+import { AttachmentCards, SentAttachments } from '../components/AttachmentCards'
+import { ConfirmDelete, InlineRename, ItemMenu, type MenuItem, PencilIcon, RerunIcon, StopIcon, TrashIcon } from '../components/ItemMenu'
 import { ScopePicker, type ScopeValue } from '../components/SkillScope'
 import { WorkspacePanel } from '../components/WorkspacePanel'
 import { formatCost, formatDuration } from '../format'
@@ -150,6 +155,14 @@ const FilesSvg = () => (
   </svg>
 )
 
+const svgIcon = (path: React.ReactNode, size = 15) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{path}</svg>
+)
+const PlusIcon = () => svgIcon(<><path d="M12 5v14" /><path d="M5 12h14" /></>, 18)
+const FileIcon = () => svgIcon(<><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></>)
+const ClipIcon = () => svgIcon(<path d="M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9" />)
+
 // ---------------------------------------------------------------------------
 // Activity Bar
 // ---------------------------------------------------------------------------
@@ -243,6 +256,7 @@ function SidebarPanel({
   onDeleteCampaign,
   onRenameExperiment,
   onDeleteExperiment,
+  onOpenFiles,
 }: {
   campaigns: CampaignSummary[]
   activeCampaignId: string | null
@@ -259,6 +273,7 @@ function SidebarPanel({
   onDeleteCampaign: (campaign: CampaignSummary) => void
   onRenameExperiment: (campaignId: string, expId: string, name: string) => void
   onDeleteExperiment: (campaignId: string, exp: ExperimentSummary) => void
+  onOpenFiles: (campaignId: string) => void
 }) {
   // the project or run whose name is being edited ("c:<id>" or "e:<id>")
   const [renaming, setRenaming] = useState<string | null>(null)
@@ -297,6 +312,7 @@ function SidebarPanel({
                 </div>
                 <div className="camp-time">{relativeTime(c.updated_at)}</div>
                 <ItemMenu label="Project actions" items={[
+                  { label: 'Files', icon: <FolderIcon />, onSelect: () => onOpenFiles(c.campaign_id) },
                   { label: 'Rename', icon: <PencilIcon />, onSelect: () => setRenaming(`c:${c.campaign_id}`) },
                   { label: 'Delete', icon: <TrashIcon />, danger: true, divided: true, onSelect: () => onDeleteCampaign(c) },
                 ]} />
@@ -428,6 +444,8 @@ function ChatArea({
   const [skillRule, setSkillRule] = useState('')
   const [skillScope, setSkillScope] = useState('campaign')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [showFiles, setShowFiles] = useState<'manage' | 'pick' | null>(null)
+  const [chatDragging, setChatDragging] = useState(false)
   const chatAreaRef = useRef<HTMLDivElement>(null)
   const isNearBottom = useRef(true)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -482,20 +500,22 @@ function ChatArea({
   }, [input])
 
   const handleSend = async () => {
-    if (!input.trim() || sending) return
+    const files = att.ready
+    if ((!input.trim() && !files.length) || sending || att.uploading) return
     const text = input.trim()
     setInput('')
+    att.clear()
     setSending(true)
     setSendError(null)
-    setMessages((prev) => [...prev, { role: 'user', text, timestamp: Date.now() / 1000 }])
+    setMessages((prev) => [...prev, { role: 'user', text, timestamp: Date.now() / 1000, attachments: files }])
     try {
       if (!isProjectTab) {
-        const resp = await api.expChat.send(campaignId, activeTab, text)
+        const resp = await api.expChat.send(campaignId, activeTab, text, files)
         if (resp.status === 'frontdesk_off') {
           setMessages((prev) => [...prev, { role: 'system', text: resp.response, timestamp: Date.now() / 1000 }])
         }
       } else {
-        const resp = await api.chat.send(campaignId, text)
+        const resp = await api.chat.send(campaignId, text, files)
         if (resp?.proposal) {
           setMessages((prev) => {
             const last = prev[prev.length - 1]
@@ -549,6 +569,25 @@ function ChatArea({
     : tabRunning ? `Message ${tabTaskName}...` : `Ask about ${tabTaskName}...`
   const pendingDecision = pendingDecisions[0]
 
+  // Files attached to the message: in the project chat they go to the project's files, in an
+  // experiment's chat to its inputs/ (the agents' /app/inputs); they are sent with the message
+  const uploadUrl = useCallback((path: string) => (isProjectTab
+    ? api.projectFiles.uploadUrl(campaignId, path)
+    : api.workspace.uploadUrl(campaignId, activeTab, `workspace/inputs/${path}`)), [isProjectTab, campaignId, activeTab])
+  const discard = useCallback((path: string) => {
+    if (isProjectTab) api.projectFiles.remove(campaignId, path).catch(() => {})
+  }, [isProjectTab, campaignId])
+  const att = useAttachments(uploadUrl, discard)
+  const chatPickers = useFilePickers(att.add)
+  const attachMenu: MenuItem[] = [
+    { label: 'Upload files', icon: <FileIcon />, onSelect: () => chatPickers.pick('files') },
+    { label: 'Upload a folder', icon: <FolderIcon />, onSelect: () => chatPickers.pick('folder') },
+    ...(isProjectTab ? [
+      { label: 'From the project’s files', icon: <ClipIcon />, divided: true, onSelect: () => setShowFiles('pick') },
+      { label: 'Manage project files', icon: <ClipIcon />, onSelect: () => setShowFiles('manage') },
+    ] : []),
+  ]
+
   return (
     <div className="camp-content">
       {/* Context bar */}
@@ -583,11 +622,21 @@ function ChatArea({
         })}
       </div>
 
-      {/* Chat messages */}
-      <div className="chat-area" ref={chatAreaRef} onScroll={() => {
-        const el = chatAreaRef.current
-        if (el) isNearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
-      }}>
+      {/* Chat messages (files can be dropped here) */}
+      {chatPickers.inputs}
+      {showFiles && (
+        <ProjectFilesDialog campaignId={campaignId} mode={showFiles}
+          onPick={(picked) => att.addExisting(picked.map((x) => x.replace(/^project:/, '')))}
+          onClose={() => { setShowFiles(null); fetchHistory() }} />
+      )}
+      <div className={`chat-area${chatDragging ? ' dragging' : ''}`} ref={chatAreaRef}
+        onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setChatDragging(true) } }}
+        onDragLeave={(e) => { if (e.currentTarget === e.target) setChatDragging(false) }}
+        onDrop={async (e) => { e.preventDefault(); setChatDragging(false); if (!chatClosed) att.add(await fromDrop(e.dataTransfer)) }}
+        onScroll={() => {
+          const el = chatAreaRef.current
+          if (el) isNearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+        }}>
         {messages.length === 0 && (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <span style={{ fontSize: 12, color: 'var(--fg-dim)' }}>
@@ -618,7 +667,8 @@ function ChatArea({
                 {isUser ? 'Y' : 'M'}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div className={`msg-bubble ${isUser ? 'user' : 'bot'}`}>{msg.text}</div>
+                {(msg.text || !msg.attachments?.length) && <div className={`msg-bubble ${isUser ? 'user' : 'bot'}`}>{msg.text}</div>}
+                {msg.attachments && msg.attachments.length > 0 && <SentAttachments paths={msg.attachments} />}
                 {msg.proposal && isProjectTab && (
                   <ProposalCard
                     key={msg.proposal.proposal_id}
@@ -684,7 +734,8 @@ function ChatArea({
 
       {/* Input bar */}
       <div className="input-bar">
-        <div className="input-wrap">
+        <div className="input-wrap with-cards">
+          <AttachmentCards attachments={att.attachments} onRemove={att.remove} />
           <textarea
             ref={textareaRef}
             value={input}
@@ -696,9 +747,16 @@ function ChatArea({
             disabled={chatClosed}
             rows={1}
           />
-          <button className="send-btn" disabled={!input.trim() || sending || chatClosed} onClick={handleSend}>
-            {sending ? <span className="spinner" /> : <SendSvgIcon />}
-          </button>
+          <div className="input-actions">
+            <ItemMenu label={isProjectTab ? 'Add files to the project and this message' : 'Add files to this experiment (inputs/)'}
+              trigger={<PlusIcon />} buttonClass="attach-btn" items={attachMenu} disabled={chatClosed} />
+            {att.uploading && <span className="input-note">uploading…</span>}
+            <span style={{ flex: 1 }} />
+            <button className="send-btn" disabled={(!input.trim() && !att.ready.length) || att.uploading || sending || chatClosed}
+              onClick={handleSend} title={att.uploading ? 'Wait for the uploads to finish' : 'Send'}>
+              {sending ? <span className="spinner" /> : <SendSvgIcon />}
+            </button>
+          </div>
         </div>
         <div className="input-hint" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button className="add-skill-btn" onClick={() => setShowSkillForm(!showSkillForm)}>+ Skill</button>
@@ -1454,6 +1512,7 @@ function ProposalCard({
         ...(cpus !== null ? { cpus } : {}),
         ...(memoryGb !== null ? { memory_mb: Math.round(memoryGb * 1024) } : {}),
         ...(parallel !== null ? { max_parallel_jobs: parallel } : {}),
+        inputs,
       })
       setStarted({
         experiment_id: result.experiment_id,
@@ -1493,7 +1552,9 @@ function ProposalCard({
     )
   }
 
-  const { instruction, model, inputs } = proposal.params
+  const { instruction, model } = proposal.params
+  const [inputs, setInputs] = useState<string[]>(proposal.params.inputs ?? [])
+  const [pickingInputs, setPickingInputs] = useState(false)
   const basedOn: string[] = Array.isArray(proposal.params.based_on) ? proposal.params.based_on : []
 
   return (
@@ -1512,7 +1573,23 @@ function ProposalCard({
           {showInstruction && <div className="proposal-instruction">{instruction}</div>}
         </div>
       )}
-      {inputs && inputs.length > 0 && <div className="proposal-meta">Inputs: {inputs.join(', ')}</div>}
+      <div className="proposal-meta proposal-inputs">
+        <span>Inputs:</span>
+        {inputs.length === 0 && <span className="proposal-hint">none</span>}
+        {inputs.map((x) => (
+          <span key={x} className="input-chip" title={x}>
+            {x.startsWith('project:') ? x.slice(8) : x}
+            <button aria-label={`Remove ${x}`} onClick={() => setInputs(inputs.filter((y) => y !== x))}>×</button>
+          </span>
+        ))}
+        <button className="link-btn" onClick={() => setPickingInputs(true)}>+ files</button>
+        <span className="proposal-hint">the agents find them in inputs/</span>
+      </div>
+      {pickingInputs && (
+        <ProjectFilesDialog campaignId={campaignId} mode="pick" initial={inputs}
+          onPick={(picked) => setInputs([...inputs.filter((x) => !x.startsWith('project:')), ...picked])}
+          onClose={() => setPickingInputs(false)} />
+      )}
       {basedOn.length > 0 && (
         <div className="proposal-meta">Builds on: {basedOn.join(', ')} <span className="proposal-hint">their reports and findings go to the agents</span></div>
       )}
@@ -1767,6 +1844,9 @@ export default function Home() {
     }
   }
 
+  // the project whose files are open
+  const [filesFor, setFilesFor] = useState<string | null>(null)
+
   // the project or run waiting for the delete confirmation
   const [deleting, setDeleting] = useState<
     | { kind: 'project'; campaign: CampaignSummary }
@@ -1833,7 +1913,9 @@ export default function Home() {
         onDeleteCampaign={(campaign) => setDeleting({ kind: 'project', campaign })}
         onRenameExperiment={handleRenameExperiment}
         onDeleteExperiment={(campaignId, exp) => setDeleting({ kind: 'run', campaignId, exp })}
+        onOpenFiles={setFilesFor}
       />
+      {filesFor && <ProjectFilesDialog campaignId={filesFor} onClose={() => setFilesFor(null)} />}
 
       {deleting && (
         <ConfirmDelete

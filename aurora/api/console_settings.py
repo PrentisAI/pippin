@@ -52,6 +52,8 @@ EDITABLE: list[tuple] = [
     ("skills.distill", "Skills", "Learn skills from the agents' runs", "bool"),
     ("skills.from_feedback", "Skills", "Learn skills from your corrections", "bool"),
     ("skills.auto_accept", "Skills", "Add proposed skills without asking", "bool"),
+    ("uploads.max_file_gb", "Uploads", "Largest file (GB)", "number"),
+    ("uploads.max_project_gb", "Uploads", "Uploaded files per project (GB)", "number"),
 ]
 KEYS = {e[0] for e in EDITABLE}
 

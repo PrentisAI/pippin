@@ -30,6 +30,15 @@ How the skill library grows (Section 3.1, Appendix B).
 | `skills.from_feedback` | bool | `true` | Turn the researcher's reusable corrections and conventions into skills on their first occurrence. |
 | `skills.auto_accept` | bool | `false` | Add proposed skills to the library at once. Off: each one waits for you in the web console (add to the library, to this project only, or dismiss). |
 
+## `uploads`
+
+Files researchers upload in the web console.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `uploads.max_file_gb` | float | `20` | Largest file that can be uploaded (GB). |
+| `uploads.max_project_gb` | float | `200` | Most a project's uploaded files may take in all (GB). |
+
 ## `models`
 
 Which model plays each role.

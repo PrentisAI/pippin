@@ -54,6 +54,7 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
         )
 
     from aurora.api.routes.campaigns import campaign_router, settings_router, store
+    from aurora.api.routes.files import router as files_router
     from aurora.api.routes.insights import router as insights_router
     from aurora.api.routes.skills import router as skills_router
 
@@ -61,6 +62,7 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
     app.include_router(settings_router)
     app.include_router(skills_router)
     app.include_router(insights_router)
+    app.include_router(files_router)
 
     @app.on_event("startup")
     async def startup() -> None:

@@ -118,6 +118,27 @@ Refer to it by its ID. Do not add ideas the researcher did not ask for. If the m
 approves without naming one, they mean the latest proposal."""
 
 
+async def _clone(src: Path, dest: Path) -> None:
+    """Copy a file or folder for the agents: a copy-on-write clone where the file system allows it
+    (instant, no extra space, and the agents' changes do not reach the original), else a copy."""
+    import shutil
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if src.is_dir():
+        dest.mkdir(parents=True, exist_ok=True)       # cp copies the folder's contents into it
+    if shutil.which("cp"):
+        proc = await asyncio.create_subprocess_exec(
+            "cp", "-R", "--reflink=auto", "--preserve=timestamps", f"{src}/." if src.is_dir() else str(src), str(dest),
+            stderr=asyncio.subprocess.PIPE)
+        _, err = await proc.communicate()
+        if proc.returncode == 0:
+            return
+        logger.debug("cp --reflink failed (%s); copying", err.decode().strip())
+    if src.is_dir():
+        await asyncio.to_thread(shutil.copytree, src, dest, dirs_exist_ok=True)
+    else:
+        await asyncio.to_thread(shutil.copy2, src, dest)
+
+
 class CampaignStopped(Exception):
     """Raised to end a campaign early: a human chose stop, or a budget ran out."""
 
@@ -304,9 +325,10 @@ class ResearchEngine:
                 await self._execution_backend.setup()
                 logger.info("Execution backend started (container=%s)",
                             getattr(self._execution_backend, "container_id", None) or "none, local")
-                await self._copy_inputs()
                 if resume:
                     await self._restore_container_files()
+            if not finished:            # with or without a container
+                await self._copy_inputs()
 
             start_phase = CampaignPhase(checkpoint.phase) if checkpoint else CampaignPhase.IDEATION
             research_cycle = checkpoint.research_cycle if checkpoint else 0
@@ -1044,7 +1066,6 @@ class ResearchEngine:
         """Copy ``config.inputs`` to inputs/ in the agents' working directory."""
         if not self._config.inputs:
             return
-        import shutil
         container = getattr(self._execution_backend, "container_id", None)
         mounted = getattr(self._execution_backend, "mounted", False)
         for item in self._config.inputs:
@@ -1052,12 +1073,7 @@ class ResearchEngine:
             if not src.exists():
                 raise FileNotFoundError(f"inputs entry not found: {src}")
             if mounted:     # /app is <campaign>/workspace: copy there on the host
-                dest = self._workspace.campaign_dir / "workspace" / "inputs" / src.name
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                if src.is_dir():
-                    shutil.copytree(src, dest, dirs_exist_ok=True)
-                else:
-                    shutil.copy2(src, dest)
+                await _clone(src, self._workspace.campaign_dir / "workspace" / "inputs" / src.name)
             elif container:
                 await self._execution_backend.exec_command("mkdir -p /app/inputs")
                 proc = await asyncio.create_subprocess_exec(
@@ -1067,12 +1083,7 @@ class ResearchEngine:
                 if proc.returncode != 0:
                     raise RuntimeError(f"Could not copy {src} into the container: {err.decode().strip()}")
             else:
-                dest = self._workspace.root / "inputs" / src.name
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                if src.is_dir():
-                    shutil.copytree(src, dest, dirs_exist_ok=True)
-                else:
-                    shutil.copy2(src, dest)
+                await _clone(src, self._workspace.root / "inputs" / src.name)
         logger.info("Copied %d inputs for the agents", len(self._config.inputs))
 
     def _register_mock_skills(self, skill_reg: SkillRegistry) -> None:

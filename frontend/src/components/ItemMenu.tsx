@@ -27,7 +27,14 @@ export interface MenuItem {
   divided?: boolean
 }
 
-export function ItemMenu({ items, label }: { items: MenuItem[]; label: string }) {
+export function ItemMenu({ items, label, trigger = '⋮', buttonClass = 'item-menu-btn', disabled = false }: {
+  items: MenuItem[]
+  label: string
+  /** What the button shows (default ⋮). */
+  trigger?: ReactNode
+  buttonClass?: string
+  disabled?: boolean
+}) {
   const [open, setOpen] = useState(false)
   // fixed to the button, so a scrolling sidebar does not clip the menu
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
@@ -58,7 +65,7 @@ export function ItemMenu({ items, label }: { items: MenuItem[]; label: string })
 
   return (
     <div className={`item-menu${open ? ' open' : ''}`} ref={ref} onClick={(e) => e.stopPropagation()}>
-      <button className="item-menu-btn" title={label} aria-label={label} onClick={toggle}>⋮</button>
+      <button className={buttonClass} title={label} aria-label={label} onClick={toggle} disabled={disabled}>{trigger}</button>
       {open && (
         <div className="item-menu-pop" role="menu" style={{ top: pos.top, left: pos.left }}>
           {items.map((it) => (

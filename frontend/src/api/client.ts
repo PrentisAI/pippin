@@ -1,4 +1,4 @@
-import type { Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -157,6 +157,24 @@ export const api = {
 
   analytics: (days = 30) => request<Analytics>(`/analytics?days=${days}`),
 
+  /** Files uploaded to a project (shared by its runs). Uploads go file by file (see upload.ts). */
+  projectFiles: {
+    list: (campaignId: string, path = '') =>
+      request<ProjectFileListing>(`/campaigns/${campaignId}/files?path=${encodeURIComponent(path)}`),
+    uploadUrl: (campaignId: string, path: string, extract = false) =>
+      `${BASE_URL}/campaigns/${campaignId}/files?path=${encodeURIComponent(path)}&extract=${extract}`,
+    preview: (campaignId: string, path: string) =>
+      request<{ path: string; binary: boolean; size: number; content?: string; truncated?: boolean }>(
+        `/campaigns/${campaignId}/files/preview?path=${encodeURIComponent(path)}`),
+    mkdir: (campaignId: string, path: string) =>
+      request<ProjectFileEntry>(`/campaigns/${campaignId}/files/folder?path=${encodeURIComponent(path)}`, post()),
+    remove: (campaignId: string, path: string) =>
+      request<{ ok: boolean }>(`/campaigns/${campaignId}/files?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
+    /** One note in the project chat about a finished upload. */
+    noteUploaded: (campaignId: string, names: string[]) =>
+      request<{ ok: boolean }>(`/campaigns/${campaignId}/files/uploaded`, post({ names })),
+  },
+
   proposals: {
     confirm: (campaignId: string, proposalId: string, body: {
       skip_phases?: string[]
@@ -168,6 +186,7 @@ export const api = {
       cpus?: number
       memory_mb?: number
       max_parallel_jobs?: number
+      inputs?: string[]
     }) =>
       request<{ status: string; experiment_id: string; skip_phases: string[]; active_phases: string[] }>(
         `/campaigns/${campaignId}/proposals/${proposalId}/confirm`,
@@ -211,10 +230,10 @@ export const api = {
 
   /** The project conversation with the front desk. */
   chat: {
-    send: (campaignId: string, text: string) =>
+    send: (campaignId: string, text: string, attachments: string[] = []) =>
       request<{ status: string; response?: string; error?: string; proposal?: ConversationMessage['proposal'] }>(
         `/campaigns/${campaignId}/chat/send`,
-        post({ text }),
+        post({ text, attachments }),
       ),
 
     history: (campaignId: string, limit = 100) =>
@@ -226,14 +245,17 @@ export const api = {
 
   /** The conversation with a running experiment. */
   expChat: {
-    send: (campaignId: string, expId: string, text: string) =>
-      request<{ status: string; response: string }>(`${experimentPath(campaignId, expId)}/chat/send`, post({ text })),
+    send: (campaignId: string, expId: string, text: string, attachments: string[] = []) =>
+      request<{ status: string; response: string }>(`${experimentPath(campaignId, expId)}/chat/send`, post({ text, attachments })),
 
     history: (campaignId: string, expId: string, limit = 100) =>
       request<ConversationMessage[]>(`${experimentPath(campaignId, expId)}/chat/history?limit=${limit}`),
   },
 
   workspace: {
+    /** Where to PUT a file uploaded into a run (path relative to its directory; workspace/ is /app). */
+    uploadUrl: (campaignId: string, expId: string, path: string) =>
+      `${BASE_URL}${experimentPath(campaignId, expId)}/workspace/upload?path=${encodeURIComponent(path)}`,
     tree: (campaignId: string, expId: string) =>
       request<{ experiment_id: string; files: FileNode[] }>(`${experimentPath(campaignId, expId)}/workspace/tree`),
 

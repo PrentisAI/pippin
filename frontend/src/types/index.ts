@@ -209,6 +209,8 @@ export interface ConversationMessage {
   text: string
   timestamp: number
   proposal?: Proposal
+  /** Files sent with the message. */
+  attachments?: string[]
 }
 
 export interface ProjectChatStatus {
@@ -337,4 +339,22 @@ export interface Analytics {
   cost_by_day: { day: string; cost_usd: number }[]
   cost_by_project: { campaign_id: string; project: string; cost_usd: number; runs: number }[]
   top_runs: { run_id: string; name: string; campaign_id: string; project: string; status: string; cost_usd: number; hours: number | null }[]
+}
+
+/** A file or folder uploaded to a project. */
+export interface ProjectFileEntry {
+  name: string
+  /** Relative to the project's files. */
+  path: string
+  type: 'dir' | 'file'
+  size: number | null
+  modified: number
+}
+
+export interface ProjectFileListing {
+  path: string
+  entries: ProjectFileEntry[]
+  usage_bytes: number
+  max_file_bytes: number
+  max_project_bytes: number
 }
