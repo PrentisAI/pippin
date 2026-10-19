@@ -90,3 +90,38 @@ async def test_stop_cancels_a_long_phase_promptly(tmp_path):
     result = await asyncio.wait_for(task, timeout=10)
     assert result.status == "stopped" and "stopped by the user" in result.summary
     assert time.time() - started < 5
+
+
+async def test_stop_then_resume_continues_from_the_checkpoint(tmp_path):
+    import asyncio
+
+    cfg = AuroraConfig(objective="Investigate Zn segregation", mock_mode=True, campaign_id="t6",
+                       workspace={"root": str(tmp_path)}, skip_phases=["ideation"])
+    first = ResearchEngine(cfg)
+
+    async def slow_analysis():
+        await asyncio.sleep(60)
+
+    first._run_analysis = slow_analysis
+    task = asyncio.create_task(first.run_campaign())
+    for _ in range(100):
+        await asyncio.sleep(0.1)
+        if first.phase.value == "analysis":
+            break
+    first.request_stop("stopped by the user")
+    assert (await asyncio.wait_for(task, timeout=10)).status == "stopped"
+    checkpoint = json.loads((tmp_path / "t6" / "checkpoint.json").read_text())
+    assert checkpoint["phase"] == "analysis"
+
+    second = ResearchEngine(cfg)
+    phases = []
+
+    async def record(event):
+        if event.name == "phase_started":
+            phases.append(event.data["phase"])
+
+    second.event_bus.subscribe_all(record)
+    result = await second.run_campaign(resume=True)
+    assert result.status == "completed", result.summary
+    assert phases == ["analysis", "writing"]
+    assert result.manuscript_path

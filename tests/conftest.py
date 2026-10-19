@@ -8,4 +8,10 @@ def isolated_home(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     for key in ("OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "AURORA_SERVER_CONFIG"):
         monkeypatch.delenv(key, raising=False)
-    return tmp_path
+    from aurora.api.routes import campaigns, skills
+    campaigns.store.reset()
+    campaigns._campaigns.clear()
+    skills._store = None
+    yield tmp_path
+    campaigns.store.reset()
+    skills._store = None

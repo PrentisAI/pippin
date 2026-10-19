@@ -60,6 +60,7 @@ class Store:
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        self._migrate()
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         logger.info("Persistence store opened at %s", db_path)
@@ -67,6 +68,16 @@ class Store:
     @property
     def data_dir(self) -> Path:
         return self._data_dir
+
+    def _migrate(self) -> None:
+        """Add columns that databases created by earlier versions lack."""
+        have = {row["name"] for row in self._conn.execute("PRAGMA table_info(experiments)")}
+        for column, decl in (("phase", "TEXT DEFAULT ''"), ("turn", "INTEGER DEFAULT 0"),
+                             ("cost_usd", "REAL DEFAULT 0.0"), ("error", "TEXT"),
+                             ("config_json", "TEXT DEFAULT '{}'")):
+            if column not in have:
+                self._conn.execute(f"ALTER TABLE experiments ADD COLUMN {column} {decl}")
+        self._conn.commit()
 
     def close(self) -> None:
         self._conn.close()
@@ -229,3 +240,21 @@ class Store:
         if count:
             logger.warning("Marked %d interrupted experiments on startup", count)
         return count
+
+
+class LazyStore:
+    """The web console's store, opened on first use (so ``AURORA_HOME`` is read then, not at import)."""
+
+    def __init__(self) -> None:
+        self._store: Store | None = None
+
+    def reset(self) -> None:
+        """Forget the open store; the next use opens the one under the current ``AURORA_HOME``."""
+        if self._store is not None:
+            self._store.close()
+        self._store = None
+
+    def __getattr__(self, name: str) -> Any:
+        if self._store is None:
+            self._store = Store()
+        return getattr(self._store, name)

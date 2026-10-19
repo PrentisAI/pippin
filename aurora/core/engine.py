@@ -255,6 +255,8 @@ class ResearchEngine:
                 logger.info("Execution backend started (container=%s)",
                             getattr(self._execution_backend, "container_id", None) or "none, local")
                 await self._copy_inputs()
+                if resume:
+                    await self._restore_container_files()
 
             checkpoint = self._load_checkpoint() if resume else None
             start_phase = CampaignPhase(checkpoint.phase) if checkpoint else CampaignPhase.IDEATION
@@ -270,9 +272,13 @@ class ResearchEngine:
             skip = set(self._config.skip_phases)
             if proposal is not None:
                 skip.add(CampaignPhase.IDEATION.value)
-            elif CampaignPhase.IDEATION.value in skip and not resume:
+            elif resume:
+                proposal = self._load_latest_proposal()
+            if proposal is None and CampaignPhase.IDEATION.value in skip:
                 # no ideation: the objective itself is the direction to pursue
                 proposal = self._objective_proposal()
+                self._workspace.atomic_write_json(
+                    self._workspace.proposal_path(proposal.proposal_id, self._current_round), proposal)
             order = [CampaignPhase.IDEATION, CampaignPhase.SCREENING, CampaignPhase.PLANNING,
                      CampaignPhase.RESEARCH, CampaignPhase.ANALYSIS, CampaignPhase.WRITING]
 
@@ -674,6 +680,20 @@ class ResearchEngine:
                     n += 1
         if n:
             logger.info("%d skills available to the agents in %s", n, dest)
+
+    async def _restore_container_files(self) -> None:
+        """On resume, put the files of the previous run (saved to <campaign>/workspace) back into /app."""
+        container = getattr(self._execution_backend, "container_id", None)
+        saved = self._workspace.campaign_dir / "workspace"
+        if not container or not saved.is_dir() or not any(saved.iterdir()):
+            return
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "cp", f"{saved}/.", f"{container}:/app",
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+        _, err = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"Could not restore the previous files into the container: {err.decode().strip()}")
+        logger.info("Restored the previous run's files into /app")
 
     async def _copy_inputs(self) -> None:
         """Copy ``config.inputs`` to inputs/ in the agents' working directory."""

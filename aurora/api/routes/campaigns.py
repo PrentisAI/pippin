@@ -33,12 +33,12 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from aurora.api.persistence import Store
+from aurora.api.persistence import LazyStore
 from aurora.config import PHASES
 
 logger = logging.getLogger(__name__)
 
-store = Store()
+store = LazyStore()
 campaign_router = APIRouter(prefix="/api/campaigns", tags=["projects"])
 
 # Answers the approval bar sends, mapped to human-gate actions
@@ -427,6 +427,16 @@ async def _start(campaign: CampaignState, req: StartExperimentRequest, *, run_id
         raise HTTPException(400, f"Invalid experiment settings: {exc}") from exc
     run = ExperimentRunState(run_id, campaign.campaign_id, req.name or slug, config.models.agent,
                              config.human.autonomy.value)
+    if resume:
+        # keep the earlier stream and conversation visible
+        run.events = store.load_events(campaign.campaign_id, run_id)
+        for e in run.events:
+            if e.get("event_type") == "chat_message":
+                run.chat_history.append({"role": "user", "text": e["data"].get("text", ""),
+                                         "timestamp": e.get("timestamp")})
+            elif e.get("event_type") == "frontdesk_response":
+                run.chat_history.append({"role": "assistant", "text": e["data"].get("text", ""),
+                                         "timestamp": e.get("timestamp")})
     try:
         await _launch(campaign, run, config, resume=resume)
     except Exception as exc:

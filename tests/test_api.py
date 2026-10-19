@@ -67,3 +67,36 @@ def test_console_experiments_get_a_default_budget(client):
     assert campaigns._experiment_config(campaign, "r1", req).budget.max_cost_usd == campaigns.WEB_DEFAULT_MAX_COST_USD
     req = campaigns.StartExperimentRequest(instruction="x", mock_mode=True, max_cost_usd=None)
     assert campaigns._experiment_config(campaign, "r2", req).budget.max_cost_usd is None
+
+
+def test_stop_and_resume_in_the_console(client, monkeypatch):
+    import asyncio
+
+    from aurora.core.engine import ResearchEngine
+    original = ResearchEngine._run_analysis
+
+    async def slow_analysis(self):
+        if not getattr(self, "_resumed_once", False):
+            await asyncio.sleep(60)
+        return await original(self)
+
+    monkeypatch.setattr(ResearchEngine, "_run_analysis", slow_analysis)
+    cid = client.post("/api/campaigns/quick", json={"prompt": "p"}).json()["campaign_id"]
+    eid = client.post(f"/api/campaigns/{cid}/experiments",
+                      json={"instruction": "Investigate Zn segregation", "mock_mode": True,
+                            "skip_phases": ["ideation"]}).json()["experiment_id"]
+    for _ in range(100):
+        if client.get(f"/api/campaigns/{cid}/experiments/{eid}").json()["phase"] == "analysis":
+            break
+        time.sleep(0.1)
+    client.delete(f"/api/campaigns/{cid}/experiments/{eid}")
+    stopped = wait_done(client, cid, eid)
+    assert stopped["status"] == "stopped"
+    events_before = stopped["event_count"]
+
+    monkeypatch.setattr(ResearchEngine, "_resumed_once", True, raising=False)
+    r = client.post(f"/api/campaigns/{cid}/experiments/{eid}/resume")
+    assert r.status_code == 200, r.text
+    done = wait_done(client, cid, eid)
+    assert done["status"] == "completed", done["error"]
+    assert done["event_count"] > events_before and done["report"]
