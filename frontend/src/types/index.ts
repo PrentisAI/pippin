@@ -293,7 +293,7 @@ export interface EditableSetting {
   key: string
   group: string
   label: string
-  kind: 'model' | 'models' | 'number' | 'optional-number' | 'int' | 'bool' | 'choice' | 'text'
+  kind: 'model' | 'models' | 'number' | 'optional-number' | 'int' | 'bool' | 'choice' | 'text' | 'words'
   choices: string[] | null
   help: string
   /** What new experiments get now. */
@@ -357,4 +357,58 @@ export interface ProjectFileListing {
   usage_bytes: number
   max_file_bytes: number
   max_project_bytes: number
+}
+
+export type ChannelType = 'webhook' | 'wecom' | 'feishu' | 'slack' | 'serverchan'
+
+export interface NotifyChannel {
+  id: string
+  type: ChannelType
+  name: string
+  /** Saved channels: a shortened view of the webhook URL or key. */
+  target_hint?: string
+  /** Only sent when set or changed; empty keeps the saved one. */
+  target?: string
+  events: string[]
+  enabled: boolean
+}
+
+export interface NotificationSettings {
+  console_url: string
+  console_url_default: string
+  budget_warning_at: number
+  channels: NotifyChannel[]
+  events: { key: string; label: string; default: boolean }[]
+}
+
+export interface ClusterJob {
+  id: number
+  name: string
+  command: string
+  gpus: number
+  cpus: number
+  mem_gb: number
+  time_limit: string
+  partition: string
+  slurm_id: string
+  state: string
+  reason: string
+  node: string
+  exit_code: number | null
+  submitted_at: number
+  started_at: number | null
+  ended_at: number | null
+  elapsed_seconds: number
+  active: boolean
+  gpu_hours: number
+  /** Its output, as the agents see it (/app/...). */
+  log: string
+  dir: string
+}
+
+export interface ClusterJobs {
+  enabled: boolean
+  live: boolean
+  jobs: ClusterJob[]
+  gpu_hours: number
 }

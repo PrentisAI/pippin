@@ -134,6 +134,45 @@ Hard limits; the campaign stops when one is reached.
 | `budget.max_hours` | float | `24` | Wall-clock limit of the whole campaign. |
 | `budget.max_cost_usd` | float | None | `null` | Limit on the API cost reported by the agent sessions. None: no limit. |
 
+## `notifications`
+
+Messages to you when something needs you or a run ends, so you need not watch the console.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `notifications.console_url` | str | `""` | The web console's address as you open it (e.g. http://localhost:8100); notifications link to the experiment there. Empty: the address it serves on. |
+| `notifications.channels` | list[NotifyChannel] | `[]` |  |
+| `notifications.budget_warning_at` | float | `0.8` | Share of an experiment's cost or time budget at which budget_warning is sent. |
+
+## `compute`
+
+Compute beyond the experiment's container.
+
+## `compute.slurm`
+
+Research agents submit heavy work (training, long runs) as SLURM jobs.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `compute.slurm.enabled` | bool | `false` | Let research agents submit cluster jobs. |
+| `compute.slurm.submit_via` | list[str] | `[]` | Command prefix that reaches the SLURM tools, e.g. [ssh, login-node]. Empty: sbatch/squeue/scancel run on this machine. |
+| `compute.slurm.partition` | str | `""` | Partition jobs go to unless the agent picks another. |
+| `compute.slurm.partitions` | list[str] | `[]` | Other partitions the agent may pick. |
+| `compute.slurm.account` | str | `""` | --account, if the cluster needs one. |
+| `compute.slurm.qos` | str | `""` | --qos, if the cluster needs one. |
+| `compute.slurm.job_name_prefix` | str | `"aurora"` | Start of every job name (some clusters want your user name first, e.g. alice-aurora). |
+| `compute.slurm.max_gpus_per_job` | int | `8` | Most GPUs one job may ask for. |
+| `compute.slurm.max_jobs` | int | `4` | Jobs of one experiment queued or running at once. |
+| `compute.slurm.cpus_per_gpu` | int | `8` | CPUs a job gets per GPU (at least this many). |
+| `compute.slurm.mem_per_gpu_gb` | int | `64` | Memory a job gets per GPU (GB). |
+| `compute.slurm.default_time` | str | `"04:00:00"` | Time limit of a job that names none. |
+| `compute.slurm.max_time` | str | `"24:00:00"` | Longest time limit a job may ask for. |
+| `compute.slurm.max_gpu_hours` | float | None | `null` | GPU hours one experiment may use in all (counted as jobs run). None: no limit. |
+| `compute.slurm.image_dir` | str | `""` | Where the container image is saved for the nodes (squashfs). Must be on shared storage. Empty: AURORA_HOME/compute/images. |
+| `compute.slurm.extra_args` | list[str] | `[]` | More #SBATCH options, e.g. ['--exclude=node3']. |
+| `compute.slurm.cancel_on_finish` | bool | `true` | Cancel an experiment's jobs still queued or running when it ends. |
+| `compute.slurm.check_in_minutes` | list[float] | `[10, 10, 10, 20, 30, 45, 60]` | An agent waiting for its jobs (aurora job await) is shown their state after these intervals, one after the other, the last repeating; it is woken at once when they end. |
+
 ## `workspace`
 
 Where the campaign writes its files.

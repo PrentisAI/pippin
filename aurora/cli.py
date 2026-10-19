@@ -250,6 +250,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
     url = f"http://{'localhost' if args.host in ('0.0.0.0', '127.0.0.1') else args.host}:{args.port}"
     print(f"AURORA web console: {url}")
+    os.environ.setdefault("AURORA_CONSOLE_URL", url)    # links in notifications
     if args.host not in ("127.0.0.1", "localhost"):
         print("Warning: the console has no login. Anyone who can reach this address can start "
               "campaigns with your API key. Prefer --host 127.0.0.1 with an SSH tunnel.", file=sys.stderr)
@@ -364,12 +365,19 @@ def build_parser() -> argparse.ArgumentParser:
     r = sk.add_parser("remove", help="remove a skill")
     r.add_argument("name")
     p.set_defaults(func=cmd_skills)
+
+    from aurora.compute.cli import add_parser as add_job_parser
+    add_job_parser(sub)
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
     from aurora.env import load_dotenv
 
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["job"]:      # the agents' command: its own parser, options passed through as they are
+        from aurora.compute.job_client import main as job_main
+        sys.exit(job_main(argv[1:]))
     load_dotenv()
     parser = build_parser()
     args = parser.parse_args(argv)

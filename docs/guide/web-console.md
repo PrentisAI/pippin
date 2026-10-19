@@ -125,6 +125,10 @@ The bar on the left also opens:
   pre-flight revisions), the live auditor, the container, and skill learning.
   It also shows the environment: whether the API key is set (never the key),
   Docker and Claude Code, the machine's CPUs, memory and free disk.
+  *Notifications* sets where messages go when a decision waits for you or an
+  experiment ends ([Notifications](notifications.md)); *Cluster jobs* lets the
+  research agents submit SLURM jobs ([Cluster jobs](cluster-jobs.md)), whose
+  states appear under **Jobs** on the experiment's right bar.
 
 ## Changing settings in conversation
 

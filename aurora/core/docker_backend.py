@@ -48,6 +48,8 @@ class DockerBackend:
     workspace_dir:
         Host directory mounted as /app: the container's files are written straight to it.
         Empty: /app lives in the container and is copied out (:meth:`extract_workspace`).
+    extra_mounts:
+        More ``host:container[:ro]`` bind mounts (the cluster-job socket and client).
     agent:
         Run research agents inside the container (experimental): ``{"claude": <path of the
         claude executable>, "upstream": <API base URL>, "key": <API key>}``.  The key stays in a
@@ -57,8 +59,10 @@ class DockerBackend:
 
     def __init__(self, docker_image: str = "python:3.11-slim", *, cpus: float = 4.0, memory_mb: int = 8192,
                  allow_network: bool = True, tests_dir: str = "", pull_timeout: float = 1800.0,
-                 campaign_dir: str = "", workspace_dir: str = "", agent: dict[str, str] | None = None) -> None:
+                 campaign_dir: str = "", workspace_dir: str = "", agent: dict[str, str] | None = None,
+                 extra_mounts: list[str] | None = None) -> None:
         self._campaign_dir = campaign_dir
+        self._extra_mounts = list(extra_mounts or [])     # more -v host:container[:ro]
         self._workspace_dir = workspace_dir
         self._agent = agent
         self._network: str | None = None
@@ -84,6 +88,8 @@ class DockerBackend:
         if self._workspace_dir:
             Path(self._workspace_dir).mkdir(parents=True, exist_ok=True)
             mount = ["-v", f"{Path(self._workspace_dir).resolve()}:/app", "--label", "aurora.mounted=1"]
+        for m in self._extra_mounts:
+            mount += ["-v", m]
         network = "bridge" if self._allow_network else "none"
         token = ""
         if self._agent:

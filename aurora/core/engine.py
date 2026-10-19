@@ -258,6 +258,14 @@ class ResearchEngine:
         self._queued_instructions: list[str] = []
         # Web console project this campaign belongs to (scopes project skills)
         self.project_id: str = ""
+        # name used in notifications; set by the web console (empty: the objective)
+        self.display_name: str = ""
+        # sends notifications (aurora.notify.Notifier); the web console sets its own before running
+        self.notifier: Any = None
+        # cluster jobs of the research agents (aurora.compute.slurm.SlurmCompute), when enabled
+        self.compute: Any = None
+        self._stopped_by_user = False
+        self._budget_warned = False
 
         # Budget accounting
         self._started_at: float | None = None
@@ -308,6 +316,7 @@ class ResearchEngine:
         self._setup()
         assert self._router is not None
         assert self._workspace is not None
+        self._setup_notifier()
         if resume:
             self._prior_cost = self._load_spent()
 
@@ -327,6 +336,7 @@ class ResearchEngine:
                             getattr(self._execution_backend, "container_id", None) or "none, local")
                 if resume:
                     await self._restore_container_files()
+                await self._start_compute()
             if not finished:            # with or without a container
                 await self._copy_inputs()
 
@@ -439,6 +449,7 @@ class ResearchEngine:
                             "neither); stop: end the campaign.",
                             options=["continue", "instruct", "propose", "stop"])
                         if decision.action == "stop":
+                            self._stopped_by_user = decision.decided_by in ("human", "frontdesk")
                             raise CampaignStopped(f"stopped at screening: {decision.message or 'human decision'}")
                         if decision.action == "instruct":
                             guidance = decision.message
@@ -487,6 +498,7 @@ class ResearchEngine:
                             + "\ncontinue: run the plan anyway (the research agents are told about the "
                             "problems); instruct: plan again following your message; stop: end the campaign.")
                         if decision.action == "stop":
+                            self._stopped_by_user = decision.decided_by in ("human", "frontdesk")
                             raise CampaignStopped(f"stopped at pre-flight: {decision.message or 'human decision'}")
                         if decision.action == "instruct":
                             guidance = decision.message
@@ -578,6 +590,11 @@ class ResearchEngine:
             self.human_gate.cancel_all("campaign ended")
             await self._stop_supervisor()
             await self._stop_frontdesk()
+            if self.compute is not None:
+                try:
+                    await self.compute.stop()
+                except Exception:
+                    logger.warning("Stopping the cluster jobs failed", exc_info=True)
             if self._execution_backend is not None:
                 if self._workspace:
                     dest = self._workspace.campaign_dir / "workspace"
@@ -597,7 +614,10 @@ class ResearchEngine:
         spent = self._spent()
         self._record_spent()
         await self._publish(f"campaign_{status}", status=status, summary=summary,
-                            cost_usd=round(spent, 4), wall_time_seconds=round(total))
+                            cost_usd=round(spent, 4), wall_time_seconds=round(total),
+                            by_user=self._stopped_by_user)
+        if self.notifier is not None:
+            await self.notifier.drain()
         return CampaignResult(
             campaign_id=self._config.campaign_id,
             status=status,
@@ -857,11 +877,12 @@ class ResearchEngine:
             return {"text": "Forwarded to the research agent.", "relayed": True}
         return {"text": "No agent is running right now; the message was not delivered.", "relayed": False}
 
-    def request_stop(self, reason: str = "stopped by the user") -> None:
+    def request_stop(self, reason: str = "stopped by the user", *, by_user: bool = True) -> None:
         """Stop the campaign now: the running phase is cancelled, then everything is cleaned up."""
         if self._stop_requested:
             return
         self._stop_requested = reason
+        self._stopped_by_user = by_user
         self.human_gate.cancel_all(reason)
         if self.current_iteration_runner is not None and hasattr(self.current_iteration_runner, "request_stop"):
             self.current_iteration_runner.request_stop()
@@ -914,6 +935,8 @@ class ResearchEngine:
         saved = self._config.model_dump(mode="json", exclude={"api_key"})
         for provider in saved.get("providers", []):
             provider.pop("api_key", None)
+        # webhook URLs and keys are secrets too (the agents can read this directory)
+        saved.get("notifications", {})["channels"] = []
         (self._workspace.campaign_dir / "config.yaml").write_text(
             yaml.safe_dump(saved, sort_keys=False, allow_unicode=True))
 
@@ -930,6 +953,7 @@ class ResearchEngine:
                 campaign_dir=str(self._workspace.campaign_dir),
                 workspace_dir=str(self._workspace.campaign_dir / "workspace") if sandbox.mount_workspace else "",
                 agent=self._container_agent_settings(),
+                extra_mounts=self._compute_mounts(),
             )
         # Without a container the Claude Code sessions still run, confined to the workspace
         elif self._execution_backend is None and not self._config.mock_mode:
@@ -1233,6 +1257,7 @@ Be specific: cite file names and concrete observations.
                 "stop: end the campaign.",
             ] if x))
         if decision.action == "stop":
+            self._stopped_by_user = decision.decided_by in ("human", "frontdesk")
             raise CampaignStopped(f"stopped at the {completed_phase.value} audit: {decision.message or 'human decision'}")
         await self._distill_phase_skills(completed_phase)
         return decision.message if decision.action in ("instruct", "continue") else ""
@@ -2086,6 +2111,8 @@ Be specific: cite file names and concrete observations.
                     sessions=self._sessions,
                     round_n=self._current_round,
                     resuming=self._resuming,
+                    agent_extras=self._agent_extras(),
+                    compute=self.compute,
                 )
             return ResearchIteration(
                 config=self._config,
@@ -2200,9 +2227,72 @@ Be specific: cite file names and concrete observations.
             except CampaignStopped as exc:
                 if not self._stop_requested:
                     logger.warning("Budget reached during research: %s", exc)
-                    self.request_stop(str(exc))
+                    self.request_stop(str(exc), by_user=False)
+            await self._warn_budget()
             self._update_frontdesk_status(cost_usd=self._spent())
             self._record_spent()
+
+    async def _warn_budget(self) -> None:
+        """Once, when most of the cost or time budget is used (notifications.budget_warning_at)."""
+        if self._budget_warned or not self._started_at:
+            return
+        import time as _time
+        at = self._config.notifications.budget_warning_at
+        budget = self._config.budget
+        hours = (_time.time() - self._started_at) / 3600
+        spent = self._spent()
+        shares = [(hours / budget.max_hours, f"{hours:.1f} of {budget.max_hours:g} hours")]
+        if budget.max_cost_usd:
+            shares.append((spent / budget.max_cost_usd, f"${spent:.2f} of ${budget.max_cost_usd:g}"))
+        share, detail = max(shares)
+        if share >= at:
+            self._budget_warned = True
+            await self._publish("budget_warning", share=round(share, 3),
+                                detail=f"{detail} used. The experiment stops when the budget runs out; "
+                                       f"you can raise it in the console.")
+
+    def _setup_notifier(self) -> None:
+        """Notifications from this campaign's events (the web console may have set its own notifier)."""
+        if self.notifier is None:
+            from aurora.notify import Notifier
+            self.notifier = Notifier(lambda: self._config.notifications)
+        if not self.notifier.run_name:
+            self.notifier.run_name = self.display_name or self._config.objective[:80]
+        self._bus.subscribe_all(self.notifier.on_event)
+
+    async def _start_compute(self) -> None:
+        """Cluster jobs for the research agents (compute.slurm), if enabled."""
+        slurm = self._config.compute.slurm
+        if not slurm.enabled or self.compute is not None:
+            return
+        backend = self._execution_backend
+        sb = self._config.sandbox
+        if not (sb.docker and sb.mount_workspace and getattr(backend, "container_id", None)):
+            logger.warning("compute.slurm needs the Docker container with mount_workspace; cluster jobs are off")
+            return
+        from aurora.compute.slurm import SlurmCompute
+        self.compute = SlurmCompute(slurm, campaign_dir=self._workspace.campaign_dir,
+                                    workspace_dir=self._workspace.campaign_dir / "workspace",
+                                    image=sb.image, backend=backend, publish=self._publish)
+        await self.compute.start()
+        logger.info("Cluster jobs on (socket %s)", self.compute.socket_path)
+
+    def _compute_mounts(self) -> list[str]:
+        """The job socket's directory and the job client, for agents inside the container."""
+        if not (self._config.compute.slurm.enabled and self._config.sandbox.mount_workspace):
+            return []
+        from aurora.compute.slurm import CLIENT_PATH, CONTAINER_CLIENT, CONTAINER_SOCKET_DIR, socket_dir_for
+        sockets = socket_dir_for(self._workspace.campaign_dir)
+        sockets.mkdir(parents=True, exist_ok=True)
+        return [f"{sockets}:{CONTAINER_SOCKET_DIR}", f"{CLIENT_PATH}:{CONTAINER_CLIENT}:ro"]
+
+    def _agent_extras(self) -> dict[str, Any]:
+        if self.compute is None:
+            return {}
+        inside = bool(getattr(self._execution_backend, "agent_env", None))   # agents in the container
+        return {"extra_tools": [] if inside else self.compute.allowed_tools,
+                "extra_env": self.compute.agent_env(in_container=inside),
+                "extra_prompt": self.compute.agent_prompt(in_container=inside)}
 
     def _campaign_brief(self, proposal: RoundtableProposal | None) -> str:
         lines = [f"## Research objective\n\n{self._config.objective}"]
@@ -2286,7 +2376,8 @@ Be specific: cite file names and concrete observations.
             "until you decide. continue: let it go on; instruct: send it your instruction; stop: end the campaign.")
         if decision.action == "stop" and decision.decided_by != "auditor":
             if decision.decided_by != "system":     # system: the campaign is ending anyway
-                self.request_stop(f"stopped after a live-auditor escalation: {decision.message or 'human decision'}")
+                self.request_stop(f"stopped after a live-auditor escalation: {decision.message or 'human decision'}",
+                                  by_user=decision.decided_by in ("human", "frontdesk"))
             return
         if not paused or group is not self.current_iteration_runner:
             return
@@ -2419,6 +2510,11 @@ Be specific: cite file names and concrete observations.
                 st.activity = f"milestone audit {d.get('completed_phase')} → {d.get('next_phase')}: {d.get('verdict')}"
             elif event.name == "human_gate_opened":
                 st.activity = f"waiting for the researcher's decision: {d.get('title')}"
+            elif event.name == "waiting_for_cluster_jobs":
+                st.activity = (f"research job {d.get('job_id')} waits for its cluster jobs "
+                               + ", ".join(f"{j['id']} ({j['name']})" for j in d.get("cluster_jobs", [])))
+            elif event.name in ("compute_job_submitted", "compute_job_ended"):
+                st.activity = f"cluster job {d.get('id')} ({d.get('name')}): {str(d.get('state', '')).lower()}"
             elif event.name == "job_started":
                 st.running_jobs = {**st.running_jobs, str(event.data.get("job_id")):
                                    f"{event.data.get('index')}/{event.data.get('total')} {event.data.get('title', '')}"}

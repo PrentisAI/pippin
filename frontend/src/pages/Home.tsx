@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api, describeError } from '../api/client'
 import { AgentStreamView } from '../components/AgentStreamView'
@@ -11,6 +11,7 @@ import { AttachmentCards, SentAttachments } from '../components/AttachmentCards'
 import { ConfirmDelete, InlineRename, ItemMenu, type MenuItem, PencilIcon, RerunIcon, StopIcon, TrashIcon } from '../components/ItemMenu'
 import { ScopePicker, type ScopeValue } from '../components/SkillScope'
 import { WorkspacePanel } from '../components/WorkspacePanel'
+import { ClusterJobsPanel } from '../components/ClusterJobsPanel'
 import { formatCost, formatDuration } from '../format'
 import {
   GATE_SOURCE_LABELS,
@@ -907,6 +908,9 @@ function ExperimentView({
     await fetchRun()
   })
 
+  // cluster job events: the Jobs panel appears with the first one and reloads on each
+  const jobEvents = useMemo(() => events.filter((e) => e.event_type.startsWith('compute_job')).length, [events])
+
   const handleOpenReport = () => {
     if (!run?.report) return
     setRightPanel('files')
@@ -1046,6 +1050,11 @@ function ExperimentView({
             <div style={{ flex: 1, overflow: 'auto', padding: 0 }}>
               <WorkspacePanel campaignId={campaignId} expId={experimentId} openRequest={openRequest} />
             </div>
+          ) : rightPanel === 'jobs' ? (
+            <div style={{ flex: 1, overflow: 'auto', padding: 0 }}>
+              <ClusterJobsPanel campaignId={campaignId} expId={experimentId} tick={jobEvents}
+                onOpenLog={(path) => { setRightPanel('files'); setOpenRequest({ path }) }} />
+            </div>
           ) : (
             <div style={{ flex: 1, overflowY: 'auto' }}>
               <AgentStreamView events={events} live={Object.values(live)} campaignId={campaignId} experimentId={experimentId} />
@@ -1071,6 +1080,16 @@ function ExperimentView({
             <span className="rb-label">File</span>
           </button>
           <div className="rb-sep" />
+          {(jobEvents > 0 || rightPanel === 'jobs') && (
+            <>
+              <button className={`rb-btn${rightPanel === 'jobs' ? ' active' : ''}`} title="Cluster jobs"
+                onClick={() => { setRightPanel('jobs'); setStreamCollapsed(false) }}>
+                <span style={{ fontSize: 13 }}>▦</span>
+                <span className="rb-label">Jobs</span>
+              </button>
+              <div className="rb-sep" />
+            </>
+          )}
           <button className="rb-btn" title="Collapse" onClick={() => setStreamCollapsed(!streamCollapsed)}>
             {streamCollapsed ? '◀' : '▶'}
           </button>
@@ -1534,6 +1553,10 @@ function ProposalCard({
     }
   }
 
+  // hooks before the early returns below
+  const [inputs, setInputs] = useState<string[]>(proposal.params.inputs ?? [])
+  const [pickingInputs, setPickingInputs] = useState(false)
+
   if (proposal.superseded) {
     return (
       <div className="proposal-card superseded">
@@ -1553,8 +1576,6 @@ function ProposalCard({
   }
 
   const { instruction, model } = proposal.params
-  const [inputs, setInputs] = useState<string[]>(proposal.params.inputs ?? [])
-  const [pickingInputs, setPickingInputs] = useState(false)
   const basedOn: string[] = Array.isArray(proposal.params.based_on) ? proposal.params.based_on : []
 
   return (

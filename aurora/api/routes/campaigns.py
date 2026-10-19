@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 import mimetypes
@@ -525,6 +526,25 @@ def _experiment_config(campaign: CampaignState, run_id: str, req: StartExperimen
     return AuroraConfig.model_validate(raw)
 
 
+def live_notifications() -> Any:
+    """The notification settings as they are now (channels added later reach running experiments)."""
+    from aurora.config import NotificationsConfig
+    return NotificationsConfig.model_validate(base_config().get("notifications") or {})
+
+
+def console_url() -> str:
+    return (live_notifications().console_url or os.environ.get("AURORA_CONSOLE_URL", "")).rstrip("/")
+
+
+def _notifier(campaign: CampaignState, run: ExperimentRunState) -> Any:
+    from aurora.notify import Notifier
+    base = console_url()
+    return Notifier(live_notifications, run_name=run.task_name,
+                    link=f"{base}/campaigns/{campaign.campaign_id}/experiments/{run.run_id}" if base else "",
+                    extra={"project_id": campaign.campaign_id, "project": campaign.name,
+                           "experiment_id": run.run_id})
+
+
 async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any, *, resume: bool = False) -> None:
     """Run the engine for *run* in the background and mirror its events into the run state."""
     from aurora.core.engine import ResearchEngine
@@ -534,6 +554,8 @@ async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any,
     check_runtime_requirements(config)   # fail at request time, with the reason, not in the background
     engine = ResearchEngine(config)
     engine.project_id = campaign.campaign_id
+    engine.display_name = run.task_name
+    engine.notifier = _notifier(campaign, run)
     engine.prior_chat = list(run.chat_history)
     engine.extra_frontdesk_tools = _run_tools(campaign) + _run_control_tools(run)
     run.engine = engine
@@ -674,11 +696,43 @@ async def stop_experiment(campaign_id: str, exp_id: str) -> dict[str, Any]:
     return run.to_summary()
 
 
+@campaign_router.get("/{campaign_id}/experiments/{exp_id}/compute")
+async def experiment_cluster_jobs(campaign_id: str, exp_id: str) -> dict[str, Any]:
+    """The experiment's cluster (SLURM) jobs, running or done."""
+    from aurora.compute.slurm import saved_jobs
+    run = _get_run(campaign_id, exp_id)
+    compute = run.engine.compute if run.engine is not None else None
+    if compute is not None:
+        return {"enabled": True, "live": True, **await compute.status()}
+    jobs = saved_jobs(run.campaign_dir)
+    return {"enabled": bool(jobs), "live": False, "jobs": [j.view() for j in jobs],
+            "gpu_hours": round(sum(j.gpu_hours for j in jobs), 3)}
+
+
+@campaign_router.post("/{campaign_id}/experiments/{exp_id}/compute/{job}/cancel")
+async def cancel_cluster_job(campaign_id: str, exp_id: str, job: str) -> dict[str, Any]:
+    """Cancel one of the experiment's cluster jobs; its agent is told."""
+    run = _get_run(campaign_id, exp_id)
+    compute = run.engine.compute if run.engine is not None else None
+    if compute is None:
+        raise HTTPException(409, "The experiment is not running")
+    try:
+        result = await compute.cancel(job, reason="cancelled by the researcher")
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    j = result["job"]
+    with contextlib.suppress(Exception):
+        await run.engine.inject_message(f"[The researcher cancelled cluster job {j['id']} ({j['name']}).]")
+    return result
+
+
 @campaign_router.patch("/{campaign_id}/experiments/{exp_id}")
 async def rename_experiment(campaign_id: str, exp_id: str, req: RenameRequest) -> dict[str, Any]:
     """Rename a run (its ID and directory stay; a resume or re-run keeps the name)."""
     run = _get_run(campaign_id, exp_id)
     run.task_name = _clean_name(req.name)
+    if run.engine is not None and run.engine.notifier is not None:
+        run.engine.notifier.run_name = run.task_name
     store.update_experiment(exp_id, task_name=run.task_name)
     _update_saved_request(exp_id, name=run.task_name)
     return run.to_summary()
@@ -1635,9 +1689,10 @@ def _editable_settings() -> list[dict[str, Any]]:
     out = []
     for entry in EDITABLE:
         key, group, label, kind = entry[:4]
-        section, field = key.split(".")
-        model = AuroraConfig.model_fields[section].annotation
-        info = getattr(model, "model_fields", {}).get(field)
+        model, info = AuroraConfig, None
+        for part in key.split("."):
+            info = getattr(model, "model_fields", {}).get(part)
+            model = info.annotation if info is not None else None
         out.append({"key": key, "group": group, "label": label, "kind": kind,
                     "choices": entry[4] if len(entry) > 4 else None,
                     "help": info.description if info is not None else "",
@@ -1704,3 +1759,94 @@ async def update_settings(req: SettingsChange) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {**result, "editable": _editable_settings()}
+
+
+# ---------------------------------------------------------------------------
+# Notifications (Settings → Notifications)
+# ---------------------------------------------------------------------------
+
+def _hint(target: str) -> str:
+    """Enough of a webhook URL or key to recognise it, not to use it."""
+    from urllib.parse import urlparse
+    if "://" in target:
+        u = urlparse(target)
+        return f"{u.scheme}://{u.netloc}/…{target[-4:]}"
+    return f"{target[:4]}…{target[-4:]}" if len(target) > 10 else "…"
+
+
+def _notification_settings() -> dict[str, Any]:
+    from aurora.config import DEFAULT_NOTIFY_EVENTS, NOTIFY_EVENTS
+    cfg = live_notifications()
+    return {
+        "console_url": cfg.console_url, "console_url_default": os.environ.get("AURORA_CONSOLE_URL", ""),
+        "budget_warning_at": cfg.budget_warning_at,
+        "channels": [{"id": c.id, "type": c.type, "name": c.name, "target_hint": _hint(c.target),
+                      "events": c.events, "enabled": c.enabled} for c in cfg.channels],
+        "events": [{"key": k, "label": v, "default": k in DEFAULT_NOTIFY_EVENTS} for k, v in NOTIFY_EVENTS.items()],
+    }
+
+
+class ChannelBody(BaseModel):
+    id: str = ""
+    type: str
+    name: str = ""
+    target: str = ""            # empty: keep the channel's current target (by id)
+    events: list[str] | None = None
+    enabled: bool = True
+
+
+class NotificationsBody(BaseModel):
+    console_url: str = ""
+    budget_warning_at: float = 0.8
+    channels: list[ChannelBody] = []
+
+
+def _channels(bodies: list[ChannelBody]) -> list[Any]:
+    from aurora.config import DEFAULT_NOTIFY_EVENTS, NotifyChannel
+    current = {c.id: c for c in live_notifications().channels if c.id}
+    out = []
+    for b in bodies:
+        target = b.target.strip() or (current[b.id].target if b.id in current else "")
+        if not target:
+            raise ValueError(f"channel {b.name or b.type}: the webhook URL or key is missing")
+        out.append(NotifyChannel(id=b.id or uuid.uuid4().hex[:8], type=b.type, name=b.name.strip(), target=target,
+                                 events=b.events if b.events is not None else list(DEFAULT_NOTIFY_EVENTS),
+                                 enabled=b.enabled))
+    return out
+
+
+@settings_router.get("/notifications")
+async def get_notification_settings() -> dict[str, Any]:
+    """Where notifications go (webhook URLs and keys are shown shortened)."""
+    return _notification_settings()
+
+
+@settings_router.put("/notifications")
+async def update_notification_settings(req: NotificationsBody) -> dict[str, Any]:
+    """Replace the notification settings (a channel sent without its target keeps the one it has)."""
+    from aurora.api.console_settings import load_overlay, save_overlay
+    from aurora.config import NotificationsConfig
+    try:
+        cfg = NotificationsConfig(console_url=req.console_url.strip().rstrip("/"),
+                                  budget_warning_at=req.budget_warning_at, channels=_channels(req.channels))
+    except Exception as exc:
+        raise HTTPException(400, f"invalid notification settings: {exc}") from exc
+    overlay = load_overlay()
+    overlay["notifications"] = cfg.model_dump(mode="json")
+    save_overlay(overlay)
+    return _notification_settings()
+
+
+@settings_router.post("/notifications/test")
+async def test_notification(req: ChannelBody) -> dict[str, Any]:
+    """Send a test message to one channel (saved or not); says why it failed if it did."""
+    from aurora.notify import deliver
+    try:
+        channel = _channels([req])[0]
+    except Exception as exc:
+        raise HTTPException(400, str(exc)) from exc
+    base = console_url()
+    error = await deliver(channel, "test", "AURORA test notification",
+                          "Notifications reach you here: decisions waiting for you, finished and failed "
+                          "experiments, budgets running out.", base)
+    return {"ok": not error, "error": error}

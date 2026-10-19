@@ -2632,3 +2632,35 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
   border: 1px solid var(--border); background: var(--bg-raised); font-size: 11px; color: var(--fg);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* ── Notifications (Settings) ── */
+.notify-channel { margin: 4px 12px; padding: 6px 8px; border: 1px solid var(--border-subtle); border-radius: 6px; }
+.notify-channel.off { opacity: .55; }
+.notify-channel.adding { border-color: var(--accent); }
+.notify-channel.adding .settings-field { padding: 3px 0; }
+.notify-channel-head { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.notify-channel-name { color: var(--fg); font-weight: 500; }
+.notify-channel-type { flex: 1; min-width: 0; color: var(--fg-dim); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notify-events { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 4px; }
+.notify-events label { display: flex; align-items: center; gap: 3px; font-size: 10px; color: var(--fg-muted); cursor: pointer; }
+.notify-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 6px 12px 2px; }
+.notify-channel .notify-actions { padding: 6px 0 0; }
+
+/* ── Cluster jobs ── */
+.jobs-panel { display: flex; flex-direction: column; }
+.jobs-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px 6px;
+  font-size: 11px; font-weight: 600; color: var(--fg); text-transform: uppercase; letter-spacing: .04em; }
+.jobs-total { font: 10.5px 'IBM Plex Mono', monospace; color: var(--fg-muted); text-transform: none; letter-spacing: 0; }
+.job-row { padding: 8px 12px; border-top: 1px solid var(--border-subtle); display: flex; flex-direction: column; gap: 3px; }
+.job-row.active { background: var(--bg-surface); }
+.job-line { display: flex; align-items: center; gap: 8px; font-size: 11.5px; }
+.job-name { flex: 1; min-width: 0; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-meta { font-size: 10.5px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.job-state { font: 10px 'IBM Plex Mono', monospace; padding: 1px 6px; border-radius: 4px; background: var(--bg-hover); color: var(--fg-muted); }
+.job-state.state-running { background: var(--green-dim); color: var(--green); }
+.job-state.state-pending { background: var(--amber-dim, var(--bg-hover)); color: var(--amber); }
+.job-state.state-completed { color: var(--green); }
+.job-state.state-failed, .job-state.state-timeout, .job-state.state-cancelled, .job-state.state-out_of_memory { background: var(--red-dim); color: var(--red); }
+.job-command { font-size: 10.5px; color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.job-actions { display: flex; gap: 4px; }
+.job-actions .link-btn { margin-left: 0; margin-right: 8px; }

@@ -18,6 +18,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from aurora.compute import job_client
 from aurora.config import AuroraConfig
 from aurora.core.events import Event, EventBus
 from aurora.core.execution_backend import ExecutionBackend
@@ -31,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 # Sessions resumed after failing acceptance tests, per job
 _MAX_TEST_RETRIES = 3
+# how often a job waiting for its cluster jobs looks at them (the job manager follows SLURM)
+_CLUSTER_POLL_SECONDS = 5.0
 
 
 CRASH_NOTE = ("[Resumed] Your session stopped unexpectedly; if you ran something big in the container, "
@@ -59,7 +62,14 @@ class TerminalIteration:
         sessions: Any = None,
         round_n: int = 0,
         resuming: bool = False,
+        agent_extras: dict[str, Any] | None = None,
+        compute: Any = None,
     ) -> None:
+        # more the agents may use (cluster jobs): extra_tools, extra_env, extra_prompt
+        self._agent_extras = agent_extras or {}
+        # the experiment's cluster jobs (aurora.compute.slurm.SlurmCompute): an agent that awaits
+        # some ends its turn and is resumed here when they end
+        self._compute = compute
         self._sessions = sessions        # SessionRegistry: continue interrupted job sessions
         self._round = round_n
         self._resuming = resuming
@@ -219,6 +229,30 @@ class TerminalIteration:
                     break
                 resume_id = self.session_id
 
+                # the agent ended its turn to wait for cluster jobs: resume it when they end
+                stopped_waiting = False
+                while self._awaits_cluster_jobs(job.job_id) and self.session_id:
+                    wake = await self._wait_for_cluster_jobs(job.job_id)
+                    if self._stop_requested:
+                        stopped_waiting = True
+                        break
+                    result = await self._run_session(wake, deadline + self._paused_for() - time.time(),
+                                                     self.session_id)
+                    if result.get("final_text"):
+                        summary = result["final_text"]
+                    turns += result.get("turns", 0)
+                    cost += result.get("cost_usd", 0.0)
+                    if result.get("timed_out"):
+                        errors.append("time limit reached; the results may be incomplete")
+                    if result.get("error"):
+                        break
+                if result.get("error"):
+                    errors.append(result["error"])
+                    break
+                if stopped_waiting:
+                    errors.append("stopped while waiting for cluster jobs")
+                    break
+
                 if not self._config.sandbox.tests_dir:
                     passed = True
                     break
@@ -289,6 +323,55 @@ class TerminalIteration:
             if getattr(loop, "session_id", None):
                 self.session_id = loop.session_id
             await loop.close()
+
+    def _awaits_cluster_jobs(self, job_id: str) -> bool:
+        return (self._compute is not None and not self._stop_requested
+                and bool(self._compute.awaiting(job_id)))
+
+    async def _wait_for_cluster_jobs(self, job_id: str) -> str:
+        """Wait, with the job's clock stopped and no model calls, until the cluster jobs the agent
+        awaits have ended, its next check-in is due, or the researcher writes; return the message
+        that resumes the agent: the jobs' state, as `aurora job status` shows it."""
+        compute = self._compute
+        awaited = compute.awaiting(job_id)
+        if self._paused_since is None:
+            self._paused_since = time.time()
+        check_in = compute.check_in_seconds(job_id)
+        await self._publish("waiting_for_cluster_jobs", job_id=job_id, check_in_minutes=round(check_in / 60, 1),
+                            cluster_jobs=[{"id": j.id, "name": j.name, "slurm_id": j.slurm_id} for j in awaited])
+        due = time.time() + check_in
+        try:
+            while not self._stop_requested and not self._pending_messages and time.time() < due:
+                if not any(j.active for j in compute.awaiting(job_id)):
+                    break
+                await asyncio.sleep(min(_CLUSTER_POLL_SECONDS, max(0.05, due - time.time())))
+        finally:
+            self._resume_clock()
+        jobs = compute.take_awaited(job_id)
+        ended = not any(j.active for j in jobs)
+        wrote = bool(self._pending_messages)
+        compute.checked_in(job_id, jobs_ended=ended or wrote)
+        if ended:
+            head = "The cluster jobs you awaited have ended."
+        elif wrote:
+            head = "The researcher wrote while you waited for your cluster jobs."
+        else:
+            head = (f"Check-in after {check_in / 60:g} minutes: your cluster jobs have not all ended. "
+                    "If one is pending, its reason says why; if it cannot start as submitted, cancel it and "
+                    "submit it again. Otherwise `aurora job await` again, or go on with what does not need "
+                    "them.")
+        table = "\n".join(job_client.line(j.view()) for j in jobs)
+        parts = [f"[Cluster jobs] {head}\n\n{table}"]
+        if compute.slurm_error:
+            parts.append(f"Asking SLURM failed ({compute.slurm_error}); these states may be out of date.")
+        if wrote:
+            parts.append("The researcher wrote:\n\n" + "\n\n".join(self._pending_messages))
+            self._pending_messages.clear()
+        parts.append("Continue your job.")
+        await self._publish("cluster_jobs_awaited", job_id=job_id, ended=ended,
+                            cluster_jobs=[{"id": j.id, "name": j.name, "state": j.state, "exit_code": j.exit_code}
+                                          for j in jobs])
+        return "\n\n".join(parts)
 
     async def _run_tests(self, attempt: int) -> tuple[bool, str]:
         await self._publish("verifier_started", attempt=attempt)
@@ -369,6 +452,8 @@ class TerminalIteration:
             text_callback=self._text_callback,
             session_callback=self._session_callback,
             transcript_tag=job_id,
+            **{**self._agent_extras,
+               "extra_env": {**self._agent_extras.get("extra_env", {}), "AURORA_AGENT_JOB": job_id}},
         )
 
 

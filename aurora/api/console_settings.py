@@ -16,7 +16,8 @@ import yaml
 from aurora.paths import aurora_home
 
 # What the console may change: (dotted key, group, label, kind[, choices]).
-# kinds: model, models (a list of model IDs), number, optional-number, int, bool, choice, text
+# kinds: model, models (a list of model IDs), number, optional-number, int, bool, choice, text,
+# words (a list typed as words separated by spaces)
 EDITABLE: list[tuple] = [
     ("models.agent", "Models", "Agents (default for all phases)", "model"),
     ("models.screening", "Models", "Screening", "model"),
@@ -52,6 +53,14 @@ EDITABLE: list[tuple] = [
     ("skills.distill", "Skills", "Learn skills from the agents' runs", "bool"),
     ("skills.from_feedback", "Skills", "Learn skills from your corrections", "bool"),
     ("skills.auto_accept", "Skills", "Add proposed skills without asking", "bool"),
+    ("compute.slurm.enabled", "Cluster jobs", "Research agents may submit SLURM jobs", "bool"),
+    ("compute.slurm.submit_via", "Cluster jobs", "Reach SLURM through (e.g. ssh login-node; empty: here)", "words"),
+    ("compute.slurm.partition", "Cluster jobs", "Partition", "text"),
+    ("compute.slurm.job_name_prefix", "Cluster jobs", "Job names start with", "text"),
+    ("compute.slurm.max_gpus_per_job", "Cluster jobs", "Most GPUs per job", "int"),
+    ("compute.slurm.max_jobs", "Cluster jobs", "Jobs at once per experiment", "int"),
+    ("compute.slurm.max_time", "Cluster jobs", "Longest job (HH:MM:SS)", "text"),
+    ("compute.slurm.max_gpu_hours", "Cluster jobs", "GPU hours per experiment (empty: no limit)", "optional-number"),
     ("uploads.max_file_gb", "Uploads", "Largest file (GB)", "number"),
     ("uploads.max_project_gb", "Uploads", "Uploaded files per project (GB)", "number"),
 ]

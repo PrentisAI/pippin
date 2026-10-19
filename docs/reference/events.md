@@ -47,7 +47,11 @@ result = await engine.run_campaign()
 | `research_loop_complete` | `iterations`, `completed` |
 | `analysis_complete` | `loop_back_to` (phase or null) |
 | `writing_complete` | `version`, `path` |
-| `campaign_completed` / `campaign_failed` / `campaign_stopped` | `status`, `summary`, `cost_usd`, `wall_time_seconds` |
+| `campaign_completed` / `campaign_failed` / `campaign_stopped` | `status`, `summary`, `cost_usd`, `wall_time_seconds`, `by_user` (stopped by the researcher) |
+| `budget_warning` | `share` (of the cost or time budget used), `detail` |
+| `compute_job_submitted` / `compute_job_update` / `compute_job_ended` | a [cluster job](../guide/cluster-jobs.md): `id`, `name`, `slurm_id`, `state`, `reason`, `node`, `gpus`, `cpus`, `mem_gb`, `time_limit`, `elapsed_seconds`, `exit_code`, `command`, `log` |
+| `waiting_for_cluster_jobs` | `job_id` (the research job), `cluster_jobs` (each: `id`, `name`, `slurm_id`), `check_in_minutes`; its agent ended its turn to wait |
+| `cluster_jobs_awaited` | `job_id`, `ended` (false: a check-in), `cluster_jobs` (each: `id`, `name`, `state`, `exit_code`); its agent is resumed |
 
 ## Agent sessions
 

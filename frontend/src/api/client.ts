@@ -1,4 +1,4 @@
-import type { ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { ClusterJobs, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -149,6 +149,19 @@ export const api = {
     /** Change the defaults for new experiments (dotted keys); reset puts keys back to the server's value. */
     update: (changes: Record<string, unknown>, reset: string[] = []) =>
       request<{ saved: boolean; editable: EditableSetting[] }>('/settings', { method: 'PUT', body: JSON.stringify({ changes, reset }) }),
+    notifications: () => request<NotificationSettings>('/settings/notifications'),
+    /** Replace the notification settings; a channel without `target` keeps its saved one. */
+    saveNotifications: (body: { console_url: string; budget_warning_at: number; channels: NotifyChannel[] }) =>
+      request<NotificationSettings>('/settings/notifications', { method: 'PUT', body: JSON.stringify(body) }),
+    testNotification: (channel: NotifyChannel) =>
+      request<{ ok: boolean; error: string }>('/settings/notifications/test', { method: 'POST', body: JSON.stringify(channel) }),
+  },
+
+  compute: {
+    jobs: (campaignId: string, expId: string) =>
+      request<ClusterJobs>(`/campaigns/${campaignId}/experiments/${expId}/compute`),
+    cancel: (campaignId: string, expId: string, job: number) =>
+      request<{ message: string }>(`/campaigns/${campaignId}/experiments/${expId}/compute/${job}/cancel`, { method: 'POST' }),
   },
 
   search: (q: string, limit = 8) =>

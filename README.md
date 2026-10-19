@@ -25,12 +25,16 @@ it at any time without stopping it.
   your instructions to the running agent.
 - **Sandboxed execution** — one Docker container per campaign; the agents
   (Claude Code sessions) cannot touch anything else on your machine.
+- **Cluster jobs** — agents submit training and long runs to SLURM (same image,
+  same workspace, on a GPU node) and keep working while they run.
 - **Skill library** — skills you write and skills distilled from earlier
   campaigns are available to every agent.
 - **Resumable and budgeted** — checkpoints after every step; hard limits on
   time and API cost.
 - **CLI and web console** — the same pipeline from `aurora run` or from the
   browser.
+- **Notifications** — WeCom, WeChat (Server酱), Feishu, Slack or any webhook
+  tell you when a decision waits for you or an experiment ends.
 
 ## Quick start
 

@@ -343,6 +343,122 @@ class UploadsConfig(_Section):
                                   description="Most a project's uploaded files may take in all (GB).")
 
 
+NOTIFY_EVENTS: dict[str, str] = {
+    "decision_needed": "A decision is waiting for you",
+    "run_finished": "An experiment finished",
+    "run_failed": "An experiment failed or was stopped",
+    "budget_warning": "An experiment has used most of its budget",
+    "agent_reply": "The research agent answered your instruction",
+    "skill_suggestion": "A skill was proposed for the library",
+    "compute_job": "A cluster job of an experiment ended",
+}
+DEFAULT_NOTIFY_EVENTS = ["decision_needed", "run_finished", "run_failed", "budget_warning"]
+
+
+class NotifyChannel(_Section):
+    """One place notifications go."""
+
+    type: Literal["webhook", "wecom", "feishu", "slack", "serverchan"] = Field(
+        description="webhook: POST the notification as JSON to `target`. wecom (WeCom group robot), "
+                    "feishu (Feishu/Lark group bot), slack (incoming webhook): `target` is the bot's "
+                    "webhook URL. serverchan: `target` is the Server酱 SendKey (pushes to your WeChat).",
+    )
+    id: str = Field(default="", description="Set by the console, to tell channels apart.")
+    target: str = Field(description="The webhook URL, or the Server酱 SendKey.")
+    name: str = Field(default="", description="Shown in the console.")
+    events: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_NOTIFY_EVENTS),
+        description=f"What to send, any of {list(NOTIFY_EVENTS)}.",
+    )
+    enabled: bool = True
+
+    @model_validator(mode="after")
+    def _known_events(self) -> NotifyChannel:
+        unknown = set(self.events) - set(NOTIFY_EVENTS)
+        if unknown:
+            raise ValueError(f"unknown notification events {sorted(unknown)}; valid: {list(NOTIFY_EVENTS)}")
+        return self
+
+
+class NotificationsConfig(_Section):
+    """Messages to you when something needs you or a run ends, so you need not watch the console."""
+
+    console_url: str = Field(
+        default="",
+        description="The web console's address as you open it (e.g. http://localhost:8100); "
+                    "notifications link to the experiment there. Empty: the address it serves on.",
+    )
+    channels: list[NotifyChannel] = Field(default_factory=list)
+    budget_warning_at: float = Field(
+        default=0.8, gt=0, le=1,
+        description="Share of an experiment's cost or time budget at which budget_warning is sent.",
+    )
+
+
+class SlurmConfig(_Section):
+    """Research agents submit heavy work (training, long runs) as SLURM jobs.
+
+    The agent keeps working in its container on this machine; a job runs the same image on a
+    cluster node (pyxis/enroot, ``srun --container-image``) with the experiment's workspace
+    mounted as /app.  The workspace must be on storage the nodes see.
+    """
+
+    enabled: bool = Field(default=False, description="Let research agents submit cluster jobs.")
+    submit_via: list[str] = Field(
+        default_factory=list,
+        description="Command prefix that reaches the SLURM tools, e.g. [ssh, login-node]. Empty: "
+                    "sbatch/squeue/scancel run on this machine.",
+    )
+    partition: str = Field(default="", description="Partition jobs go to unless the agent picks another.")
+    partitions: list[str] = Field(
+        default_factory=list, description="Other partitions the agent may pick.",
+    )
+    account: str = Field(default="", description="--account, if the cluster needs one.")
+    qos: str = Field(default="", description="--qos, if the cluster needs one.")
+    job_name_prefix: str = Field(
+        default="aurora",
+        description="Start of every job name (some clusters want your user name first, e.g. alice-aurora).",
+    )
+    max_gpus_per_job: int = Field(default=8, ge=0, description="Most GPUs one job may ask for.")
+    max_jobs: int = Field(default=4, ge=1, description="Jobs of one experiment queued or running at once.")
+    cpus_per_gpu: int = Field(default=8, ge=1, description="CPUs a job gets per GPU (at least this many).")
+    mem_per_gpu_gb: int = Field(default=64, ge=1, description="Memory a job gets per GPU (GB).")
+    default_time: str = Field(default="04:00:00", description="Time limit of a job that names none.")
+    max_time: str = Field(default="24:00:00", description="Longest time limit a job may ask for.")
+    max_gpu_hours: float | None = Field(
+        default=None, gt=0,
+        description="GPU hours one experiment may use in all (counted as jobs run). None: no limit.",
+    )
+    image_dir: str = Field(
+        default="",
+        description="Where the container image is saved for the nodes (squashfs). Must be on shared "
+                    "storage. Empty: AURORA_HOME/compute/images.",
+    )
+    extra_args: list[str] = Field(
+        default_factory=list, description="More #SBATCH options, e.g. ['--exclude=node3'].",
+    )
+    cancel_on_finish: bool = Field(
+        default=True, description="Cancel an experiment's jobs still queued or running when it ends.",
+    )
+    check_in_minutes: list[float] = Field(
+        default_factory=lambda: [10, 10, 10, 20, 30, 45, 60],
+        description="An agent waiting for its jobs (aurora job await) is shown their state after these "
+                    "intervals, one after the other, the last repeating; it is woken at once when they end.",
+    )
+
+    @model_validator(mode="after")
+    def _check_ins(self) -> SlurmConfig:
+        if not self.check_in_minutes or any(m <= 0 for m in self.check_in_minutes):
+            raise ValueError("check_in_minutes needs at least one interval, each above 0")
+        return self
+
+
+class ComputeConfig(_Section):
+    """Compute beyond the experiment's container."""
+
+    slurm: SlurmConfig = Field(default_factory=SlurmConfig)
+
+
 class SandboxConfig(_Section):
     """Where the agents' commands run."""
 
@@ -509,6 +625,8 @@ class AuroraConfig(_Section):
     audit: AuditConfig = Field(default_factory=AuditConfig)
     human: HumanConfig = Field(default_factory=HumanConfig)
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
+    notifications: NotificationsConfig = Field(default_factory=NotificationsConfig)
+    compute: ComputeConfig = Field(default_factory=ComputeConfig)
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
     prompts: PromptConfig = Field(default_factory=PromptConfig)
     providers: list[ProviderConfig] = Field(

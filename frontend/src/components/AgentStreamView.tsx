@@ -117,6 +117,27 @@ function describeEvent(event: StreamEvent): Described {
     case 'resources_updated':
       return system('info', `Container limits: ${String(d.cpus)} CPUs, ${Number(d.memory_mb) / 1024} GB`
         + ` (before: ${String(d.old_cpus)} CPUs, ${Number(d.old_memory_mb) / 1024} GB)`)
+    case 'budget_warning':
+      return system('warning', `Budget ${Math.round(Number(d.share) * 100)}% used`, str(d.detail) || undefined)
+    case 'compute_job_submitted':
+      return system('info', `Cluster job ${String(d.id)} (${str(d.name)}) submitted as SLURM ${str(d.slurm_id)}: `
+        + `${String(d.gpus)} GPU, up to ${str(d.time_limit)}`, str(d.command) || undefined)
+    case 'compute_job_update':
+      return system('info', `Cluster job ${String(d.id)} (${str(d.name)}): ${str(d.state).toLowerCase()}`
+        + (d.node ? ` on ${str(d.node)}` : '') + (d.reason ? ` [${str(d.reason)}]` : ''))
+    case 'waiting_for_cluster_jobs': {
+      const jobs = (Array.isArray(d.cluster_jobs) ? d.cluster_jobs : []) as { id: number; name: string }[]
+      return agent('muted', `Waiting for cluster job${jobs.length === 1 ? '' : 's'} `
+        + jobs.map((j) => `${j.id} (${j.name})`).join(', ')
+        + ` — paused, no model calls, its time not counted; next check-in in ${String(d.check_in_minutes)} min`)
+    }
+    case 'cluster_jobs_awaited':
+      return agent('info', d.ended ? 'Resumed: the cluster jobs it waited for have ended' : 'Resumed to look at its cluster jobs')
+    case 'compute_job_ended':
+      return system(d.state === 'COMPLETED' ? 'success' : 'warning',
+        `Cluster job ${String(d.id)} (${str(d.name)}) ${str(d.state).toLowerCase()}`
+        + (d.exit_code != null ? `, exit code ${String(d.exit_code)}` : '') + ` after ${formatDuration(Number(d.elapsed_seconds))}`,
+        str(d.log) || undefined)
     case 'budget_changed':
       return system('info', `Budget: ${d.new == null ? 'no limit' : formatCost(d.new)} (was ${d.old == null ? 'no limit' : formatCost(d.old)}; spent ${formatCost(d.spent)})`)
     case 'frontdesk_switched':

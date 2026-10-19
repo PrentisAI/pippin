@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, describeError } from '../api/client'
 import { formatCost } from '../format'
-import type { Analytics, ConsoleSettings, EditableSetting, SearchHit } from '../types'
+import type { Analytics, ChannelType, ConsoleSettings, EditableSetting, NotificationSettings, NotifyChannel, SearchHit } from '../types'
 
 type PanelProps = { collapsed: boolean; panelRef: React.RefObject<HTMLDivElement | null> }
 
@@ -183,15 +183,16 @@ export function AnalyticsPanel({ collapsed, panelRef, onOpenProject, onOpenRun }
 // Settings
 // ---------------------------------------------------------------------------
 
-function show(value: unknown): string {
+function show(value: unknown, kind = ''): string {
   if (value == null) return ''
-  if (Array.isArray(value)) return value.join(', ')
+  if (Array.isArray(value)) return value.join(kind === 'words' ? ' ' : ', ')
   return String(value)
 }
 
 function parse(setting: EditableSetting, text: string): unknown {
   switch (setting.kind) {
     case 'models': return text.split(',').map((x) => x.trim()).filter(Boolean)
+    case 'words': return text.split(/\s+/).filter(Boolean)
     case 'number': return Number(text)
     case 'int': return Math.round(Number(text))
     case 'optional-number': return text.trim() === '' ? null : Number(text)
@@ -216,9 +217,9 @@ export function SettingsPanel({ collapsed, panelRef }: PanelProps) {
   }, [settings])
 
   const valueOf = (s: EditableSetting): string | boolean =>
-    s.key in draft ? draft[s.key] : (s.kind === 'bool' ? Boolean(s.value) : show(s.value))
+    s.key in draft ? draft[s.key] : (s.kind === 'bool' ? Boolean(s.value) : show(s.value, s.kind))
   const dirty = (settings?.editable ?? []).filter((s) => s.key in draft
-    && (s.kind === 'bool' ? draft[s.key] !== Boolean(s.value) : draft[s.key] !== show(s.value)))
+    && (s.kind === 'bool' ? draft[s.key] !== Boolean(s.value) : draft[s.key] !== show(s.value, s.kind)))
 
   const save = async (reset: string[] = []) => {
     setSaving(true)
@@ -267,6 +268,7 @@ export function SettingsPanel({ collapsed, panelRef }: PanelProps) {
             <div className="env-row muted">Server config: {env.server_config ?? 'none (built-in defaults)'}</div>
           </div>
         )}
+        {!collapsed && <NotificationsSection />}
         <datalist id="settings-models">
           {settings?.model_suggestions.map((m) => <option key={m} value={m} />)}
         </datalist>
@@ -297,7 +299,7 @@ export function SettingsPanel({ collapsed, panelRef }: PanelProps) {
                   </label>
                   {s.overridden && (
                     <div className="settings-note">
-                      changed here · server: {show(s.server_value) || 'none'}
+                      changed here · server: {show(s.server_value, s.kind) || 'none'}
                       <button className="link-btn" disabled={saving} onClick={() => save([s.key])}>reset</button>
                     </div>
                   )}
@@ -308,6 +310,148 @@ export function SettingsPanel({ collapsed, panelRef }: PanelProps) {
         ))}
         {env && <div className="panel-hint" style={{ padding: '8px 12px 16px' }}>Kept in {env.console_settings}; the server’s config file is not changed.</div>}
       </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+const CHANNEL_TYPES: { type: ChannelType; label: string; placeholder: string }[] = [
+  { type: 'wecom', label: 'WeCom group robot (企业微信)', placeholder: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…' },
+  { type: 'serverchan', label: 'Server酱 (personal WeChat)', placeholder: 'SendKey, e.g. SCT…' },
+  { type: 'feishu', label: 'Feishu / Lark bot', placeholder: 'https://open.feishu.cn/open-apis/bot/v2/hook/…' },
+  { type: 'slack', label: 'Slack', placeholder: 'https://hooks.slack.com/services/…' },
+  { type: 'webhook', label: 'Webhook (JSON POST)', placeholder: 'https://your-server/aurora-hook' },
+]
+const typeLabel = (t: ChannelType) => CHANNEL_TYPES.find((c) => c.type === t)?.label ?? t
+
+/** Where notifications go: channels, what each one gets, a test message. */
+function NotificationsSection() {
+  const [saved, setSaved] = useState<NotificationSettings | null>(null)
+  const [channels, setChannels] = useState<NotifyChannel[]>([])
+  const [consoleUrl, setConsoleUrl] = useState('')
+  const [adding, setAdding] = useState<NotifyChannel | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
+
+  const reset = (n: NotificationSettings) => {
+    setSaved(n)
+    setChannels(n.channels)
+    setConsoleUrl(n.console_url)
+  }
+  useEffect(() => {
+    api.settings.notifications().then(reset).catch((err) => setMessage({ tone: 'error', text: describeError(err) }))
+  }, [])
+  if (!saved) return message ? <div className={`panel-message ${message.tone}`}>{message.text}</div> : null
+
+  const defaults = saved.events.filter((e) => e.default).map((e) => e.key)
+  const dirty = consoleUrl !== saved.console_url || JSON.stringify(channels) !== JSON.stringify(saved.channels)
+  const update = (id: string, patch: Partial<NotifyChannel>) =>
+    setChannels((list) => list.map((c) => (c.id === id ? { ...c, ...patch } : c)))
+
+  const save = async (list = channels) => {
+    setBusy(true)
+    setMessage(null)
+    try {
+      reset(await api.settings.saveNotifications({ console_url: consoleUrl, budget_warning_at: saved.budget_warning_at, channels: list }))
+      setMessage({ tone: 'ok', text: 'Saved. Running experiments use these settings too.' })
+    } catch (err) {
+      setMessage({ tone: 'error', text: describeError(err) })
+    } finally {
+      setBusy(false)
+    }
+  }
+  const test = async (c: NotifyChannel) => {
+    setBusy(true)
+    setMessage(null)
+    try {
+      const r = await api.settings.testNotification(c)
+      setMessage(r.ok ? { tone: 'ok', text: `Test sent to ${c.name || typeLabel(c.type)}. Check that it arrived.` }
+        : { tone: 'error', text: `${c.name || typeLabel(c.type)}: ${r.error}` })
+    } catch (err) {
+      setMessage({ tone: 'error', text: describeError(err) })
+    } finally {
+      setBusy(false)
+    }
+  }
+  const events = (c: NotifyChannel, onChange: (events: string[]) => void) => (
+    <div className="notify-events">
+      {saved.events.map((e) => (
+        <label key={e.key} title={e.label}>
+          <input type="checkbox" checked={c.events.includes(e.key)}
+            onChange={(ev) => onChange(ev.target.checked ? [...c.events, e.key] : c.events.filter((x) => x !== e.key))} />
+          {e.label}
+        </label>
+      ))}
+    </div>
+  )
+
+  return (
+    <div className="settings-group">
+      <div className="search-group-title">Notifications</div>
+      <div className="panel-hint" style={{ padding: '0 0 6px' }}>
+        Messages when a decision waits for you or an experiment ends, so you need not watch the console.
+      </div>
+      {message && <div className={`panel-message ${message.tone}`}>{message.text}</div>}
+      {channels.map((c) => (
+        <div key={c.id} className={`notify-channel${c.enabled ? '' : ' off'}`}>
+          <div className="notify-channel-head">
+            <input type="checkbox" checked={c.enabled} title="On" onChange={(e) => update(c.id, { enabled: e.target.checked })} />
+            <span className="notify-channel-name">{c.name || typeLabel(c.type)}</span>
+            <span className="notify-channel-type">{c.name ? typeLabel(c.type) : ''} {c.target_hint}</span>
+            <button className="link-btn" disabled={busy} onClick={() => test(c)}>test</button>
+            <button className="link-btn danger" disabled={busy}
+              onClick={() => setChannels((list) => list.filter((x) => x.id !== c.id))}>remove</button>
+          </div>
+          {events(c, (ev) => update(c.id, { events: ev }))}
+        </div>
+      ))}
+      {adding ? (
+        <div className="notify-channel adding">
+          <div className="settings-field"><label>
+            <span className="settings-label">Type</span>
+            <select value={adding.type} onChange={(e) => setAdding({ ...adding, type: e.target.value as ChannelType })}>
+              {CHANNEL_TYPES.map((t) => <option key={t.type} value={t.type}>{t.label}</option>)}
+            </select>
+          </label></div>
+          <div className="settings-field"><label>
+            <span className="settings-label">{adding.type === 'serverchan' ? 'SendKey' : 'Webhook URL'}</span>
+            <input value={adding.target ?? ''} placeholder={CHANNEL_TYPES.find((t) => t.type === adding.type)?.placeholder}
+              onChange={(e) => setAdding({ ...adding, target: e.target.value })} />
+          </label></div>
+          <div className="settings-field"><label>
+            <span className="settings-label">Name (optional)</span>
+            <input value={adding.name} placeholder="e.g. my phone" onChange={(e) => setAdding({ ...adding, name: e.target.value })} />
+          </label></div>
+          {events(adding, (ev) => setAdding({ ...adding, events: ev }))}
+          <div className="notify-actions">
+            <button className="btn-sm" disabled={busy || !adding.target?.trim()} onClick={() => test(adding)}>Send a test</button>
+            <button className="btn-sm" disabled={busy} onClick={() => setAdding(null)}>Cancel</button>
+            <button className="btn-sm btn-approve" disabled={busy || !adding.target?.trim()}
+              onClick={async () => { const list = [...channels, adding]; setAdding(null); await save(list) }}>Add</button>
+          </div>
+        </div>
+      ) : (
+        <button className="btn-sm" style={{ marginTop: 4 }}
+          onClick={() => setAdding({ id: '', type: 'wecom', name: '', target: '', events: defaults, enabled: true })}>
+          + Add a channel
+        </button>
+      )}
+      <div className="settings-field" title="Notifications link to the experiment at this address">
+        <label>
+          <span className="settings-label">Console address in links</span>
+          <input value={consoleUrl} placeholder={saved.console_url_default || 'http://localhost:8000'}
+            onChange={(e) => setConsoleUrl(e.target.value)} />
+        </label>
+      </div>
+      {dirty && (
+        <div className="notify-actions">
+          <button className="btn-sm" disabled={busy} onClick={() => reset(saved)}>Discard</button>
+          <button className="btn-sm btn-approve" disabled={busy} onClick={() => save()}>Save notifications</button>
+        </div>
+      )}
     </div>
   )
 }

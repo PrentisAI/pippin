@@ -134,8 +134,15 @@ class ClaudeCodeLoop:
         app_on_host: str | None = None,
         container_agent: dict[str, str] | None = None,
         transcript_tag: str = "",
+        extra_tools: list[str] | None = None,
+        extra_env: dict[str, str] | None = None,
+        extra_prompt: str = "",
     ) -> None:
         self._transcript_tag = transcript_tag
+        # more the session may use, e.g. cluster jobs: allowed tools, environment, instructions
+        self._extra_tools = list(extra_tools or [])
+        self._extra_env = dict(extra_env or {})
+        self._extra_prompt = extra_prompt
         # run Claude Code inside the campaign container: {"container": id, plus env such as
         # ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN / HOME} (see DockerBackend.agent_env)
         self._container_agent = container_agent
@@ -164,7 +171,7 @@ class ClaudeCodeLoop:
         self._request_n = 0
 
     def _permission_args(self) -> list[str]:
-        return permission_args(self._cwd, self._docker_container, self._allow_host_bash)
+        return permission_args(self._cwd, self._docker_container, self._allow_host_bash) + self._extra_tools
 
     async def inject_message(self, message: str) -> None:
         """Inject a user message into the running agent's conversation via stdin.
@@ -300,9 +307,9 @@ class ClaudeCodeLoop:
                 f"under {root}.\n"
             )
 
-        full_system = system_prompt + docker_preamble
+        full_system = system_prompt + docker_preamble + self._extra_prompt
 
-        env = claude_code_env(self._api_key, self._base_url)
+        env = {**claude_code_env(self._api_key, self._base_url), **self._extra_env}
         claude: list[str] = ["claude"]
         permissions = self._permission_args()
         if self._container_agent:
@@ -310,6 +317,8 @@ class ClaudeCodeLoop:
             env = {k: v for k, v in env.items() if not k.startswith("ANTHROPIC_")}
             agent = dict(self._container_agent)
             container = agent.pop("container")
+            # AURORA_* variables (cluster jobs) go to the agent in the container; PATH and the like stay out
+            agent.update({k: v for k, v in self._extra_env.items() if k.startswith("AURORA_")})
             self._pidfile = f"/aurora/home/.session_{uuid.uuid4().hex[:8]}.pid"
             claude = ["docker", "exec", "-i", "-w", "/app",
                       *[x for k, v in agent.items() for x in ("-e", f"{k}={v}")],
