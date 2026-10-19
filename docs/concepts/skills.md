@@ -99,4 +99,6 @@ skills:
   auto_accept: false     # true: add proposed skills at once (to the library)
 ```
 
-The proposals are written by `models.auditor`; each costs a few cents.
+A model decides what is worth keeping and drafts the skills: `models.skills`
+(empty: the milestone auditor's `models.auditor`). Each proposal costs a few
+cents. Whatever it proposes, you decide what joins the library.

@@ -46,6 +46,7 @@ Which model plays each role.
 | `models.ideation_seats` | list[str] | `["anthropic/claude-sonnet-5.5", "openai/gpt-5.6-sol", "google/gemini-3.1-pro-preview"]` | One model per ideation seat. Heterogeneous models give more diverse ideas. |
 | `models.ideation_chair` | str | `"moonshotai/kimi-k3"` | Model of the ideation chair, who decides the research direction. Pick a family not among the seats so it judges the ideas neutrally. |
 | `models.auditor` | str | `"anthropic/claude-sonnet-5.5"` | Model of the milestone auditor that reviews each phase's output. |
+| `models.skills` | str | `""` | Model that decides what to keep as skills: it drafts skills from the agents' runs and from your corrections. Empty: models.auditor. |
 | `models.supervisor` | str | `"anthropic/claude-sonnet-5.5"` | Model of the live auditor (supervisor) that watches the research agent. |
 | `models.frontdesk` | str | `"anthropic/claude-haiku-5.5"` | Model of the front desk agent that talks with the human. |
 

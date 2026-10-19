@@ -13,6 +13,8 @@ export type KnownEventType =
   | 'run_finished'
   | 'run_error'
   | 'autonomy_changed'
+  | 'frontdesk_switched'
+  | 'budget_changed'
   | 'resources_updated'
   // Phase results
   | 'ideation_complete'

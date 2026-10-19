@@ -1,4 +1,4 @@
-import type { SuggestionOutcome,
+import type { Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -68,8 +68,15 @@ export const api = {
     create: (data: { name: string; objective?: string }) =>
       request<CampaignSummary>('/campaigns/', post(data)),
 
-    delete: (id: string) =>
-      request<{ ok: boolean }>(`/campaigns/${id}`, { method: 'DELETE' }),
+    rename: (id: string, name: string) =>
+      request<CampaignSummary>(`/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+
+    /** Bytes the project's files take on disk. */
+    diskUsage: (id: string) => request<{ bytes: number; path: string }>(`/campaigns/${id}/disk`),
+
+    /** Remove a project (stop its experiments first); with deleteFiles, also its files on disk. */
+    delete: (id: string, deleteFiles = false) =>
+      request<{ ok: boolean }>(`/campaigns/${id}?delete_files=${deleteFiles}`, { method: 'DELETE' }),
 
     quickCreate: (prompt: string) =>
       request<{ campaign_id: string; name: string; objective: string }>('/campaigns/quick', post({ prompt })),
@@ -88,7 +95,17 @@ export const api = {
 
     /** Stop a running experiment; it ends at the next safe point and keeps its files. */
     stop: (campaignId: string, expId: string) =>
-      request<ExperimentSummary>(experimentPath(campaignId, expId), { method: 'DELETE' }),
+      request<ExperimentSummary>(`${experimentPath(campaignId, expId)}/stop`, post()),
+
+    rename: (campaignId: string, expId: string, name: string) =>
+      request<ExperimentSummary>(experimentPath(campaignId, expId), { method: 'PATCH', body: JSON.stringify({ name }) }),
+
+    diskUsage: (campaignId: string, expId: string) =>
+      request<{ bytes: number; path: string }>(`${experimentPath(campaignId, expId)}/disk`),
+
+    /** Remove a stopped run; with deleteFiles, also its files on disk. */
+    remove: (campaignId: string, expId: string, deleteFiles = false) =>
+      request<{ ok: boolean }>(`${experimentPath(campaignId, expId)}?delete_files=${deleteFiles}`, { method: 'DELETE' }),
 
     /** Answer the experiment's open human gate. `instruct` needs a message. */
     decide: (campaignId: string, expId: string, action: GateAction, message = '', gateId = '', rerun: string[] = []) =>
@@ -102,6 +119,15 @@ export const api = {
         `${experimentPath(campaignId, expId)}/resources`,
         { method: 'PUT', body: JSON.stringify({ cpus, memory_mb: memoryMb }) },
       ),
+
+    /** Switch the experiment's front desk on or off (off: no model calls for it). */
+    setFrontdesk: (campaignId: string, expId: string, enabled: boolean) =>
+      request<{ ok: boolean; frontdesk_enabled: boolean }>(
+        `${experimentPath(campaignId, expId)}/frontdesk`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
+
+    setBudget: (campaignId: string, expId: string, maxCostUsd: number | null) =>
+      request<{ ok: boolean; max_cost_usd: number | null; spent_usd: number; note?: string }>(
+        `${experimentPath(campaignId, expId)}/budget`, { method: 'PUT', body: JSON.stringify({ max_cost_usd: maxCostUsd }) }),
 
     setAutonomyMode: (campaignId: string, expId: string, mode: AutonomyMode) =>
       request<{ ok: boolean; autonomy_mode: AutonomyMode; previous_mode: AutonomyMode }>(
@@ -120,7 +146,16 @@ export const api = {
 
   settings: {
     get: () => request<ConsoleSettings>('/settings'),
+    /** Change the defaults for new experiments (dotted keys); reset puts keys back to the server's value. */
+    update: (changes: Record<string, unknown>, reset: string[] = []) =>
+      request<{ saved: boolean; editable: EditableSetting[] }>('/settings', { method: 'PUT', body: JSON.stringify({ changes, reset }) }),
   },
+
+  search: (q: string, limit = 8) =>
+    request<{ query: string; results: Partial<Record<'projects' | 'runs' | 'conversations' | 'reports' | 'skills', SearchHit[]>> }>(
+      `/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+
+  analytics: (days = 30) => request<Analytics>(`/analytics?days=${days}`),
 
   proposals: {
     confirm: (campaignId: string, proposalId: string, body: {

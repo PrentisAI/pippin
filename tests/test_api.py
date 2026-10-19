@@ -89,7 +89,7 @@ def test_stop_and_resume_in_the_console(client, monkeypatch):
         if client.get(f"/api/campaigns/{cid}/experiments/{eid}").json()["phase"] == "analysis":
             break
         time.sleep(0.1)
-    client.delete(f"/api/campaigns/{cid}/experiments/{eid}")
+    assert client.post(f"/api/campaigns/{cid}/experiments/{eid}/stop").status_code == 200
     stopped = wait_done(client, cid, eid)
     assert stopped["status"] == "stopped"
     events_before = stopped["event_count"]
@@ -158,3 +158,57 @@ def test_settings_and_per_role_overrides(client, monkeypatch):
     bad = client.post(f"/api/campaigns/{cid}/experiments",
                       json={"instruction": "x", "mock_mode": True, "models": {"reserch": "a/b"}})
     assert bad.status_code == 400 and "reserch" in bad.json()["detail"]
+
+
+def test_rename_and_delete_projects_and_runs(client):
+    from aurora.api.routes.campaigns import _projects_root
+    cid = client.post("/api/campaigns/quick", json={"prompt": "p"}).json()["campaign_id"]
+    eid = client.post(f"/api/campaigns/{cid}/experiments",
+                      json={"instruction": "x", "mock_mode": True, "skip_phases": ["ideation", "screening"]}
+                      ).json()["experiment_id"]
+    wait_done(client, cid, eid)
+
+    assert client.patch(f"/api/campaigns/{cid}", json={"name": "  Citi   Bike  "}).json()["name"] == "Citi Bike"
+    assert client.patch(f"/api/campaigns/{cid}", json={"name": " "}).status_code == 400
+    assert client.patch(f"/api/campaigns/{cid}/experiments/{eid}", json={"name": "weekday peaks"}).json()["task_name"] \
+        == "weekday peaks"
+    # a re-run (like a resume) starts from the saved settings, which keep the name
+    rerun = client.post(f"/api/campaigns/{cid}/experiments/{eid}/rerun").json()
+    assert client.get(f"/api/campaigns/{cid}/experiments/{rerun['experiment_id']}").json()["task_name"] == "weekday peaks"
+    wait_done(client, cid, rerun["experiment_id"])
+
+    run_dir = _projects_root() / cid / eid
+    assert run_dir.is_dir() and client.get(f"/api/campaigns/{cid}/experiments/{eid}/disk").json()["bytes"] > 0
+    assert client.delete(f"/api/campaigns/{cid}/experiments/{eid}?delete_files=true").json()["ok"]
+    assert not run_dir.exists()
+    assert client.get(f"/api/campaigns/{cid}/experiments/{eid}").status_code == 404
+    kept = _projects_root() / cid / rerun["experiment_id"]
+    assert client.delete(f"/api/campaigns/{cid}/experiments/{rerun['experiment_id']}").json()["ok"]
+    assert kept.is_dir()                                                  # files stay unless asked
+
+    assert client.delete(f"/api/campaigns/{cid}?delete_files=true").json()["ok"]
+    assert not (_projects_root() / cid).exists()
+    assert client.get(f"/api/campaigns/{cid}").status_code == 404
+
+
+def test_running_experiments_are_not_deleted(client, monkeypatch):
+    from aurora.core.engine import ResearchEngine
+
+    async def slow(self, *a, **k):
+        import asyncio
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(ResearchEngine, "_run_analysis", slow)
+    cid = client.post("/api/campaigns/quick", json={"prompt": "p"}).json()["campaign_id"]
+    eid = client.post(f"/api/campaigns/{cid}/experiments",
+                      json={"instruction": "x", "mock_mode": True, "skip_phases": ["ideation", "screening"]}
+                      ).json()["experiment_id"]
+    for _ in range(100):
+        if client.get(f"/api/campaigns/{cid}/experiments/{eid}").json()["status"] == "running":
+            break
+        time.sleep(0.05)
+    assert client.delete(f"/api/campaigns/{cid}/experiments/{eid}").status_code == 409
+    assert client.delete(f"/api/campaigns/{cid}").status_code == 409
+    client.post(f"/api/campaigns/{cid}/experiments/{eid}/stop")
+    wait_done(client, cid, eid)
+    assert client.delete(f"/api/campaigns/{cid}/experiments/{eid}").status_code == 200

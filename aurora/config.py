@@ -46,6 +46,7 @@ class PipelineStage(str, Enum):
     RESEARCHER = "researcher"
     AUDITOR_TRIAGE = "auditor_triage"
     AUDITOR_DEEP = "auditor_deep"
+    SKILLS = "skills"
     ANALYZER = "analyzer"
     WRITER = "writer"
 
@@ -203,6 +204,11 @@ class ModelConfig(_Section):
         default="anthropic/claude-sonnet-5.5",
         description="Model of the milestone auditor that reviews each phase's output.",
     )
+    skills: str = Field(
+        default="",
+        description="Model that decides what to keep as skills: it drafts skills from the agents' runs and "
+                    "from your corrections. Empty: models.auditor.",
+    )
     supervisor: str = Field(
         default="anthropic/claude-sonnet-5.5",
         description="Model of the live auditor (supervisor) that watches the research agent.",
@@ -225,6 +231,8 @@ class ModelConfig(_Section):
             return self.ideation_chair
         if stage in (PipelineStage.AUDITOR_TRIAGE, PipelineStage.AUDITOR_DEEP):
             return self.auditor
+        if stage == PipelineStage.SKILLS:
+            return self.skills or self.auditor
         return self.for_phase({PipelineStage.IDEA_SCREENING: "screening", PipelineStage.RESEARCHER: "research",
                                PipelineStage.ANALYZER: "analysis", PipelineStage.WRITER: "writing"}.get(stage, ""))
 

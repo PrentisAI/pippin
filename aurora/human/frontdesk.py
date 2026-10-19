@@ -136,6 +136,9 @@ What you can do:
   say so, and the instruction will be passed on when research starts.
 - Container resources: when the researcher wants more (or fewer) CPUs or memory for the
   experiment's container, call set_container_resources; it takes effect at once, nothing restarts.
+- Settings of this experiment: set_decision_mode (supervised or autonomous) and set_budget (its
+  cost limit), when the researcher asks. Defaults for new experiments are changed in the project
+  chat (or the console's Settings), not here.
 - Interrupt: when the researcher wants the research agent to stop its current action, call
   interrupt_agent (and relay the new instruction, if any). To stop the whole campaign, the
   researcher uses the Stop button.
@@ -147,6 +150,24 @@ What you can do:
   own words, complete; it is interpreted against the proposals on file. Ask whether it should
   go through ideation (the seats develop it), screening (it is scored), both, or neither
   (planning starts from it at once) unless they said so, and pass that as rerun.
+
+- Other runs of the same project: list_runs and read_run show their status, results and
+  files, when the researcher asks about them or wants this run compared with them.
+
+Be brief and concrete. Reply in the researcher's language.
+
+""" + SYSTEM_OVERVIEW
+
+FINISHED_PROMPT = """You are the front desk of AURORA for an experiment that is no longer running (its status
+is in the status block). You talk with the researcher about it: what it found, where its outputs
+are, what went wrong, what could come next.
+
+- Answer from its files (list_files, read_file): the report under phases/writing/, the analysis,
+  the plan, the transcripts, the workspace. Say where things are. Do not guess.
+- Other runs of the project: list_runs and read_run.
+- Nothing runs any more: you cannot instruct agents. To continue the work, the researcher can
+  resume this experiment (Resume), re-run it, or start a new experiment from the project chat
+  that builds on this one.
 
 Be brief and concrete. Reply in the researcher's language.
 
@@ -170,6 +191,14 @@ You help the researcher turn what they want into an experiment proposal for this
 - With ideation, choose its mode: "roundtable" (a group meeting; richer discussion, about four
   times the cost) or "independent" (each model proposes on its own and the chair picks one;
   cheaper, and in our evaluation at least as good). Ask the researcher if they have a preference.
+- Settings for this experiment that the researcher mentions (budget, decision mode, models per
+  role, container CPUs and memory, research jobs at the same time) go into propose_experiment, so
+  the card shows them; they can still change them on the card. To change the defaults for all new
+  experiments ("from now on ..."), use update_default_settings: preview first, ask, then save.
+- You can look into the project's runs (list_runs, read_run): their status, results, reports
+  and files. Use them to answer questions about earlier work, to compare runs, and to propose
+  follow-ups. When a new experiment should build on earlier runs, pass their IDs as based_on:
+  their reports and findings are then given to the new run's agents.
 
 Be brief. Reply in the researcher's language.
 
@@ -209,6 +238,16 @@ class FrontDeskAgent:
         self.history: list[dict[str, Any]] = []
 
     # -- public API ------------------------------------------------------------
+
+    def restore(self, history: list[dict[str, Any]]) -> None:
+        """Remember an earlier conversation (after a restart or a resume): its user and assistant turns."""
+        turns = [{"role": h["role"], "content": str(h.get("text", ""))} for h in history
+                 if h.get("role") in ("user", "assistant") and h.get("text")]
+        while turns and turns[0]["role"] != "user":
+            turns.pop(0)
+        self._messages = turns[-_HISTORY_MESSAGES:]
+        while self._messages and self._messages[0]["role"] != "user":
+            self._messages.pop(0)
 
     def set_proposal(self, proposal: dict[str, Any]) -> None:
         """Tool handlers call this to attach a proposal card to the current reply."""
@@ -429,3 +468,33 @@ def _truncate(obj: Any, max_len: int = 200) -> Any:
     if isinstance(obj, list) and len(obj) > 10:
         return obj[:10] + ["..."]
     return obj
+
+
+def project_run_tools(
+    *,
+    list_runs: Callable[[], Awaitable[Any]],
+    read_run: Callable[[str, str, str], Awaitable[Any]],
+) -> list[FrontDeskTool]:
+    """Tools to look into the runs of a project (for the project's and the runs' front desks)."""
+    async def _list(p: dict[str, Any]) -> Any:
+        return await list_runs()
+
+    async def _read(p: dict[str, Any]) -> Any:
+        return await read_run(str(p.get("run_id", "")), str(p.get("part", "summary")), str(p.get("path", "")))
+
+    return [
+        FrontDeskTool(
+            "list_runs",
+            "The runs (experiments) of this project: ID, name, status, cost, what they set out to do.",
+            {"type": "object", "properties": {}}, _list),
+        FrontDeskTool(
+            "read_run",
+            "Look into one run of the project. part: 'summary' (status, findings, mental model, the start "
+            "of the report), 'report' (the whole report), 'files' (list a directory, path relative to the "
+            "run), 'file' (read a text file of the run, path relative to the run).",
+            {"type": "object", "properties": {
+                "run_id": {"type": "string"},
+                "part": {"type": "string", "enum": ["summary", "report", "files", "file"]},
+                "path": {"type": "string", "description": "for 'files' and 'file'"},
+            }, "required": ["run_id"]}, _read),
+    ]

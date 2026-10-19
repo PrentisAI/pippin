@@ -35,11 +35,15 @@ An **experiment** is one campaign. Its page shows
 - the container's **CPU and memory limits** (*Container*): click to change them,
   at once while the experiment runs, or for its resume or re-run.
 
-## Talking to a running experiment
+## Talking to an experiment
 
-Type in the experiment chat. The front desk answers questions about the
-experiment and relays instructions to the research agent while it works (see
-[Working with the human](../concepts/human-in-the-loop.md)).
+Type in the experiment chat. While the experiment runs, its front desk answers
+questions and relays instructions to the research agent; afterwards it answers
+questions about the experiment from its files. *Front desk* in the header
+switches it off (no model calls; while the experiment runs, messages then go
+straight to the agent). The project chat can look into all runs of the project
+and propose experiments that build on them (see
+[Working with the human](../concepts/human-in-the-loop.md#front-desks-in-the-web-console)).
 
 ## Decisions
 
@@ -59,9 +63,54 @@ for you.
 - **Resume** continues a stopped or failed experiment from its checkpoint.
 - **Re-run** starts a new experiment with the same settings.
 
+## Renaming and deleting
+
+Each project and run in the sidebar has a **⋮** menu (it appears on hover):
+
+- **Rename** edits the name in place (Enter saves, Escape cancels). Only the
+  displayed name changes; the ID and the directory stay, and a resume or re-run
+  keeps the new name.
+- **Delete** asks for confirmation first. It removes the project (with all its
+  runs) or the run from AURORA; tick *Also delete its files on disk* (the dialog
+  shows how much space that frees) to remove the report, workspace and data as
+  well, otherwise they stay where they are. A running experiment must be stopped
+  first.
+
+The run menu also has **Stop** and **Re-run**.
+
+## Search, Analytics and Settings
+
+The bar on the left also opens:
+
+- **Search** — projects, runs (names and instructions), reports, the project and
+  experiment chats, and skills, with the matching passage; a click opens it.
+- **Analytics** — what the experiments cost and how they went over the last 7,
+  30, 90 or 365 days: total cost, runs, the share completed, mean duration, cost
+  per day, cost per project, and the most expensive runs.
+- **Settings** — the defaults for new experiments: the model of every role,
+  budget and time limit, decision mode and timeout, the front desk, ideation,
+  research limits (jobs at the same time, time per job, follow-up rounds,
+  pre-flight revisions), the live auditor, the container, and skill learning.
+  It also shows the environment: whether the API key is set (never the key),
+  Docker and Claude Code, the machine's CPUs, memory and free disk.
+
+## Changing settings in conversation
+
+You can also say it in the chat:
+
+- In the project chat, settings for one experiment ("budget 50 dollars, Opus for
+  research, 32 CPUs") go into the proposal card, where you can still change
+  them. Defaults for all new experiments ("from now on use Opus for research")
+  are shown to you first and saved only after you agree.
+- In a running experiment's chat, the front desk can switch the decision mode,
+  change the budget and the container's CPUs and memory. The budget can also be
+  changed by clicking *Cost* in the experiment's header; it applies at once.
+
 ## Configuring experiments started from the console
 
-Everything not set on the proposal card comes from the server's base config:
+Everything not set on the proposal card comes from *Settings*, and what Settings
+leaves alone from the server's base config. Settings are kept in
+`AURORA_HOME/console_settings.yaml`; the base config file is not changed:
 
 ```bash
 aurora serve --config base.yaml

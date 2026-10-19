@@ -57,3 +57,12 @@ def test_relative_paths_are_relative_to_the_config_file(tmp_path, monkeypatch):
     cfg = load_config(path)
     assert cfg.inputs == [str(tmp_path / "proj" / "data")]
     assert cfg.workspace.root == str(tmp_path / "proj" / "ws")
+
+
+def test_skill_drafting_has_its_own_model():
+    from aurora.config import PipelineStage
+    m = AuroraConfig(objective="x").models
+    assert m.get_model(PipelineStage.SKILLS) == m.auditor            # empty: the auditor's model
+    m = AuroraConfig(objective="x", models={"skills": "openai/gpt-5.6-sol"}).models
+    assert m.get_model(PipelineStage.SKILLS) == "openai/gpt-5.6-sol"
+    assert m.get_model(PipelineStage.AUDITOR_TRIAGE) != "openai/gpt-5.6-sol"

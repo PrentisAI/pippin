@@ -56,12 +56,33 @@ running session instead of waiting for it to finish.
 When a gate opens, the front desk explains it in the chat; if you answer there,
 it records your decision.
 
-Turn the front desk off with `human.frontdesk: false`; messages then go straight
-to the research agent.
+Turn the front desk off with `human.frontdesk: false`, or for one experiment
+with *Front desk* in its header in the web console (it can be switched back on
+at any time, and a resume keeps the setting); messages then go straight to the
+research agent, and no model is called for it.
 
-## In the web console, before a campaign
+## Front desks in the web console
 
-The project chat has its own front desk that helps you turn an idea into an
-experiment proposal: it asks what is unclear, drafts an instruction for the
-agents and suggests which phases to run. You confirm the proposal card (and can
-change the phases) to start the experiment.
+There are two layers:
+
+- **The project front desk** (the project chat) helps you turn an idea into an
+  experiment proposal: it asks what is unclear, drafts an instruction for the
+  agents and suggests which phases to run. You confirm the proposal card (and
+  can change the phases) to start the experiment.
+- **Each run's front desk** (the experiment chat) is described above. When the
+  run has finished or stopped, it still answers questions about it from its
+  files — what it found, where the outputs are, what went wrong — but can no
+  longer instruct agents. Switch it off to make sure no more model calls are
+  made for that run.
+
+The layers are connected. Both can look into every run of the project (its
+status, findings, mental model, report and files), so you can ask the project
+chat to compare runs, or a run's chat how it differs from another. When a new
+experiment should continue earlier work, the project front desk lists those
+runs as *based on* in the proposal (the card shows them): their reports,
+findings and mental models are copied to the new run's `prior_runs/`, and its
+agents are told to build on them rather than repeat them.
+
+Conversations are kept: the project chat and its proposal cards survive a server
+restart, and every front desk remembers the conversation so far after a restart
+or a resume.

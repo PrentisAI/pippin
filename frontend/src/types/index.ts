@@ -106,6 +106,10 @@ export interface ExperimentSummary {
   decisions_made: number
   /** The container's limits: live while it runs, else what a resume or re-run would use. */
   resources?: ContainerResources | null
+  /** The front desk answers (and relays) messages; off: no model calls for this run. */
+  frontdesk_enabled?: boolean
+  /** Its cost limit (US$; null: none). */
+  max_cost_usd?: number | null
 }
 
 export interface ContainerResources {
@@ -172,7 +176,11 @@ export type IdeationMode = 'roundtable' | 'independent'
 export interface Proposal {
   proposal_id: string
   kind: 'custom'
-  params: { instruction: string; name?: string; inputs?: string[]; model?: string; ideation_mode?: IdeationMode }
+  params: {
+    instruction: string; name?: string; inputs?: string[]; model?: string; ideation_mode?: IdeationMode; based_on?: string[]
+    /** Settings the front desk put in from the conversation (the card starts from them). */
+    autonomy_mode?: AutonomyMode; models?: Record<string, string>; cpus?: number; memory_gb?: number; max_parallel_jobs?: number
+  }
   max_cost_usd?: number | null
   skip_phases: Phase[]
   active_phases: Phase[]
@@ -253,12 +261,15 @@ export interface ModelSettings {
   agent: string
   screening: string
   planning: string
+  preflight: string
   research: string
   analysis: string
   writing: string
   ideation_seats: string[]
   ideation_chair: string
   auditor: string
+  /** Drafts skills from runs and corrections; empty: the milestone auditor's model. */
+  skills: string
   supervisor: string
   frontdesk: string
 }
@@ -271,4 +282,59 @@ export interface ConsoleSettings {
   max_parallel_jobs: number
   sandbox: { docker: boolean; cpus: number; memory_mb: number; host_cpus: number; host_memory_mb: number }
   model_suggestions: string[]
+  /** The console's own settings (defaults for new experiments). */
+  editable: EditableSetting[]
+  environment: ConsoleEnvironment
+}
+
+export interface EditableSetting {
+  key: string
+  group: string
+  label: string
+  kind: 'model' | 'models' | 'number' | 'optional-number' | 'int' | 'bool' | 'choice' | 'text'
+  choices: string[] | null
+  help: string
+  /** What new experiments get now. */
+  value: unknown
+  /** What they would get from the server's base config alone. */
+  server_value: unknown
+  /** Changed in the console. */
+  overridden: boolean
+}
+
+export interface ConsoleEnvironment {
+  api_key: boolean
+  api_base_url: string
+  docker: { ok: boolean; detail: string }
+  claude: { ok: boolean; version: string }
+  host_cpus: number
+  host_memory_mb: number
+  aurora_home: string
+  disk_free_gb: number
+  server_config: string | null
+  console_settings: string
+}
+
+export interface SearchHit {
+  title: string
+  snippet: string
+  campaign_id?: string
+  run_id?: string
+  skill_id?: string
+  status?: string
+  project?: string
+  path?: string
+  kind?: string
+}
+
+export interface Analytics {
+  days: number
+  total_cost_usd: number
+  runs: number
+  by_status: Record<string, number>
+  success_rate: number | null
+  mean_hours: number | null
+  cost_by_day: { day: string; cost_usd: number }[]
+  cost_by_project: { campaign_id: string; project: string; cost_usd: number; runs: number }[]
+  top_runs: { run_id: string; name: string; campaign_id: string; project: string; status: string; cost_usd: number; hours: number | null }[]
 }

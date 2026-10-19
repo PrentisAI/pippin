@@ -117,6 +117,10 @@ function describeEvent(event: StreamEvent): Described {
     case 'resources_updated':
       return system('info', `Container limits: ${String(d.cpus)} CPUs, ${Number(d.memory_mb) / 1024} GB`
         + ` (before: ${String(d.old_cpus)} CPUs, ${Number(d.old_memory_mb) / 1024} GB)`)
+    case 'budget_changed':
+      return system('info', `Budget: ${d.new == null ? 'no limit' : formatCost(d.new)} (was ${d.old == null ? 'no limit' : formatCost(d.old)}; spent ${formatCost(d.spent)})`)
+    case 'frontdesk_switched':
+      return system('info', `Front desk ${d.enabled ? 'on' : 'off'}`)
     case 'autonomy_changed':
       return system('info', `Mode switched: ${d.old_mode ?? '?'} → ${d.new_mode ?? '?'}`)
 

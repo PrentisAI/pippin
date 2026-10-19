@@ -224,6 +224,11 @@ class ResearchEngine:
 
         # Front desk agent: the human's conversation partner while the campaign runs
         self._frontdesk: Any = None
+        self._frontdesk_listener: Any = None
+        # set by the web console before the run: the conversation so far (restored into the front
+        # desk's memory) and tools that look into the project's other runs
+        self.prior_chat: list[dict[str, Any]] = []
+        self.extra_frontdesk_tools: list[Any] = []
         # Next research-agent text goes to the front desk (after it relayed an instruction)
         self._awaiting_agent_response: bool = False
 
@@ -1305,7 +1310,7 @@ Be specific: cite file names and concrete observations.
         try:
             digest = await asyncio.to_thread(learning.transcript_digest, transcript, job=job)
             proposals = await learning.distill(
-                self._router, PipelineStage.AUDITOR_TRIAGE, digest=digest, library=self._library_text(),
+                self._router, PipelineStage.SKILLS, digest=digest, library=self._library_text(),
                 what=f"{what}, in a campaign on: {self._config.objective[:600]}")
         except Exception:
             logger.warning("Self-distillation of %s failed", what, exc_info=True)
@@ -1336,7 +1341,7 @@ Be specific: cite file names and concrete observations.
         if st is not None and getattr(st, "recent_actions", None):
             context += "\nWhat the research agent was doing:\n" + "\n".join(st.recent_actions[-8:])
         try:
-            proposals = await learning.from_feedback(self._router, PipelineStage.AUDITOR_TRIAGE, message=message,
+            proposals = await learning.from_feedback(self._router, PipelineStage.SKILLS, message=message,
                                                      context=context, library=self._library_text())
         except Exception:
             logger.warning("Turning the researcher's message into a skill failed", exc_info=True)
@@ -2430,14 +2435,32 @@ Be specific: cite file names and concrete observations.
             system_prompt=CAMPAIGN_PROMPT + f"\nCampaign objective: {self._config.objective}\n",
             workspace_root=self._workspace.root if self._workspace else None,
             tools=campaign_tools(relay=relay, interrupt=interrupt, answer_gate=answer_gate,
-                                 set_resources=set_resources if self._config.sandbox.docker else None),
+                                 set_resources=set_resources if self._config.sandbox.docker else None)
+            + list(self.extra_frontdesk_tools),
             status_fn=status,
             broadcast_fn=broadcast,
         )
+        if self.prior_chat:
+            self._frontdesk.restore(self.prior_chat)
+        self._frontdesk_listener = on_event
         self._bus.subscribe_all(on_event)
         logger.info("Front desk ready (model=%s)", self._config.models.frontdesk)
 
+    async def set_frontdesk(self, enabled: bool, history: list[dict[str, Any]] | None = None) -> None:
+        """Switch the front desk of the running campaign on or off (off: no model calls; messages go
+        straight to the research agent)."""
+        self._config.human.frontdesk = enabled
+        if not enabled:
+            await self._stop_frontdesk()
+        elif self._frontdesk is None and not self._config.mock_mode and not self._finishing:
+            if history is not None:
+                self.prior_chat = history
+            await self._start_frontdesk()
+
     async def _stop_frontdesk(self) -> None:
+        if self._frontdesk_listener is not None:
+            self._bus.unsubscribe("*", self._frontdesk_listener)
+            self._frontdesk_listener = None
         if self._frontdesk is not None:
             await self._frontdesk.close()
             self._frontdesk = None

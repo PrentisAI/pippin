@@ -7,11 +7,12 @@ All roles use OpenRouter model IDs (`vendor/model`), so one
 
 | Role | Config key | Default |
 |---|---|---|
-| Phase agents (screening, planning, research, analysis, writing) | `models.agent` | `anthropic/claude-sonnet-5.5` |
-| One phase's agent, overriding `models.agent` | `models.screening`, `models.planning`, `models.research`, `models.analysis`, `models.writing` | empty (use `models.agent`) |
+| Phase agents (screening, planning, pre-flight, research, analysis, writing) | `models.agent` | `anthropic/claude-sonnet-5.5` |
+| One phase's agent, overriding `models.agent` | `models.screening`, `models.planning`, `models.preflight`, `models.research`, `models.analysis`, `models.writing` | empty (use `models.agent`) |
 | Ideation seats | `models.ideation_seats` | Claude Sonnet 5.5, GPT-5.6, Gemini 3.1 Pro |
 | Ideation chair | `models.ideation_chair` | `moonshotai/kimi-k3` |
 | Milestone auditor | `models.auditor` | `anthropic/claude-sonnet-5.5` |
+| Skill drafting: decides what to keep as skills, from runs and your corrections | `models.skills` | empty (use `models.auditor`) |
 | Live auditor | `models.supervisor` | `anthropic/claude-sonnet-5.5` |
 | Front desk | `models.frontdesk` | `anthropic/claude-haiku-5.5` |
 

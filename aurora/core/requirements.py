@@ -72,7 +72,7 @@ def configured_models(config: AuroraConfig) -> dict[str, str]:
     m = config.models
     roles = {"models.agent": m.agent, "models.ideation_chair": m.ideation_chair, "models.auditor": m.auditor,
              "models.supervisor": m.supervisor, "models.frontdesk": m.frontdesk}
-    for phase in ("screening", "planning", "preflight", "research", "analysis", "writing"):
+    for phase in ("screening", "planning", "preflight", "research", "analysis", "writing", "skills"):
         if getattr(m, phase):
             roles[f"models.{phase}"] = getattr(m, phase)
     for i, seat in enumerate(m.ideation_seats):

@@ -2,6 +2,8 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api, describeError } from '../api/client'
 import { AgentStreamView } from '../components/AgentStreamView'
+import { AnalyticsPanel, SearchPanel, SettingsPanel } from '../components/ConsolePanels'
+import { ConfirmDelete, InlineRename, ItemMenu, PencilIcon, RerunIcon, StopIcon, TrashIcon } from '../components/ItemMenu'
 import { ScopePicker, type ScopeValue } from '../components/SkillScope'
 import { WorkspacePanel } from '../components/WorkspacePanel'
 import { formatCost, formatDuration } from '../format'
@@ -237,6 +239,10 @@ function SidebarPanel({
   onSelectExperiment,
   onStopExperiment,
   onRerunExperiment,
+  onRenameCampaign,
+  onDeleteCampaign,
+  onRenameExperiment,
+  onDeleteExperiment,
 }: {
   campaigns: CampaignSummary[]
   activeCampaignId: string | null
@@ -249,11 +255,17 @@ function SidebarPanel({
   onSelectExperiment: (expId: string) => void
   onStopExperiment: (campaignId: string, expId: string) => void
   onRerunExperiment: (campaignId: string, expId: string) => void
+  onRenameCampaign: (campaignId: string, name: string) => void
+  onDeleteCampaign: (campaign: CampaignSummary) => void
+  onRenameExperiment: (campaignId: string, expId: string, name: string) => void
+  onDeleteExperiment: (campaignId: string, exp: ExperimentSummary) => void
 }) {
+  // the project or run whose name is being edited ("c:<id>" or "e:<id>")
+  const [renaming, setRenaming] = useState<string | null>(null)
   return (
     <div className={`sidebar${collapsed ? ' collapsed' : ''}`} ref={sidebarRef}>
       <div className="sidebar-brand">
-        <div className="logo">M</div>
+        <div className="logo">A</div>
         <div className="name">AURORA</div>
         <button className="new-btn" title="New project" onClick={onNewProject}>+</button>
       </div>
@@ -275,10 +287,19 @@ function SidebarPanel({
               >
                 <div className={`camp-dot ${c.needs_attention ? 'attention' : hasRunning ? 'running' : 'idle'}`} />
                 <div className="camp-body">
-                  <div className="camp-name">{c.name}</div>
+                  {renaming === `c:${c.campaign_id}` ? (
+                    <InlineRename value={c.name} onCancel={() => setRenaming(null)}
+                      onSave={(name) => { setRenaming(null); onRenameCampaign(c.campaign_id, name) }} />
+                  ) : (
+                    <div className="camp-name">{c.name}</div>
+                  )}
                   <div className="camp-meta">{c.objective || 'No objective'}</div>
                 </div>
                 <div className="camp-time">{relativeTime(c.updated_at)}</div>
+                <ItemMenu label="Project actions" items={[
+                  { label: 'Rename', icon: <PencilIcon />, onSelect: () => setRenaming(`c:${c.campaign_id}`) },
+                  { label: 'Delete', icon: <TrashIcon />, danger: true, divided: true, onSelect: () => onDeleteCampaign(c) },
+                ]} />
               </div>
               {isActive && experiments.length > 0 && (
                 <div className="exp-list show">
@@ -292,18 +313,19 @@ function SidebarPanel({
                         onClick={(e) => { e.stopPropagation(); onSelectExperiment(exp.run_id) }}
                       >
                         <div className="exp-dot" style={{ background: expDotColor(exp.status) }} />
-                        <div className="exp-name">{experimentName(exp)}</div>
+                        {renaming === `e:${exp.run_id}` ? (
+                          <InlineRename value={experimentName(exp)} onCancel={() => setRenaming(null)}
+                            onSave={(name) => { setRenaming(null); onRenameExperiment(c.campaign_id, exp.run_id, name) }} />
+                        ) : (
+                          <div className="exp-name">{experimentName(exp)}</div>
+                        )}
                         <span className={`exp-badge ${expBadgeClass(exp.status)}`}>{statusLabel(exp.status)}</span>
-                        <div className="exp-actions">
-                          {isActive && (
-                            <span className="exp-action-btn stop" title="Stop" onClick={(e) => { e.stopPropagation(); onStopExperiment(c.campaign_id, exp.run_id) }}>
-                              &#9632;
-                            </span>
-                          )}
-                          <span className="exp-action-btn resume" title="Re-run with the same settings" onClick={(e) => { e.stopPropagation(); onRerunExperiment(c.campaign_id, exp.run_id) }}>
-                            &#8635;
-                          </span>
-                        </div>
+                        <ItemMenu label="Run actions" items={[
+                          { label: 'Rename', icon: <PencilIcon />, onSelect: () => setRenaming(`e:${exp.run_id}`) },
+                          ...(isActive ? [{ label: 'Stop', icon: <StopIcon />, onSelect: () => onStopExperiment(c.campaign_id, exp.run_id) }] : []),
+                          { label: 'Re-run with the same settings', icon: <RerunIcon />, onSelect: () => onRerunExperiment(c.campaign_id, exp.run_id) },
+                          { label: 'Delete', icon: <TrashIcon />, danger: true, divided: true, onSelect: () => onDeleteExperiment(c.campaign_id, exp) },
+                        ]} />
                       </div>
                     )
                   })}
@@ -468,7 +490,10 @@ function ChatArea({
     setMessages((prev) => [...prev, { role: 'user', text, timestamp: Date.now() / 1000 }])
     try {
       if (!isProjectTab) {
-        await api.expChat.send(campaignId, activeTab, text)
+        const resp = await api.expChat.send(campaignId, activeTab, text)
+        if (resp.status === 'frontdesk_off') {
+          setMessages((prev) => [...prev, { role: 'system', text: resp.response, timestamp: Date.now() / 1000 }])
+        }
       } else {
         const resp = await api.chat.send(campaignId, text)
         if (resp?.proposal) {
@@ -513,7 +538,15 @@ function ChatArea({
     }
   }
 
-  const tabTaskName = isProjectTab ? '' : experimentName(experiments.find((e) => e.run_id === activeTab))
+  const tabExp = isProjectTab ? undefined : experiments.find((e) => e.run_id === activeTab)
+  const tabTaskName = isProjectTab ? '' : experimentName(tabExp)
+  const tabRunning = !!tabExp && isActiveStatus(tabExp.status)
+  const deskOff = !!tabExp && tabExp.frontdesk_enabled === false
+  const chatClosed = deskOff && !tabRunning          // nobody would answer
+  const placeholder = isProjectTab ? 'Message the project...'
+    : chatClosed ? 'The front desk of this experiment is off (switch it on in the header)'
+    : deskOff ? `Front desk off: messages go straight to the research agent of ${tabTaskName}`
+    : tabRunning ? `Message ${tabTaskName}...` : `Ask about ${tabTaskName}...`
   const pendingDecision = pendingDecisions[0]
 
   return (
@@ -659,10 +692,11 @@ function ChatArea({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
             }}
-            placeholder={isProjectTab ? 'Message the project...' : `Message ${tabTaskName}...`}
+            placeholder={placeholder}
+            disabled={chatClosed}
             rows={1}
           />
-          <button className="send-btn" disabled={!input.trim() || sending} onClick={handleSend}>
+          <button className="send-btn" disabled={!input.trim() || sending || chatClosed} onClick={handleSend}>
             {sending ? <span className="spinner" /> : <SendSvgIcon />}
           </button>
         </div>
@@ -670,7 +704,8 @@ function ChatArea({
           <button className="add-skill-btn" onClick={() => setShowSkillForm(!showSkillForm)}>+ Skill</button>
           <span>
             Talking to <span className="target">{isProjectTab ? 'the project front desk' : tabTaskName}</span>
-            {isProjectTab && ' · open an experiment tab to see its activity'}
+            {isProjectTab && ' · it can look into every run of the project'}
+            {!isProjectTab && !deskOff && !tabRunning && ' · finished: its front desk answers from its files'}
           </span>
         </div>
       </div>
@@ -808,6 +843,12 @@ function ExperimentView({
     await fetchRun()
   })
 
+  const handleToggleFrontdesk = () => act('Switching the front desk', async () => {
+    if (!run) return
+    await api.experiments.setFrontdesk(campaignId, experimentId, run.frontdesk_enabled === false)
+    await fetchRun()
+  })
+
   const handleOpenReport = () => {
     if (!run?.report) return
     setRightPanel('files')
@@ -847,10 +888,8 @@ function ExperimentView({
           <div className="stat-label">Elapsed</div>
           <div className="stat-value mono">{formatDuration(elapsed)}</div>
         </div>
-        <div className="stat">
-          <div className="stat-label">Cost</div>
-          <div className="stat-value mono">{formatCost(run?.cost_usd)}</div>
-        </div>
+        <BudgetStat campaignId={campaignId} experimentId={experimentId} cost={run?.cost_usd}
+          budget={run?.max_cost_usd} onChanged={fetchRun} />
         <div className="stat">
           <div className="stat-label">Model</div>
           <div className="stat-value">{run?.model?.split('/').pop() || '—'}</div>
@@ -864,6 +903,20 @@ function ExperimentView({
             onClick={isActive ? handleToggleAutonomy : undefined}
           >
             {run?.autonomy_mode || '—'}
+          </div>
+        </div>
+        <div className="stat">
+          <div className="stat-label">Front desk</div>
+          <div
+            className="stat-value"
+            title={run?.frontdesk_enabled === false
+              ? 'Off: no model calls for this experiment. Click to switch it on.'
+              : isActive ? 'On: answers your messages and relays them to the agent. Click to switch it off (messages then go straight to the agent).'
+                : 'On: answers questions about this experiment from its files. Click to switch it off.'}
+            style={{ cursor: 'pointer', color: run?.frontdesk_enabled === false ? 'var(--fg-dim)' : 'var(--green)' }}
+            onClick={handleToggleFrontdesk}
+          >
+            {run ? (run.frontdesk_enabled === false ? 'off' : 'on') : '—'}
           </div>
         </div>
         {run?.resources?.docker && (
@@ -1101,11 +1154,16 @@ function missingSections(text: string, sections: string[]): string[] {
 type SkillsTab = 'all' | 'human' | 'self' | 'manual'
 
 /** The skill library: what the agents may use; skills learned from your corrections and from runs. */
-function SkillsPanel({ collapsed, panelRef }: { collapsed: boolean; panelRef: React.RefObject<HTMLDivElement | null> }) {
+function SkillsPanel({ collapsed, panelRef, initialSearch = '' }: {
+  collapsed: boolean
+  panelRef: React.RefObject<HTMLDivElement | null>
+  /** Start filtered (opened from a search result). */
+  initialSearch?: string
+}) {
   const [skills, setSkills] = useState<Skill[]>([])
   const [sections, setSections] = useState<string[]>([])
   const [template, setTemplate] = useState('')
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(initialSearch)
   const [tab, setTab] = useState<SkillsTab>('all')
   const [openId, setOpenId] = useState<string | null>(null)
   const [draft, setDraft] = useState({ text: '', description: '' })
@@ -1353,7 +1411,14 @@ function ProposalCard({
   const [skipPhases, setSkipPhases] = useState<Phase[]>(proposal.skip_phases)
   const [budget, setBudget] = useState<string>(proposal.max_cost_usd != null ? String(proposal.max_cost_usd) : '')
   const [ideationMode, setIdeationMode] = useState<IdeationMode>(proposal.params.ideation_mode ?? 'roundtable')
-  const [advanced, setAdvanced] = useState<AdvancedChoices>({ autonomy: null, models: {} })
+  // the card starts from what the front desk put in from the conversation
+  const [advanced, setAdvanced] = useState<AdvancedChoices>(() => ({
+    autonomy: proposal.params.autonomy_mode ?? null,
+    models: (proposal.params.models ?? {}) as AdvancedChoices['models'],
+    cpus: proposal.params.cpus != null ? String(proposal.params.cpus) : undefined,
+    memoryGb: proposal.params.memory_gb != null ? String(proposal.params.memory_gb) : undefined,
+    parallel: proposal.params.max_parallel_jobs != null ? String(proposal.params.max_parallel_jobs) : undefined,
+  }))
   const [confirming, setConfirming] = useState(false)
   const [confirmed, setConfirmed] = useState(proposal.confirmed)
   const [started, setStarted] = useState<ConfirmedSettings | null>(proposal.confirmed_settings ?? null)
@@ -1429,6 +1494,7 @@ function ProposalCard({
   }
 
   const { instruction, model, inputs } = proposal.params
+  const basedOn: string[] = Array.isArray(proposal.params.based_on) ? proposal.params.based_on : []
 
   return (
     <div className="proposal-card">
@@ -1447,6 +1513,9 @@ function ProposalCard({
         </div>
       )}
       {inputs && inputs.length > 0 && <div className="proposal-meta">Inputs: {inputs.join(', ')}</div>}
+      {basedOn.length > 0 && (
+        <div className="proposal-meta">Builds on: {basedOn.join(', ')} <span className="proposal-hint">their reports and findings go to the agents</span></div>
+      )}
       {model && <div className="proposal-meta">Model: {model}</div>}
 
       <PhasePipelineSelector skipPhases={skipPhases} onChange={setSkipPhases} />
@@ -1561,9 +1630,14 @@ export default function Home() {
 
   const sidebarRef = useRef<HTMLDivElement>(null)
   const skillsPanelRef = useRef<HTMLDivElement>(null)
+  const searchPanelRef = useRef<HTMLDivElement>(null)
+  const analyticsPanelRef = useRef<HTMLDivElement>(null)
+  const settingsPanelRef = useRef<HTMLDivElement>(null)
+  const [skillQuery, setSkillQuery] = useState('')
   const streamRef = useRef<HTMLDivElement>(null)
 
-  const sidebarCollapsed = activePanel === '' || activePanel === 'skills'
+  const sidePanels = ['skills', 'search', 'analytics', 'settings']
+  const sidebarCollapsed = activePanel === '' || sidePanels.includes(activePanel)
   const showSkills = activePanel === 'skills'
 
   // Sync URL → state on URL change
@@ -1591,6 +1665,18 @@ export default function Home() {
       navigate(`/campaigns/${activeCampaignId}`, { replace: true })
     }
   }, [activeCampaignId, navigate])
+
+  const openProject = useCallback((campaignId: string) => {
+    setActiveCampaignId(campaignId)
+    setActiveExperimentId(null)
+    navigate(`/campaigns/${campaignId}`, { replace: true })
+  }, [navigate])
+
+  const openRun = useCallback((campaignId: string, runId: string) => {
+    setActiveCampaignId(campaignId)
+    setActiveExperimentId(runId)
+    navigate(`/campaigns/${campaignId}/experiments/${runId}`, { replace: true })
+  }, [navigate])
 
   const handleTogglePanel = (panel: string) => {
     if (panel === 'explorer') {
@@ -1663,6 +1749,61 @@ export default function Home() {
     }
   }
 
+  const handleRenameCampaign = async (campaignId: string, name: string) => {
+    try {
+      await api.campaigns.rename(campaignId, name)
+      fetchCampaigns()
+    } catch (err) {
+      setNotice(`Rename failed: ${describeError(err)}`)
+    }
+  }
+
+  const handleRenameExperiment = async (campaignId: string, expId: string, name: string) => {
+    try {
+      await api.experiments.rename(campaignId, expId, name)
+      fetchExperiments()
+    } catch (err) {
+      setNotice(`Rename failed: ${describeError(err)}`)
+    }
+  }
+
+  // the project or run waiting for the delete confirmation
+  const [deleting, setDeleting] = useState<
+    | { kind: 'project'; campaign: CampaignSummary }
+    | { kind: 'run'; campaignId: string; exp: ExperimentSummary }
+    | null>(null)
+  const cancelDelete = useCallback(() => setDeleting(null), [])
+  const deletingUsage = useCallback(async () => {
+    if (!deleting) return 0
+    const r = deleting.kind === 'project'
+      ? await api.campaigns.diskUsage(deleting.campaign.campaign_id)
+      : await api.experiments.diskUsage(deleting.campaignId, deleting.exp.run_id)
+    return r.bytes
+  }, [deleting])
+
+  const confirmDelete = async (deleteFiles: boolean) => {
+    if (!deleting) return
+    try {
+      if (deleting.kind === 'project') {
+        const id = deleting.campaign.campaign_id
+        await api.campaigns.delete(id, deleteFiles)
+        if (id === activeCampaignId) {
+          setActiveCampaignId(null)
+          setActiveExperimentId(null)
+          navigate('/', { replace: true })
+        }
+      } else {
+        await api.experiments.remove(deleting.campaignId, deleting.exp.run_id, deleteFiles)
+        if (deleting.exp.run_id === activeExperimentId) selectExperiment(null)
+      }
+    } catch (err) {
+      throw new Error(describeError(err))
+    }
+    setDeleting(null)
+    fetchCampaigns()
+    fetchExperiments()
+  }
+
   const activeCampaign = campaigns.find((c) => c.campaign_id === activeCampaignId) || null
 
   // Determine view
@@ -1688,12 +1829,40 @@ export default function Home() {
         onSelectExperiment={(expId) => selectExperiment(expId)}
         onStopExperiment={handleStopExperiment}
         onRerunExperiment={handleRerunExperiment}
+        onRenameCampaign={handleRenameCampaign}
+        onDeleteCampaign={(campaign) => setDeleting({ kind: 'project', campaign })}
+        onRenameExperiment={handleRenameExperiment}
+        onDeleteExperiment={(campaignId, exp) => setDeleting({ kind: 'run', campaignId, exp })}
       />
+
+      {deleting && (
+        <ConfirmDelete
+          kind={deleting.kind}
+          name={deleting.kind === 'project' ? deleting.campaign.name : experimentName(deleting.exp)}
+          detail={deleting.kind === 'project' && deleting.campaign.experiment_count
+            ? `Its ${deleting.campaign.experiment_count} run${deleting.campaign.experiment_count === 1 ? ' is' : 's are'} removed too.` : undefined}
+          blocked={deleting.kind === 'project'
+            ? (deleting.campaign.active_experiments ? 'Stop its running experiments first.' : undefined)
+            : (isActiveStatus(deleting.exp.status) ? 'Stop the run first.' : undefined)}
+          diskUsage={deletingUsage}
+          onConfirm={confirmDelete}
+          onCancel={cancelDelete}
+        />
+      )}
 
       <ResizeHandle targetRef={sidebarRef} side="right" />
 
-      <SkillsPanel collapsed={!showSkills} panelRef={skillsPanelRef} />
+      <SkillsPanel key={skillQuery} collapsed={!showSkills} panelRef={skillsPanelRef} initialSearch={skillQuery} />
       {showSkills && <ResizeHandle targetRef={skillsPanelRef} side="right" />}
+      <SearchPanel collapsed={activePanel !== 'search'} panelRef={searchPanelRef}
+        onOpenProject={openProject} onOpenRun={openRun}
+        onOpenSkill={(name) => { setSkillQuery(name); setActivePanel('skills') }} />
+      {activePanel === 'search' && <ResizeHandle targetRef={searchPanelRef} side="right" />}
+      <AnalyticsPanel collapsed={activePanel !== 'analytics'} panelRef={analyticsPanelRef}
+        onOpenProject={openProject} onOpenRun={openRun} />
+      {activePanel === 'analytics' && <ResizeHandle targetRef={analyticsPanelRef} side="right" />}
+      <SettingsPanel collapsed={activePanel !== 'settings'} panelRef={settingsPanelRef} />
+      {activePanel === 'settings' && <ResizeHandle targetRef={settingsPanelRef} side="right" />}
 
       <div className="main" style={{ position: 'relative' }}>
         <ErrorBanner message={notice} onDismiss={() => setNotice(null)} />
@@ -1739,6 +1908,70 @@ export default function Home() {
   )
 }
 
+
+// ---------------------------------------------------------------------------
+// Cost and budget of an experiment; the budget can be changed at any time
+// ---------------------------------------------------------------------------
+
+function BudgetStat({ campaignId, experimentId, cost, budget, onChanged }: {
+  campaignId: string
+  experimentId: string
+  cost?: number
+  budget?: number | null
+  onChanged: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [text, setText] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const open = () => {
+    setText(budget != null ? String(budget) : '')
+    setError(null)
+    setEditing(true)
+  }
+  const apply = async () => {
+    const value = text.trim() === '' ? null : Number(text)
+    if (value !== null && !(value > 0)) {
+      setError('A positive amount, or empty for no limit')
+      return
+    }
+    setSaving(true)
+    try {
+      const r = await api.experiments.setBudget(campaignId, experimentId, value)
+      setEditing(false)
+      if (r.note) setError(r.note)
+      onChanged()
+    } catch (err) {
+      setError(describeError(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="stat resources-stat">
+      <div className="stat-label">Cost</div>
+      <div className="stat-value mono" style={{ cursor: 'pointer' }} onClick={editing ? undefined : open}
+        title="Click to change the budget (it applies at once)">
+        {formatCost(cost)}<span className="stat-sub"> / {budget != null ? formatCost(budget) : 'no limit'}</span>
+      </div>
+      {editing && (
+        <div className="resources-pop">
+          <label>Budget (US$) <input type="number" min="1" step="1" value={text} placeholder="no limit"
+            onChange={(e) => setText(e.target.value)} /></label>
+          <div className="resources-hint">The experiment stops cleanly when it is reached; empty for no limit.</div>
+          {error && <div className="tl-detail tone-error">{error}</div>}
+          <div className="resources-actions">
+            <button className="btn-sm" disabled={saving} onClick={() => setEditing(false)}>Cancel</button>
+            <button className="btn-sm btn-approve" disabled={saving} onClick={apply}>{saving ? 'Applying…' : 'Apply'}</button>
+          </div>
+        </div>
+      )}
+      {!editing && error && <div className="tl-detail tone-error" style={{ maxWidth: 220 }}>{error}</div>}
+    </div>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Container limits of an experiment, changeable at any time
@@ -1838,6 +2071,7 @@ function useConsoleSettings(): ConsoleSettings | null {
 const PHASE_MODEL_ROLES: Array<[keyof ModelSettings, string]> = [
   ['screening', 'Screening'],
   ['planning', 'Planning'],
+  ['preflight', 'Pre-flight'],
   ['research', 'Research'],
   ['analysis', 'Analysis'],
   ['writing', 'Writing'],
@@ -1918,6 +2152,7 @@ function AdvancedSettings({
             {ideation && field('ideation_seats', 'Ideation seats (comma-separated)')}
             {ideation && field('ideation_chair', 'Ideation chair')}
             {OVERSIGHT_MODEL_ROLES.map(([role, label]) => field(role, label))}
+            {field('skills', 'Skill drafting (from runs and your corrections)', `same as milestone auditor: ${current('auditor')}`)}
           </div>
           <div className="advanced-group">
             <div className="advanced-title">Research jobs</div>
@@ -1960,12 +2195,14 @@ const MODEL_ROLE_LABELS: Record<string, string> = {
   agent: 'Agents',
   screening: 'Screening',
   planning: 'Planning',
+  preflight: 'Pre-flight',
   research: 'Research',
   analysis: 'Analysis',
   writing: 'Writing',
   ideation_seats: 'Ideation seats',
   ideation_chair: 'Ideation chair',
   auditor: 'Milestone auditor',
+  skills: 'Skill drafting',
   supervisor: 'Live auditor',
   frontdesk: 'Front desk',
 }

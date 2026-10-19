@@ -51,7 +51,7 @@ _GATE_ACTIONS = {"continue": "continue", "approve": "continue", "instruct": "ins
 _SAFE_PATH = re.compile(r"^[\w .@+=,%-]+(/[\w .@+=,%-]+)*$")
 
 
-def base_config() -> dict[str, Any]:
+def server_config() -> dict[str, Any]:
     """The server's base campaign configuration (``aurora serve --config``), as a dict."""
     path = os.environ.get("AURORA_SERVER_CONFIG")
     if not path:
@@ -61,6 +61,12 @@ def base_config() -> dict[str, Any]:
     data.pop("objective", None)
     data.pop("campaign_id", None)
     return data
+
+
+def base_config() -> dict[str, Any]:
+    """What new experiments start from: the server's base config with the console's settings over it."""
+    from aurora.api.console_settings import deep_merge, load_overlay
+    return deep_merge(server_config(), load_overlay())
 
 
 # Experiments started from the console get this cost limit unless the server's base
@@ -108,6 +114,9 @@ class ExperimentRunState:
         self.decision_history: list[dict[str, Any]] = []
         self.engine: Any = None
         self.task: asyncio.Task | None = None
+        # the front desk: on while the run runs, and afterwards for questions about it; off: no model calls
+        self.frontdesk_enabled = True
+        self.finished_desk: Any = None      # the front desk of the run once it no longer runs
 
     @property
     def campaign_dir(self) -> Path:
@@ -153,7 +162,18 @@ class ExperimentRunState:
             "pending_decision": self.pending_decision(),
             "decisions_made": len(self.decision_history),
             "resources": self.engine.resources if self.engine is not None else self._saved_resources(),
+            "frontdesk_enabled": self.frontdesk_enabled,
+            "max_cost_usd": (self.engine._config.budget.max_cost_usd if self.engine is not None
+                             else self._saved_budget()),
         }
+
+    def _saved_budget(self) -> float | None:
+        try:
+            row = store.get_experiment(self.run_id) or {}
+            req = json.loads(row.get("config_json") or "{}").get("request") or {}
+            return req.get("max_cost_usd") if "max_cost_usd" in req else default_max_cost()
+        except Exception:
+            return None
 
     def _saved_resources(self) -> dict[str, Any] | None:
         """Limits a resume or re-run would use: the saved request's, else the base config's."""
@@ -195,6 +215,18 @@ class ExperimentProposal:
             "confirmed_settings": self.confirmed_settings,
         }
 
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ExperimentProposal:
+        p = cls(d.get("params", {}), d.get("skip_phases", []), d.get("summary", ""))
+        p.proposal_id = d.get("proposal_id", p.proposal_id)
+        p.kind = d.get("kind", p.kind)
+        p.max_cost_usd = d.get("max_cost_usd", p.max_cost_usd)
+        p.created_at = d.get("created_at", p.created_at)
+        p.confirmed = bool(d.get("confirmed"))
+        p.superseded = bool(d.get("superseded"))
+        p.confirmed_settings = d.get("confirmed_settings")
+        return p
+
 
 class CampaignState:
     """A project: experiments, the project conversation and pending proposals."""
@@ -223,6 +255,15 @@ class CampaignState:
 
     def note(self, text: str) -> None:
         self.chat_history.append({"role": "system", "text": text, "timestamp": time.time()})
+        self.save()
+
+    def save(self) -> None:
+        """Keep the project conversation and its proposals (they survive a server restart)."""
+        try:
+            store.save_project_state(self.campaign_id, self.chat_history[-500:],
+                                     [p.to_dict() for p in self.proposals.values()][-50:])
+        except Exception:
+            logger.warning("Could not save the conversation of project %s", self.campaign_id, exc_info=True)
 
 
 _campaigns: dict[str, CampaignState] = {}
@@ -248,7 +289,17 @@ def _ensure_campaign(campaign_id: str) -> CampaignState:
         rs.phase = e.get("phase") or ""
         rs.cost_usd = e.get("cost_usd") or 0.0
         rs.turn = e.get("turn") or 0
+        try:
+            saved = json.loads(e.get("config_json") or "{}").get("request") or {}
+            rs.frontdesk_enabled = saved.get("frontdesk") is not False
+        except ValueError:
+            pass
         campaign.experiments[e["run_id"]] = rs
+    chat, proposals = store.load_project_state(campaign_id)
+    campaign.chat_history = chat
+    for d in proposals:
+        prop = ExperimentProposal.from_dict(d)
+        campaign.proposals[prop.proposal_id] = prop
     _campaigns[campaign_id] = campaign
     return campaign
 
@@ -316,15 +367,88 @@ async def get_campaign(campaign_id: str) -> dict[str, Any]:
     return summary
 
 
-@campaign_router.delete("/{campaign_id}")
-async def delete_campaign(campaign_id: str) -> dict[str, Any]:
+class RenameRequest(BaseModel):
+    name: str
+
+
+def _clean_name(name: str) -> str:
+    name = " ".join(name.split())
+    if not name:
+        raise HTTPException(400, "The name is empty")
+    return name[:200]
+
+
+@campaign_router.patch("/{campaign_id}")
+async def rename_campaign(campaign_id: str, req: RenameRequest) -> dict[str, Any]:
+    """Rename a project (its ID and directory stay)."""
     campaign = _ensure_campaign(campaign_id)
-    for run in campaign.experiments.values():
-        if run.engine is not None:
-            run.engine.request_stop("project deleted")
+    campaign.name = _clean_name(req.name)
+    store.rename_campaign(campaign_id, campaign.name)
+    return campaign.to_summary()
+
+
+def _active(run: ExperimentRunState) -> bool:
+    return run.status in ("starting", "running", "awaiting_human")
+
+
+def _dir_size(path: Path) -> int:
+    total = 0
+    stack = [path]
+    while stack:
+        try:
+            with os.scandir(stack.pop()) as it:
+                for entry in it:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(Path(entry.path))
+                        else:
+                            total += entry.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return total
+
+
+async def _remove_dir(path: Path) -> None:
+    """Delete a project's or run's directory; files a container left to root are removed through Docker."""
+    import shutil
+    root = _projects_root().resolve()
+    path = path.resolve()
+    if not path.is_relative_to(root) or path == root or not path.exists():
+        return
+    try:
+        await asyncio.to_thread(shutil.rmtree, path)
+    except PermissionError:
+        from aurora.core.docker_backend import PROXY_IMAGE, _run
+        code, _, err = await _run("docker", "run", "--rm", "-v", f"{path.parent}:/parent", PROXY_IMAGE,
+                                  "rm", "-rf", f"/parent/{path.name}", timeout=1800)
+        if code != 0:
+            raise HTTPException(500, f"Could not delete {path}: {err.strip()}") from None
+
+
+@campaign_router.get("/{campaign_id}/disk")
+async def campaign_disk_usage(campaign_id: str) -> dict[str, Any]:
+    """Bytes the project's files take on disk."""
+    _ensure_campaign(campaign_id)
+    path = _projects_root() / campaign_id
+    return {"bytes": await asyncio.to_thread(_dir_size, path), "path": str(path)}
+
+
+@campaign_router.delete("/{campaign_id}")
+async def delete_campaign(campaign_id: str, delete_files: bool = False) -> dict[str, Any]:
+    """Delete a project and its runs from AURORA; with *delete_files*, also their files on disk.
+    Running experiments must be stopped first."""
+    campaign = _ensure_campaign(campaign_id)
+    running = [r.task_name or r.run_id for r in campaign.experiments.values() if _active(r)]
+    if running:
+        raise HTTPException(409, f"Stop the running experiments first: {', '.join(running)}")
+    if delete_files:
+        await _remove_dir(_projects_root() / campaign_id)
     _campaigns.pop(campaign_id, None)
     store.delete_campaign(campaign_id)
-    return {"ok": True, "campaign_id": campaign_id}
+    store.delete_events(campaign_id)
+    return {"ok": True, "campaign_id": campaign_id, "files_deleted": delete_files}
 
 
 # ---------------------------------------------------------------------------
@@ -349,6 +473,8 @@ class StartExperimentRequest(BaseModel):
     cpus: float | None = None          # sandbox.cpus
     memory_mb: int | None = None       # sandbox.memory_mb
     max_parallel_jobs: int | None = None   # agent.max_parallel_jobs
+    based_on: list[str] = []           # runs of the project this experiment builds on
+    frontdesk: bool | None = None      # human.frontdesk
 
 
 def default_skip_phases(instruction: str) -> list[str]:
@@ -379,6 +505,10 @@ def _experiment_config(campaign: CampaignState, run_id: str, req: StartExperimen
         raw.setdefault("sandbox", {})["memory_mb"] = req.memory_mb
     if req.max_parallel_jobs:
         raw.setdefault("agent", {})["max_parallel_jobs"] = req.max_parallel_jobs
+    if req.frontdesk is not None:
+        raw.setdefault("human", {})["frontdesk"] = req.frontdesk
+    if req.based_on:
+        raw["objective"] = req.instruction + _prior_runs_note(campaign, req.based_on)
     if req.inputs or req.data_paths:
         raw["inputs"] = list(raw.get("inputs", [])) + req.inputs + req.data_paths
     if req.autonomy_mode:
@@ -402,7 +532,10 @@ async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any,
     check_runtime_requirements(config)   # fail at request time, with the reason, not in the background
     engine = ResearchEngine(config)
     engine.project_id = campaign.campaign_id
+    engine.prior_chat = list(run.chat_history)
+    engine.extra_frontdesk_tools = _run_tools(campaign) + _run_control_tools(run)
     run.engine = engine
+    run.finished_desk = None
 
     async def mirror(event: Any) -> None:
         name, data = event.name, event.data
@@ -464,23 +597,21 @@ async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any,
 async def _start(campaign: CampaignState, req: StartExperimentRequest, *, run_id: str | None = None,
                  resume: bool = False) -> dict[str, Any]:
     slug = re.sub(r"[^a-z0-9]+", "-", (req.name or req.instruction[:40]).lower()).strip("-")[:30] or "experiment"
-    run_id = run_id or f"{time.strftime('%Y%m%d-%H%M%S')}_{slug}"
+    # the random part keeps two runs started in the same second apart
+    run_id = run_id or f"{time.strftime('%Y%m%d-%H%M%S')}_{slug}-{uuid.uuid4().hex[:4]}"
     try:
         config = _experiment_config(campaign, run_id, req)
     except Exception as exc:
         raise HTTPException(400, f"Invalid experiment settings: {exc}") from exc
     run = ExperimentRunState(run_id, campaign.campaign_id, req.name or slug, config.models.for_phase("research"),
                              config.human.autonomy.value)
+    run.frontdesk_enabled = config.human.frontdesk
     if resume:
-        # keep the earlier stream and conversation visible
+        # keep the earlier stream and conversation visible (and in the front desk's memory)
         run.events = store.load_events(campaign.campaign_id, run_id)
-        for e in run.events:
-            if e.get("event_type") == "chat_message":
-                run.chat_history.append({"role": "user", "text": e["data"].get("text", ""),
-                                         "timestamp": e.get("timestamp")})
-            elif e.get("event_type") == "frontdesk_response":
-                run.chat_history.append({"role": "assistant", "text": e["data"].get("text", ""),
-                                         "timestamp": e.get("timestamp")})
+        run.chat_history = _chat_from_events(run.events)
+    if req.based_on:
+        _write_prior_runs(campaign, run.campaign_dir, req.based_on)
     try:
         await _launch(campaign, run, config, resume=resume)
     except Exception as exc:
@@ -532,13 +663,46 @@ def _gates_from_disk(run: ExperimentRunState) -> list[dict[str, Any]]:
     return out
 
 
-@campaign_router.delete("/{campaign_id}/experiments/{exp_id}")
+@campaign_router.post("/{campaign_id}/experiments/{exp_id}/stop")
 async def stop_experiment(campaign_id: str, exp_id: str) -> dict[str, Any]:
     """Stop a running experiment (it ends at the next safe point and keeps its files)."""
     run = _get_run(campaign_id, exp_id)
-    if run.engine is not None and run.status in ("starting", "running", "awaiting_human"):
+    if run.engine is not None and _active(run):
         run.engine.request_stop("stopped by the user")
     return run.to_summary()
+
+
+@campaign_router.patch("/{campaign_id}/experiments/{exp_id}")
+async def rename_experiment(campaign_id: str, exp_id: str, req: RenameRequest) -> dict[str, Any]:
+    """Rename a run (its ID and directory stay; a resume or re-run keeps the name)."""
+    run = _get_run(campaign_id, exp_id)
+    run.task_name = _clean_name(req.name)
+    store.update_experiment(exp_id, task_name=run.task_name)
+    _update_saved_request(exp_id, name=run.task_name)
+    return run.to_summary()
+
+
+@campaign_router.get("/{campaign_id}/experiments/{exp_id}/disk")
+async def experiment_disk_usage(campaign_id: str, exp_id: str) -> dict[str, Any]:
+    """Bytes the run's files take on disk."""
+    run = _get_run(campaign_id, exp_id)
+    return {"bytes": await asyncio.to_thread(_dir_size, run.campaign_dir), "path": str(run.campaign_dir)}
+
+
+@campaign_router.delete("/{campaign_id}/experiments/{exp_id}")
+async def delete_experiment(campaign_id: str, exp_id: str, delete_files: bool = False) -> dict[str, Any]:
+    """Delete a run from AURORA; with *delete_files*, also its files on disk. Stop it first."""
+    campaign = _ensure_campaign(campaign_id)
+    run = _get_run(campaign_id, exp_id)
+    if _active(run):
+        raise HTTPException(409, "Stop the experiment first")
+    if delete_files:
+        await _remove_dir(run.campaign_dir)
+    campaign.experiments.pop(exp_id, None)
+    store.delete_experiment(exp_id)
+    store.delete_events(campaign_id, exp_id)
+    _touch(campaign)
+    return {"ok": True, "experiment_id": exp_id, "files_deleted": delete_files}
 
 
 class DecisionRequest(BaseModel):
@@ -579,14 +743,79 @@ async def set_experiment_autonomy(campaign_id: str, exp_id: str, req: SetAutonom
     run = _get_run(campaign_id, exp_id)
     if req.autonomy_mode not in ("autonomous", "supervised"):
         raise HTTPException(400, "autonomy_mode must be 'autonomous' or 'supervised'")
-    old, run.autonomy_mode = run.autonomy_mode, req.autonomy_mode
-    if run.engine is not None:
-        run.engine.human_gate.set_autonomy(req.autonomy_mode)
-    store.update_experiment(exp_id, autonomy_mode=req.autonomy_mode)
-    _update_saved_request(exp_id, autonomy_mode=req.autonomy_mode)   # a resume keeps the mode
-    await run.broadcast({"type": "experiment_event", "run_id": exp_id, "event_type": "autonomy_changed",
-                         "data": {"old_mode": old, "new_mode": req.autonomy_mode}, "timestamp": time.time()})
+    old = await _set_autonomy(run, req.autonomy_mode)
     return {"ok": True, "autonomy_mode": req.autonomy_mode, "previous_mode": old}
+
+
+async def _set_autonomy(run: ExperimentRunState, mode: str) -> str:
+    old, run.autonomy_mode = run.autonomy_mode, mode
+    if run.engine is not None:
+        run.engine.human_gate.set_autonomy(mode)
+    store.update_experiment(run.run_id, autonomy_mode=mode)
+    _update_saved_request(run.run_id, autonomy_mode=mode)   # a resume keeps the mode
+    await run.broadcast({"type": "experiment_event", "run_id": run.run_id, "event_type": "autonomy_changed",
+                         "data": {"old_mode": old, "new_mode": mode}, "timestamp": time.time()})
+    return old
+
+
+class SetBudgetRequest(BaseModel):
+    max_cost_usd: float | None = None     # null: no limit
+
+
+@campaign_router.put("/{campaign_id}/experiments/{exp_id}/budget")
+async def set_experiment_budget(campaign_id: str, exp_id: str, req: SetBudgetRequest) -> dict[str, Any]:
+    """Change an experiment's cost limit, at once if it runs; a resume keeps it."""
+    run = _get_run(campaign_id, exp_id)
+    if req.max_cost_usd is not None and req.max_cost_usd <= 0:
+        raise HTTPException(400, "The budget must be positive, or null for no limit")
+    return await _set_budget(run, req.max_cost_usd)
+
+
+async def _set_budget(run: ExperimentRunState, value: float | None) -> dict[str, Any]:
+    old = None
+    if run.engine is not None:
+        old = run.engine._config.budget.max_cost_usd
+        run.engine._config.budget.max_cost_usd = value      # read at every budget check
+        if run.engine._frontdesk_status is not None:
+            run.engine._frontdesk_status.budget_usd = value
+    _update_saved_request(run.run_id, max_cost_usd=value)
+    spent = run.engine.total_cost_usd if run.engine is not None else run.cost_usd
+    await run.broadcast({"type": "experiment_event", "run_id": run.run_id, "event_type": "budget_changed",
+                         "data": {"old": old, "new": value, "spent": round(spent, 2)}, "timestamp": time.time()})
+    note = ("already spent more than that: the experiment stops at its next budget check"
+            if value is not None and spent >= value and _active(run) else "")
+    return {"ok": True, "max_cost_usd": value, "spent_usd": round(spent, 2), **({"note": note} if note else {})}
+
+
+def _run_control_tools(run: ExperimentRunState) -> list[Any]:
+    """Tools of a running experiment's front desk that change its settings."""
+    from aurora.human.frontdesk import FrontDeskTool
+
+    async def mode(p: dict[str, Any]) -> Any:
+        new = str(p.get("mode", ""))
+        if new not in ("supervised", "autonomous"):
+            return {"error": "mode must be supervised or autonomous"}
+        return {"status": "switched", "from": await _set_autonomy(run, new), "to": new}
+
+    async def budget(p: dict[str, Any]) -> Any:
+        value = p.get("max_cost_usd")
+        if value is not None and float(value) <= 0:
+            return {"error": "the budget must be positive, or null for no limit"}
+        return await _set_budget(run, None if value is None else float(value))
+
+    return [
+        FrontDeskTool("set_decision_mode",
+                      "Switch how decisions are handled: supervised (gates wait for the researcher) or "
+                      "autonomous (they continue at once). Only when the researcher asks.",
+                      {"type": "object", "properties": {"mode": {"type": "string",
+                                                                 "enum": ["supervised", "autonomous"]}},
+                       "required": ["mode"]}, mode),
+        FrontDeskTool("set_budget",
+                      "Change the experiment's cost limit in US$ (null: no limit), effective at once. Only "
+                      "when the researcher asks.",
+                      {"type": "object", "properties": {"max_cost_usd": {"type": ["number", "null"]}},
+                       "required": ["max_cost_usd"]}, budget),
+    ]
 
 
 class SetResourcesRequest(BaseModel):
@@ -700,17 +929,89 @@ class ChatBody(BaseModel):
 
 @campaign_router.post("/{campaign_id}/experiments/{exp_id}/chat/send")
 async def exp_chat_send(campaign_id: str, exp_id: str, body: ChatBody) -> dict[str, Any]:
-    """A message to the running experiment; its front desk answers (and may relay it to the agent)."""
+    """A message about an experiment. While it runs, its front desk answers (and may relay it to the
+    agent); afterwards a front desk answers questions about it from its files. With the front desk
+    off, a running experiment's agent gets the message directly and a finished one gets no answer."""
+    campaign = _ensure_campaign(campaign_id)
     run = _get_run(campaign_id, exp_id)
+    if not run.chat_history:
+        run.chat_history = _chat_from_events(run.events or store.load_events(campaign_id, exp_id))
     run.chat_history.append({"role": "user", "text": body.text, "timestamp": time.time()})
     await run.broadcast({"type": "experiment_event", "run_id": exp_id, "event_type": "chat_message",
                          "data": {"role": "user", "text": body.text}, "timestamp": time.time()})
-    if run.engine is None or run.status not in ("starting", "running", "awaiting_human"):
-        return {"status": "not_running", "response": "This experiment is not running."}
-    reply = await run.engine.handle_user_message(body.text)
-    if run.engine._frontdesk is None and reply.get("text"):
-        run.chat_history.append({"role": "assistant", "text": reply["text"], "timestamp": time.time()})
+    if run.engine is not None and _active(run):
+        reply = await run.engine.handle_user_message(body.text)
+        if run.engine._frontdesk is None and reply.get("text"):
+            run.chat_history.append({"role": "assistant", "text": reply["text"], "timestamp": time.time()})
+        return {"status": "sent", "run_id": exp_id, "response": reply.get("text", "")}
+    if not run.frontdesk_enabled:
+        return {"status": "frontdesk_off", "response": "The front desk of this experiment is off."}
+    desk = _finished_desk(campaign, run)
+    reply = await desk.handle_user_message(body.text)
     return {"status": "sent", "run_id": exp_id, "response": reply.get("text", "")}
+
+
+def _chat_from_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The conversation of a run, from its event log."""
+    history = []
+    for e in events:
+        if e.get("event_type") == "chat_message" and (e.get("data") or {}).get("role", "user") == "user":
+            history.append({"role": "user", "text": e["data"].get("text", ""), "timestamp": e.get("timestamp")})
+        elif e.get("event_type") == "frontdesk_response":
+            history.append({"role": "assistant", "text": e["data"].get("text", ""), "timestamp": e.get("timestamp")})
+    return history
+
+
+def _finished_desk(campaign: CampaignState, run: ExperimentRunState) -> Any:
+    """The front desk of a run that no longer runs: questions about it, answered from its files."""
+    from aurora.human.frontdesk import FINISHED_PROMPT, FrontDeskAgent
+    if run.finished_desk is not None:
+        return run.finished_desk
+    try:
+        cfg = _experiment_config(campaign, run.run_id, _saved_request(run.run_id))
+    except HTTPException:
+        from aurora.config import AuroraConfig
+        cfg = AuroraConfig.model_validate({**base_config(), "objective": run.task_name or "experiment"})
+
+    async def broadcast(data: dict[str, Any]) -> None:
+        name = data.get("type", "frontdesk_event")
+        if name == "frontdesk_response":
+            run.chat_history.append({"role": "assistant", "text": data["data"].get("text", ""),
+                                     "timestamp": time.time()})
+        await run.broadcast({"type": "experiment_event", "run_id": run.run_id, "event_type": name,
+                             "data": data.get("data", {}), "timestamp": time.time()})
+
+    def status() -> str:
+        return "\n".join([f"Experiment {run.run_id} ({run.task_name}), status: {run.status}, "
+                          f"last phase: {run.phase or '-'}, cost: ${run.cost_usd:.2f}"]
+                         + ([f"Error: {run.error}"] if run.error else []))
+
+    desk = FrontDeskAgent(model=cfg.models.frontdesk, api_key=cfg.api_key_value, base_url=cfg.api_base_url,
+                          system_prompt=FINISHED_PROMPT + f"\nExperiment objective: {cfg.objective[:3000]}\n",
+                          workspace_root=run.campaign_dir, tools=_run_tools(campaign),
+                          status_fn=status, broadcast_fn=broadcast)
+    desk.restore(run.chat_history[:-1])          # all but the message being answered now
+    run.finished_desk = desk
+    return desk
+
+
+class FrontdeskRequest(BaseModel):
+    enabled: bool
+
+
+@campaign_router.put("/{campaign_id}/experiments/{exp_id}/frontdesk")
+async def set_experiment_frontdesk(campaign_id: str, exp_id: str, req: FrontdeskRequest) -> dict[str, Any]:
+    """Switch an experiment's front desk on or off (off: no model calls for it). A resume keeps it."""
+    run = _get_run(campaign_id, exp_id)
+    run.frontdesk_enabled = req.enabled
+    if run.engine is not None and _active(run):
+        await run.engine.set_frontdesk(req.enabled, history=list(run.chat_history))
+    if not req.enabled:
+        run.finished_desk = None
+    _update_saved_request(exp_id, frontdesk=req.enabled)
+    await run.broadcast({"type": "experiment_event", "run_id": exp_id, "event_type": "frontdesk_switched",
+                         "data": {"enabled": req.enabled}, "timestamp": time.time()})
+    return {"ok": True, "frontdesk_enabled": req.enabled}
 
 
 @campaign_router.get("/{campaign_id}/experiments/{exp_id}/chat/history")
@@ -718,13 +1019,121 @@ async def exp_chat_history(campaign_id: str, exp_id: str, limit: int = 100) -> l
     run = _get_run(campaign_id, exp_id)
     if run.chat_history:
         return run.chat_history[-limit:]
-    history = []
-    for e in store.load_events(campaign_id, exp_id):
-        if e.get("event_type") == "chat_message":
-            history.append({"role": "user", "text": e["data"].get("text", ""), "timestamp": e.get("timestamp")})
-        elif e.get("event_type") == "frontdesk_response":
-            history.append({"role": "assistant", "text": e["data"].get("text", ""), "timestamp": e.get("timestamp")})
-    return history[-limit:]
+    return _chat_from_events(run.events or store.load_events(campaign_id, exp_id))[-limit:]
+
+
+# ---------------------------------------------------------------------------
+# The runs of a project, as the front desks see them
+# ---------------------------------------------------------------------------
+
+def _run_instruction(run_id: str) -> str:
+    try:
+        return _saved_request(run_id).instruction
+    except HTTPException:
+        return ""
+
+
+def _report_path(run: ExperimentRunState) -> Path | None:
+    drafts = sorted((run.campaign_dir / "phases" / "writing").glob("draft_*.md"))
+    return drafts[-1] if drafts else None
+
+
+def _run_findings(run_dir: Path) -> list[str]:
+    """Findings, open questions and the mental model of a run, as lines."""
+    lines: list[str] = []
+    try:
+        art = json.loads((run_dir / "artifacts.json").read_text())
+        for c in (art.get("claims") or [])[:15]:
+            lines.append(f"- [{c.get('status', '')}] {c.get('statement', '')}")
+        for q in (art.get("open_questions") or [])[:8]:
+            lines.append(f"- open question: {q if isinstance(q, str) else q.get('question', q)}")
+    except (OSError, ValueError):
+        pass
+    try:
+        mm = json.loads((run_dir / "mental_model.json").read_text())
+        if mm.get("current_rationale"):
+            lines.append(f"Mental model: {mm['current_rationale']}")
+        for h in (mm.get("active_hypotheses") or [])[:8]:
+            lines.append(f"- hypothesis [{h.get('status', '')}]: {h.get('statement', '')}")
+    except (OSError, ValueError):
+        pass
+    return lines
+
+
+def _run_tools(campaign: CampaignState) -> list[Any]:
+    from aurora.human.frontdesk import project_run_tools
+
+    async def list_runs() -> Any:
+        out = []
+        for r in campaign.experiments.values():
+            report = _report_path(r)
+            out.append({"run_id": r.run_id, "name": r.task_name, "status": r.status, "cost_usd": round(r.cost_usd, 2),
+                        "started_at": time.strftime("%Y-%m-%d %H:%M", time.localtime(r.started_at)),
+                        "instruction": _run_instruction(r.run_id)[:400],
+                        "report": str(report.relative_to(r.campaign_dir)) if report else None})
+        return out or "This project has no runs yet."
+
+    async def read_run(run_id: str, part: str, path: str) -> Any:
+        run = campaign.experiments.get(run_id)
+        if run is None:
+            return {"error": f"no run {run_id!r} in this project; see list_runs"}
+        root = run.campaign_dir.resolve()
+        if part == "summary":
+            report = _report_path(run)
+            return {"name": run.task_name, "status": run.status, "phase": run.phase, "cost_usd": round(run.cost_usd, 2),
+                    "error": run.error, "instruction": _run_instruction(run_id)[:2000],
+                    "findings": _run_findings(root),
+                    "report_path": str(report.relative_to(root)) if report else None,
+                    "report_start": report.read_text(errors="replace")[:4000] if report else None}
+        if part == "report":
+            report = _report_path(run)
+            return {"content": report.read_text(errors="replace")[:60000]} if report else {"error": "no report yet"}
+        target = (root / (path or ".")).resolve()
+        if not target.is_relative_to(root):
+            return {"error": "paths outside the run are not accessible"}
+        if part == "files":
+            if not target.is_dir():
+                return {"error": f"not a directory: {path}"}
+            return [f"{q.name}/" if q.is_dir() else f"{q.name} ({q.stat().st_size} bytes)"
+                    for q in sorted(target.iterdir(), key=lambda q: (q.is_file(), q.name))[:200]]
+        if not target.is_file():
+            return {"error": f"not a file: {path}"}
+        text = target.read_text(errors="replace")
+        return {"content": text[-30000:], **({"note": "the last 30000 characters"} if len(text) > 30000 else {})}
+
+    return project_run_tools(list_runs=list_runs, read_run=read_run)
+
+
+def _prior_runs_note(campaign: CampaignState, run_ids: list[str]) -> str:
+    """What the objective of a new run says about the runs it builds on."""
+    parts = []
+    for rid in run_ids:
+        run = _ensure_campaign(campaign.campaign_id).experiments.get(rid)
+        if run is None:
+            continue
+        findings = "\n".join(_run_findings(run.campaign_dir)[:10])
+        parts.append(f"### {run.task_name or rid} ({rid}, {run.status})\n{findings or '(no recorded findings)'}")
+    if not parts:
+        return ""
+    return ("\n\n## Earlier runs this experiment builds on\nTheir reports, findings and mental models are in "
+            "prior_runs/ in the campaign directory: read them first, build on their results and do not repeat "
+            "what they established.\n\n" + "\n\n".join(parts))
+
+
+def _write_prior_runs(campaign: CampaignState, run_dir: Path, run_ids: list[str]) -> None:
+    """Give a new run the reports and findings of the runs it builds on (prior_runs/<id>.md)."""
+    dest = run_dir / "prior_runs"
+    for rid in run_ids:
+        run = campaign.experiments.get(rid)
+        if run is None:
+            continue
+        dest.mkdir(parents=True, exist_ok=True)
+        report = _report_path(run)
+        text = [f"# {run.task_name or rid}", f"Run {rid}, status {run.status}, cost ${run.cost_usd:.2f}",
+                f"Its files: {run.campaign_dir}", "", "## What it set out to do", _run_instruction(rid), "",
+                "## Findings and mental model", *(_run_findings(run.campaign_dir) or ["(none recorded)"]), "",
+                "## Report", report.read_text(errors="replace")[:60000] if report else "(no report)"]
+        (dest / f"{rid}.md").write_text("\n".join(text))
 
 
 # ---------------------------------------------------------------------------
@@ -746,6 +1155,35 @@ def _project_context(campaign: CampaignState) -> str:
     return "\n".join(lines)
 
 
+def _editable_keys() -> list[str]:
+    from aurora.api.console_settings import KEYS
+    return sorted(KEYS)
+
+
+async def _default_settings_tool(params: dict[str, Any]) -> dict[str, Any]:
+    """The project front desk changes the console's defaults: preview first, save once confirmed."""
+    from aurora.api.console_settings import deep_merge, load_overlay, with_changes
+    changes = params.get("changes") or {}
+    reset = params.get("reset") or []
+    if not isinstance(changes, dict) or not isinstance(reset, list) or not (changes or reset):
+        return {"status": "error", "reason": "give changes (dotted setting -> value) and/or reset"}
+    try:
+        overlay = with_changes(load_overlay(), changes, reset)
+        before = {k: _effective(base_config(), k) for k in [*changes, *reset]}
+        after = {k: _effective(deep_merge(server_config(), overlay), k) for k in [*changes, *reset]}
+    except Exception as exc:
+        return {"status": "error", "reason": str(exc)}
+    if not params.get("confirmed"):
+        return {"status": "preview", "would_change": {k: {"from": before[k], "to": after[k]} for k in after},
+                "next": "Tell the researcher exactly this and ask; call again with confirmed=true only if they agree."}
+    try:
+        apply_settings_change(changes, reset)
+    except ValueError as exc:
+        return {"status": "error", "reason": str(exc)}
+    return {"status": "saved", "changed": {k: {"from": before[k], "to": after[k]} for k in after},
+            "note": "New experiments start from these defaults; running ones are not changed."}
+
+
 def _project_frontdesk(campaign: CampaignState) -> Any:
     from aurora.config import AuroraConfig
     from aurora.human.frontdesk import PROJECT_PROMPT, FrontDeskAgent, FrontDeskTool
@@ -763,13 +1201,19 @@ def _project_frontdesk(campaign: CampaignState) -> Any:
         for p in campaign.proposals.values():
             if not p.confirmed:
                 p.superseded = True
+        based_on = [r for r in (params.get("based_on") or []) if r in campaign.experiments]
+        extra = {k: params[k] for k in ("autonomy_mode", "models", "cpus", "memory_gb", "max_parallel_jobs")
+                 if params.get(k) not in (None, "", {}, [])}
         proposal = ExperimentProposal(
-            {"instruction": instruction, "name": params.get("name", ""),
+            {"instruction": instruction, "name": params.get("name", ""), "based_on": based_on, **extra,
              "inputs": params.get("inputs", []), "model": params.get("model", ""),
              "ideation_mode": params.get("ideation_mode") if params.get("ideation_mode") in
              ("roundtable", "independent") else default_ideation_mode()},
             skip, str(params.get("summary", instruction[:100])))
+        if "max_cost_usd" in params:      # null: no limit
+            proposal.max_cost_usd = params["max_cost_usd"]
         campaign.proposals[proposal.proposal_id] = proposal
+        campaign.save()
         agent.set_proposal(proposal.to_dict())
         return {"status": "proposed", "proposal_id": proposal.proposal_id,
                 "message": "The researcher now sees a card to confirm or change."}
@@ -788,11 +1232,40 @@ def _project_frontdesk(campaign: CampaignState) -> Any:
                                              "the independent ideas (about four times cheaper)"},
             "inputs": {"type": "array", "items": {"type": "string"},
                        "description": "paths on the server the researcher mentioned"},
+            "based_on": {"type": "array", "items": {"type": "string"},
+                         "description": "IDs of earlier runs of this project the experiment builds on; their "
+                                        "reports and findings are given to its agents"},
+            "max_cost_usd": {"type": ["number", "null"], "description": "cost limit in US$; null for none. "
+                             "Only when the researcher asked for a budget; otherwise leave it out"},
+            "autonomy_mode": {"type": "string", "enum": ["supervised", "autonomous"]},
+            "models": {"type": "object", "additionalProperties": {"type": "string"},
+                       "description": "model per role, only those the researcher asked for: agent, screening, "
+                                      "planning, preflight, research, analysis, writing, ideation_chair, auditor, "
+                                      "supervisor, frontdesk, skills (OpenRouter IDs, vendor/model)"},
+            "cpus": {"type": "number", "description": "CPUs of the container"},
+            "memory_gb": {"type": "number", "description": "memory of the container in GB"},
+            "max_parallel_jobs": {"type": "integer", "description": "research jobs at the same time"},
         }, "required": ["instruction", "summary"]},
         propose)
+    defaults_tool = FrontDeskTool(
+        "update_default_settings",
+        "Change the defaults for all new experiments (the console's Settings), e.g. 'from now on use "
+        "Opus for research'. First call it with confirmed=false: it checks the change and returns what "
+        "would change; tell the researcher and ask. Only after they explicitly agree, call it again with "
+        "confirmed=true. Not for one experiment: put that in propose_experiment.",
+        {"type": "object", "properties": {
+            "changes": {"type": "object", "description": "dotted setting -> value, e.g. "
+                        "{\"models.research\": \"anthropic/claude-opus-5.5\", \"budget.max_cost_usd\": 50}. "
+                        "Settings: " + ", ".join(sorted(_editable_keys()))},
+            "reset": {"type": "array", "items": {"type": "string"},
+                      "description": "settings to put back to the server's value"},
+            "confirmed": {"type": "boolean"},
+        }, "required": ["confirmed"]},
+        lambda p: _default_settings_tool(p))
     agent = FrontDeskAgent(model=cfg.models.frontdesk, api_key=cfg.api_key_value, base_url=cfg.api_base_url,
-                           system_prompt=PROJECT_PROMPT, tools=[tool],
+                           system_prompt=PROJECT_PROMPT, tools=[tool, defaults_tool, *_run_tools(campaign)],
                            status_fn=lambda: _project_context(campaign))
+    agent.restore([m for m in campaign.chat_history if m.get("role") in ("user", "assistant")])
     campaign.frontdesk = agent
     return agent
 
@@ -812,6 +1285,7 @@ async def campaign_chat_send(campaign_id: str, body: ChatBody) -> dict[str, Any]
     if result.get("proposal"):
         record["proposal"] = result["proposal"]
     campaign.chat_history.append(record)
+    campaign.save()
     return {"status": "sent", "campaign_id": campaign_id, "response": record["text"],
             **({"proposal": record["proposal"]} if "proposal" in record else {})}
 
@@ -838,13 +1312,17 @@ async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProp
     if proposal.confirmed:
         raise HTTPException(409, "Proposal already confirmed")
     p = proposal.params
+    memory_mb = body.memory_mb or (int(float(p["memory_gb"]) * 1024) if p.get("memory_gb") else None)
     req = StartExperimentRequest(
         instruction=p["instruction"], name=p.get("name", ""), inputs=p.get("inputs", []),
         model=body.model or p.get("model", ""),
         skip_phases=body.skip_phases if body.skip_phases is not None else proposal.suggested_skip,
         ideation_mode=body.ideation_mode or p.get("ideation_mode", ""),
-        models=body.models, autonomy_mode=body.autonomy_mode, cpus=body.cpus, memory_mb=body.memory_mb,
-        max_parallel_jobs=body.max_parallel_jobs,
+        # what the card says, over what the front desk proposed
+        models={**(p.get("models") or {}), **(body.models or {})} or None,
+        autonomy_mode=body.autonomy_mode or p.get("autonomy_mode", ""),
+        cpus=body.cpus or p.get("cpus"), memory_mb=memory_mb,
+        max_parallel_jobs=body.max_parallel_jobs or p.get("max_parallel_jobs"), based_on=p.get("based_on") or [],
         max_cost_usd=body.max_cost_usd if "max_cost_usd" in body.model_fields_set else proposal.max_cost_usd)
     result = await _start(campaign, req)
     proposal.confirmed = True
@@ -1048,7 +1526,8 @@ MODEL_SUGGESTIONS = [
 
 @settings_router.get("")
 async def get_settings() -> dict[str, Any]:
-    """Settings a new experiment gets unless the proposal card changes them."""
+    """Settings a new experiment gets unless the proposal card changes them; the console's own
+    settings (``editable``) and the state of the environment."""
     from aurora.config import AuroraConfig
     from aurora.core.docker_backend import host_limits
     from aurora.core.requirements import available_models
@@ -1065,4 +1544,97 @@ async def get_settings() -> dict[str, Any]:
         "sandbox": {"docker": cfg.sandbox.docker, "cpus": cfg.sandbox.cpus, "memory_mb": cfg.sandbox.memory_mb,
                     "host_cpus": host[0], "host_memory_mb": host[1]},
         "model_suggestions": [m for m in MODEL_SUGGESTIONS if served is None or m in served],
+        "editable": _editable_settings(),
+        "environment": await asyncio.to_thread(_environment, cfg, host),
     }
+
+
+def _effective(data: dict[str, Any], key: str) -> Any:
+    """The value *key* takes for a new experiment started from *data* (defaults filled in)."""
+    from aurora.api.console_settings import get_dotted
+    from aurora.config import AuroraConfig
+    if key == "budget.max_cost_usd":
+        found, value = get_dotted(data, key)
+        return value if found else WEB_DEFAULT_MAX_COST_USD
+    node: Any = AuroraConfig.model_validate({**data, "objective": "defaults"})
+    for part in key.split("."):
+        node = getattr(node, part)
+    return getattr(node, "value", node)
+
+
+def _editable_settings() -> list[dict[str, Any]]:
+    from aurora.api.console_settings import EDITABLE, get_dotted, load_overlay
+    from aurora.config import AuroraConfig
+    server, overlay, merged = server_config(), load_overlay(), base_config()
+    out = []
+    for entry in EDITABLE:
+        key, group, label, kind = entry[:4]
+        section, field = key.split(".")
+        model = AuroraConfig.model_fields[section].annotation
+        info = getattr(model, "model_fields", {}).get(field)
+        out.append({"key": key, "group": group, "label": label, "kind": kind,
+                    "choices": entry[4] if len(entry) > 4 else None,
+                    "help": info.description if info is not None else "",
+                    "value": _effective(merged, key), "server_value": _effective(server, key),
+                    "overridden": get_dotted(overlay, key)[0]})
+    return out
+
+
+def _environment(cfg: Any, host: tuple[int, int]) -> dict[str, Any]:
+    """What the server has to run experiments with (no secrets: the key's presence only)."""
+    import shutil
+    import subprocess
+
+    from aurora.api.console_settings import overlay_path
+    from aurora.core.requirements import _docker_ok
+    from aurora.paths import aurora_home
+    docker_ok, docker_msg = _docker_ok()
+    claude = shutil.which("claude")
+    version = ""
+    if claude:
+        try:
+            version = subprocess.run([claude, "--version"], capture_output=True, text=True, timeout=20).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            version = "installed (version unknown)"
+    home = aurora_home()
+    free = shutil.disk_usage(home if home.exists() else Path.home()).free
+    return {"api_key": bool(cfg.api_key_value), "api_base_url": cfg.api_base_url,
+            "docker": {"ok": docker_ok, "detail": docker_msg},
+            "claude": {"ok": bool(claude), "version": version},
+            "host_cpus": host[0], "host_memory_mb": host[1],
+            "aurora_home": str(home), "disk_free_gb": round(free / 1e9, 1),
+            "server_config": os.environ.get("AURORA_SERVER_CONFIG") or None,
+            "console_settings": str(overlay_path())}
+
+
+class SettingsChange(BaseModel):
+    changes: dict[str, Any] = {}     # dotted key -> value
+    reset: list[str] = []            # dotted keys back to the server's value
+
+
+def apply_settings_change(changes: dict[str, Any], reset: list[str] | None = None) -> dict[str, Any]:
+    """Check and save a change of the console's settings; raises ValueError with the reason."""
+    from aurora.api.console_settings import deep_merge, load_overlay, save_overlay, with_changes
+    from aurora.config import AuroraConfig
+    from aurora.core.requirements import unknown_models
+    overlay = with_changes(load_overlay(), changes, reset)
+    try:
+        cfg = AuroraConfig.model_validate({**deep_merge(server_config(), overlay), "objective": "defaults"})
+    except Exception as exc:
+        raise ValueError(f"invalid setting: {exc}") from exc
+    changed_models = {f"models.{k.split('.', 1)[1]}" for k in changes if k.startswith("models.")}
+    problems = [p for p in unknown_models(cfg) if p.split(":")[0].split("[")[0] in changed_models]
+    if problems:
+        raise ValueError("; ".join(problems))
+    save_overlay(overlay)
+    return {"saved": True, "changes": changes, "reset": reset or []}
+
+
+@settings_router.put("")
+async def update_settings(req: SettingsChange) -> dict[str, Any]:
+    """Change the defaults for new experiments (kept over the server's base config)."""
+    try:
+        result = apply_settings_change(req.changes, req.reset)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {**result, "editable": _editable_settings()}

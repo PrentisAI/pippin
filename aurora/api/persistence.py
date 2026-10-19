@@ -25,6 +25,12 @@ CREATE TABLE IF NOT EXISTS campaigns (
     updated_at  REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS project_state (
+    campaign_id    TEXT PRIMARY KEY,
+    chat_json      TEXT DEFAULT '[]',   -- the project conversation
+    proposals_json TEXT DEFAULT '[]',   -- experiment proposals drafted in it
+    updated_at     REAL
+);
 CREATE TABLE IF NOT EXISTS experiments (
     run_id         TEXT PRIMARY KEY,
     campaign_id    TEXT NOT NULL,
@@ -112,7 +118,36 @@ class Store:
         )
         self._conn.commit()
 
+    def save_project_state(self, campaign_id: str, chat: list[dict[str, Any]],
+                           proposals: list[dict[str, Any]]) -> None:
+        import time
+        self._conn.execute(
+            "INSERT OR REPLACE INTO project_state (campaign_id, chat_json, proposals_json, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            (campaign_id, json.dumps(chat, default=str), json.dumps(proposals, default=str), time.time()))
+        self._conn.commit()
+
+    def load_project_state(self, campaign_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        row = self._conn.execute("SELECT * FROM project_state WHERE campaign_id=?", (campaign_id,)).fetchone()
+        if not row:
+            return [], []
+        return json.loads(row["chat_json"] or "[]"), json.loads(row["proposals_json"] or "[]")
+
+    def rename_campaign(self, campaign_id: str, name: str) -> None:
+        self._conn.execute("UPDATE campaigns SET name=? WHERE campaign_id=?", (name, campaign_id))
+        self._conn.commit()
+
+    def delete_events(self, campaign_id: str, run_id: str | None = None) -> None:
+        """Remove the event log of one run, or of all runs of a project."""
+        import shutil
+        d = self._events_dir / campaign_id
+        if run_id is None:
+            shutil.rmtree(d, ignore_errors=True)
+        else:
+            (d / f"{run_id}.jsonl").unlink(missing_ok=True)
+
     def delete_campaign(self, campaign_id: str) -> None:
+        self._conn.execute("DELETE FROM project_state WHERE campaign_id=?", (campaign_id,))
         self._conn.execute("DELETE FROM experiments WHERE campaign_id=?", (campaign_id,))
         self._conn.execute("DELETE FROM campaigns WHERE campaign_id=?", (campaign_id,))
         self._conn.commit()
@@ -161,7 +196,7 @@ class Store:
             return
         allowed = {
             "status", "phase", "turn", "cost_usd", "finished_at",
-            "error", "autonomy_mode", "config_json",
+            "error", "autonomy_mode", "config_json", "task_name",
         }
         parts = []
         values = []
