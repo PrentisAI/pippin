@@ -2,6 +2,7 @@ import type {
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
+  ConsoleSettings,
   ConversationMessage,
   ExperimentDetail,
   ExperimentSummary,
@@ -110,8 +111,19 @@ export const api = {
       request<StartExperimentResponse>(`${experimentPath(campaignId, expId)}/resume`, post()),
   },
 
+  settings: {
+    get: () => request<ConsoleSettings>('/settings'),
+  },
+
   proposals: {
-    confirm: (campaignId: string, proposalId: string, body: { skip_phases?: string[]; model?: string; max_cost_usd?: number | null; ideation_mode?: string }) =>
+    confirm: (campaignId: string, proposalId: string, body: {
+      skip_phases?: string[]
+      model?: string
+      max_cost_usd?: number | null
+      ideation_mode?: string
+      autonomy_mode?: string
+      models?: Record<string, unknown>
+    }) =>
       request<{ status: string; experiment_id: string; skip_phases: string[]; active_phases: string[] }>(
         `/campaigns/${campaignId}/proposals/${proposalId}/confirm`,
         post(body),

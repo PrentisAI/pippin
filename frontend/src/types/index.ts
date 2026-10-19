@@ -202,3 +202,26 @@ export interface Skill {
   created_at: string
   updated_at: string
 }
+
+/** Defaults for new experiments (GET /api/settings). */
+export interface ModelSettings {
+  agent: string
+  screening: string
+  planning: string
+  research: string
+  analysis: string
+  writing: string
+  ideation_seats: string[]
+  ideation_chair: string
+  auditor: string
+  supervisor: string
+  frontdesk: string
+}
+
+export interface ConsoleSettings {
+  models: ModelSettings
+  autonomy_mode: AutonomyMode
+  ideation_mode: IdeationMode
+  max_cost_usd: number | null
+  model_suggestions: string[]
+}

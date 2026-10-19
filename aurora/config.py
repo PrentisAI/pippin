@@ -149,6 +149,9 @@ WRITING_DEFAULT = (
 # Sections
 # ---------------------------------------------------------------------------
 
+PHASE_AGENTS = ("screening", "planning", "research", "analysis", "writing")
+
+
 class ModelConfig(_Section):
     """Which model plays each role.
 
@@ -159,8 +162,13 @@ class ModelConfig(_Section):
     agent: str = Field(
         default="anthropic/claude-sonnet-5.5",
         description="Model of the Claude Code sessions that run screening, planning, "
-                    "research, analysis and writing.",
+                    "research, analysis and writing, unless a phase sets its own below.",
     )
+    screening: str = Field(default="", description="Model of the screening agent. Empty: models.agent.")
+    planning: str = Field(default="", description="Model of the planning agent. Empty: models.agent.")
+    research: str = Field(default="", description="Model of the research agent. Empty: models.agent.")
+    analysis: str = Field(default="", description="Model of the analysis agent. Empty: models.agent.")
+    writing: str = Field(default="", description="Model of the writing agent. Empty: models.agent.")
     ideation_seats: list[str] = Field(
         default=["anthropic/claude-sonnet-5.5", "openai/gpt-5.6-sol", "google/gemini-3.1-pro-preview"],
         description="One model per ideation seat. Heterogeneous models give more diverse ideas.",
@@ -183,6 +191,11 @@ class ModelConfig(_Section):
         description="Model of the front desk agent that talks with the human.",
     )
 
+    def for_phase(self, phase: str) -> str:
+        """Model of the agent that runs *phase* (screening, planning, research, analysis, writing)."""
+        own = getattr(self, phase, "") if phase in PHASE_AGENTS else ""
+        return own or self.agent
+
     def get_model(self, stage: PipelineStage, seat_index: int = 0) -> str:
         """Model for a direct LLM call routed by *stage*."""
         if stage == PipelineStage.ROUNDTABLE_SEAT:
@@ -191,7 +204,8 @@ class ModelConfig(_Section):
             return self.ideation_chair
         if stage in (PipelineStage.AUDITOR_TRIAGE, PipelineStage.AUDITOR_DEEP):
             return self.auditor
-        return self.agent
+        return self.for_phase({PipelineStage.IDEA_SCREENING: "screening", PipelineStage.RESEARCHER: "research",
+                               PipelineStage.ANALYZER: "analysis", PipelineStage.WRITER: "writing"}.get(stage, ""))
 
 
 class ProviderConfig(_Section):

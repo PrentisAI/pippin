@@ -2297,7 +2297,26 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 .btn-sm:disabled { opacity: .45; cursor: not-allowed; }
 .approval-desc { white-space: pre-wrap; max-height: 180px; overflow-y: auto; }
 
-.proposal-budget { display: flex; align-items: center; gap: 6px; margin: 6px 0 10px; }
-.proposal-budget input { width: 80px; padding: 2px 6px; font: inherit; }
-.proposal-ideation { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 6px 0; }
-.proposal-ideation label { display: flex; align-items: center; gap: 4px; }
+/* proposal card: ideation mode, advanced settings, budget */
+.proposal-card .proposal-ideation,
+.proposal-card .proposal-budget {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px;
+  padding: 4px 14px 8px; font-family: inherit; font-size: 12px; color: var(--fg);
+}
+.proposal-card .proposal-ideation label { display: flex; align-items: center; gap: 5px; }
+.proposal-card .proposal-budget input { width: 90px; padding: 3px 6px; font: inherit; }
+.proposal-card .proposal-advanced { padding: 0 14px 6px; font-size: 12px; }
+.proposal-card .proposal-advanced .proposal-detail-toggle { padding-left: 0; }
+.proposal-card .advanced-body { display: flex; flex-direction: column; gap: 12px; padding: 6px 0 4px 12px; }
+.proposal-card .advanced-group { display: flex; flex-direction: column; gap: 5px; }
+.proposal-card .advanced-group > label:not(.advanced-field) { display: flex; align-items: center; gap: 6px; }
+.proposal-card .advanced-title { font-weight: 600; color: var(--fg-dim); text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; }
+.proposal-card .advanced-field { display: grid; grid-template-columns: 200px minmax(0, 1fr); align-items: center; gap: 10px; }
+.proposal-card .advanced-field span { color: var(--fg-dim); }
+.proposal-card .advanced-field input {
+  width: 100%; box-sizing: border-box; padding: 4px 8px; font: 12px 'SF Mono', 'Fira Code', monospace;
+  border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg); color: var(--fg);
+}
+@media (max-width: 640px) {
+  .proposal-card .advanced-field { grid-template-columns: 1fr; gap: 3px; }
+}

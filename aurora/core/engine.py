@@ -1037,7 +1037,7 @@ Be specific: cite file names and concrete observations.
             cwd=str(self._workspace.root) if self._workspace else None,
             max_turns=max_turns,
             live_transcript_path=live_path,
-            model_override=model_override,
+            model_override=model_override or self._config.models.for_phase(phase_name),
             resume_session_id=resume_session_id,
             max_budget_usd=self._remaining_budget(),
             session_callback=(lambda sid: self._sessions.record(key, sid, full_system)) if self._sessions else None,

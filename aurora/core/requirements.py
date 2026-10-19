@@ -45,6 +45,61 @@ def _docker_ok() -> tuple[bool, str]:
     return True, ""
 
 
+_model_cache: tuple[float, set[str]] | None = None
+
+
+def available_models(base_url: str = "https://openrouter.ai/api/v1") -> set[str] | None:
+    """Model IDs the endpoint serves (cached for an hour); None if they cannot be fetched."""
+    import json
+    import time
+    import urllib.request
+
+    global _model_cache
+    if _model_cache and time.time() - _model_cache[0] < 3600:
+        return _model_cache[1]
+    try:
+        with urllib.request.urlopen(base_url.rstrip("/") + "/models", timeout=10) as resp:
+            ids = {m["id"] for m in json.load(resp).get("data", [])}
+    except Exception as exc:
+        logger.info("Could not fetch the model list (%s); model IDs are not checked", exc)
+        return None
+    _model_cache = (time.time(), ids)
+    return ids
+
+
+def configured_models(config: AuroraConfig) -> dict[str, str]:
+    """Every model the campaign will call, by the config key that sets it."""
+    m = config.models
+    roles = {"models.agent": m.agent, "models.ideation_chair": m.ideation_chair, "models.auditor": m.auditor,
+             "models.supervisor": m.supervisor, "models.frontdesk": m.frontdesk}
+    for phase in ("screening", "planning", "research", "analysis", "writing"):
+        if getattr(m, phase):
+            roles[f"models.{phase}"] = getattr(m, phase)
+    for i, seat in enumerate(m.ideation_seats):
+        roles[f"models.ideation_seats[{i}]"] = seat
+    for i, sc in enumerate(config.ideation.seats):
+        if sc.model:
+            roles[f"ideation.seats[{i}].model"] = sc.model
+    return roles
+
+
+def unknown_models(config: AuroraConfig) -> list[str]:
+    """Problems for model IDs the OpenRouter endpoint does not serve (empty if it cannot be checked)."""
+    if "openrouter.ai" not in config.api_base_url:
+        return []
+    ids = available_models(config.api_base_url)
+    if not ids:
+        return []
+    import difflib
+    problems = []
+    for key, model in configured_models(config).items():
+        if "/" in model and model not in ids:
+            close = difflib.get_close_matches(model, sorted(ids), n=3, cutoff=0.6)
+            hint = f" Did you mean {', '.join(close)}?" if close else ""
+            problems.append(f"{key}: model '{model}' is not available on OpenRouter.{hint}")
+    return problems
+
+
 def check_runtime_requirements(config: AuroraConfig) -> None:
     """Raise :class:`RuntimeRequirementError` listing every missing dependency."""
     if config.mock_mode:
@@ -78,6 +133,8 @@ def check_runtime_requirements(config: AuroraConfig) -> None:
             "No API key. Put `OPENROUTER_API_KEY=...` in a `.env` file (in the current directory or "
             "in ~/.aurora/) or export it in the shell, or set `api_key` in the config."
         )
+
+    problems += unknown_models(config)
 
     for item in config.inputs:
         if not Path(item).expanduser().exists():

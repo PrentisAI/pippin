@@ -8,11 +8,26 @@ All roles use OpenRouter model IDs (`vendor/model`), so one
 | Role | Config key | Default |
 |---|---|---|
 | Phase agents (screening, planning, research, analysis, writing) | `models.agent` | `anthropic/claude-sonnet-5.5` |
+| One phase's agent, overriding `models.agent` | `models.screening`, `models.planning`, `models.research`, `models.analysis`, `models.writing` | empty (use `models.agent`) |
 | Ideation seats | `models.ideation_seats` | Claude Sonnet 5.5, GPT-5.6, Gemini 3.1 Pro |
 | Ideation chair | `models.ideation_chair` | `moonshotai/kimi-k3` |
 | Milestone auditor | `models.auditor` | `anthropic/claude-sonnet-5.5` |
 | Live auditor | `models.supervisor` | `anthropic/claude-sonnet-5.5` |
 | Front desk | `models.frontdesk` | `anthropic/claude-haiku-5.5` |
+
+For example, a strong model for research and cheaper ones elsewhere:
+
+```yaml
+models:
+  agent: anthropic/claude-sonnet-5.5
+  research: anthropic/claude-opus-5.5
+  writing: anthropic/claude-haiku-5.5
+```
+
+In the web console the same settings are on the proposal card under
+*Advanced settings*, with the server's base config as defaults. Every model ID
+is checked against OpenRouter's list when a campaign starts; a typo stops it at
+once with the closest valid IDs.
 
 The defaults are the models used in the paper. The agent, auditor and
 supervisor roles run inside Claude Code, which works best with Claude models but

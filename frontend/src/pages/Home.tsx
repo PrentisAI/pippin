@@ -15,8 +15,11 @@ import {
   type ExperimentDetail,
   type ExperimentEventRecord,
   type ExperimentSummary,
+  type AutonomyMode,
+  type ConsoleSettings,
   type GateAction,
   type IdeationMode,
+  type ModelSettings,
   type PendingDecision,
   type Phase,
   type Proposal,
@@ -1274,6 +1277,7 @@ function ProposalCard({
   const [skipPhases, setSkipPhases] = useState<Phase[]>(proposal.skip_phases)
   const [budget, setBudget] = useState<string>(proposal.max_cost_usd != null ? String(proposal.max_cost_usd) : '')
   const [ideationMode, setIdeationMode] = useState<IdeationMode>(proposal.params.ideation_mode ?? 'roundtable')
+  const [advanced, setAdvanced] = useState<AdvancedChoices>({ autonomy: null, models: {} })
   const [confirming, setConfirming] = useState(false)
   const [confirmed, setConfirmed] = useState(proposal.confirmed)
   const [error, setError] = useState<string | null>(null)
@@ -1292,6 +1296,8 @@ function ProposalCard({
         skip_phases: skipPhases,
         max_cost_usd: maxCost,
         ideation_mode: ideationMode,
+        ...(advanced.autonomy ? { autonomy_mode: advanced.autonomy } : {}),
+        ...(Object.keys(advanced.models).length ? { models: advanced.models } : {}),
       })
       setConfirmed(true)
       onConfirmed(result.experiment_id)
@@ -1356,6 +1362,12 @@ function ProposalCard({
           </label>
         </div>
       )}
+
+      <AdvancedSettings
+        ideation={!skipPhases.includes('ideation')}
+        value={advanced}
+        onChange={setAdvanced}
+      />
 
       <label className="proposal-meta proposal-budget">
         Budget: US$
@@ -1619,6 +1631,116 @@ export default function Home() {
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+
+// ---------------------------------------------------------------------------
+// Advanced settings of a proposal: autonomy and the model of each role
+// ---------------------------------------------------------------------------
+
+interface AdvancedChoices {
+  autonomy: AutonomyMode | null
+  /** Only the roles the researcher changed; the rest keep the server defaults. */
+  models: Partial<Record<keyof ModelSettings, string | string[]>>
+}
+
+let settingsRequest: Promise<ConsoleSettings> | null = null
+
+function useConsoleSettings(): ConsoleSettings | null {
+  const [settings, setSettings] = useState<ConsoleSettings | null>(null)
+  useEffect(() => {
+    settingsRequest ??= api.settings.get()
+    settingsRequest.then(setSettings).catch(() => { settingsRequest = null })
+  }, [])
+  return settings
+}
+
+const PHASE_MODEL_ROLES: Array<[keyof ModelSettings, string]> = [
+  ['screening', 'Screening'],
+  ['planning', 'Planning'],
+  ['research', 'Research'],
+  ['analysis', 'Analysis'],
+  ['writing', 'Writing'],
+]
+
+const OVERSIGHT_MODEL_ROLES: Array<[keyof ModelSettings, string]> = [
+  ['auditor', 'Milestone auditor'],
+  ['supervisor', 'Live auditor'],
+  ['frontdesk', 'Front desk'],
+]
+
+function AdvancedSettings({
+  ideation,
+  value,
+  onChange,
+}: {
+  ideation: boolean
+  value: AdvancedChoices
+  onChange: (value: AdvancedChoices) => void
+}) {
+  const settings = useConsoleSettings()
+  const [open, setOpen] = useState(false)
+  if (!settings) return null
+  const d = settings.models
+  const current = (role: keyof ModelSettings): string => {
+    const v = value.models[role] ?? d[role]
+    return Array.isArray(v) ? v.join(', ') : v
+  }
+  const setModel = (role: keyof ModelSettings, text: string) => {
+    const models = { ...value.models }
+    const parsed = role === 'ideation_seats' ? text.split(',').map((m) => m.trim()).filter(Boolean) : text.trim()
+    const unchanged = role === 'ideation_seats'
+      ? (parsed as string[]).join(',') === d.ideation_seats.join(',')
+      : parsed === d[role]
+    if (unchanged || (role !== 'ideation_seats' && parsed === '' && d[role] === '')) delete models[role]
+    else models[role] = parsed
+    onChange({ ...value, models })
+  }
+  const field = (role: keyof ModelSettings, label: string, placeholder = '') => (
+    <label key={role} className="advanced-field">
+      <span>{label}</span>
+      <input list="aurora-models" value={current(role)} placeholder={placeholder}
+        onChange={(e) => setModel(role, e.target.value)} />
+    </label>
+  )
+  const autonomy = value.autonomy ?? settings.autonomy_mode
+  const changed = Object.keys(value.models).length + (value.autonomy ? 1 : 0)
+
+  return (
+    <div className="proposal-advanced">
+      <button className="proposal-detail-toggle" onClick={() => setOpen(!open)}>
+        {open ? '▾' : '▸'} Advanced settings{changed ? ` (${changed} changed)` : ''}
+      </button>
+      {open && (
+        <div className="advanced-body">
+          <datalist id="aurora-models">
+            {settings.model_suggestions.map((m) => <option key={m} value={m} />)}
+          </datalist>
+          <div className="advanced-group">
+            <div className="advanced-title">When a decision is needed</div>
+            <label>
+              <input type="radio" checked={autonomy === 'supervised'}
+                onChange={() => onChange({ ...value, autonomy: 'supervised' })} />
+              Supervised <span className="proposal-hint">the experiment waits for you</span>
+            </label>
+            <label>
+              <input type="radio" checked={autonomy === 'autonomous'}
+                onChange={() => onChange({ ...value, autonomy: 'autonomous' })} />
+              Autonomous <span className="proposal-hint">it records the question and continues</span>
+            </label>
+          </div>
+          <div className="advanced-group">
+            <div className="advanced-title">Models (OpenRouter IDs)</div>
+            {field('agent', 'Agents (default for all phases)')}
+            {PHASE_MODEL_ROLES.map(([role, label]) => field(role, label, `same as agents: ${current('agent')}`))}
+            {ideation && field('ideation_seats', 'Ideation seats (comma-separated)')}
+            {ideation && field('ideation_chair', 'Ideation chair')}
+            {OVERSIGHT_MODEL_ROLES.map(([role, label]) => field(role, label))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

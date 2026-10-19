@@ -123,3 +123,38 @@ def test_confirm_uses_the_chosen_ideation_mode(client, monkeypatch):
     assert r.status_code == 200, r.text
     assert seen["mode"] == "independent"
     wait_done(client, cid, r.json()["experiment_id"])
+
+
+def test_settings_and_per_role_overrides(client, monkeypatch):
+    from aurora.api.routes import campaigns
+    s = client.get("/api/settings").json()
+    assert s["models"]["agent"] and s["models"]["research"] == "" and s["autonomy_mode"] == "supervised"
+    assert "anthropic/claude-opus-5.5" in s["model_suggestions"]
+
+    cid = client.post("/api/campaigns/quick", json={"prompt": "p"}).json()["campaign_id"]
+    campaign = campaigns._ensure_campaign(cid)
+    proposal = campaigns.ExperimentProposal({"instruction": "x"}, ["ideation", "screening"], "s")
+    campaign.proposals[proposal.proposal_id] = proposal
+    seen = {}
+    original = campaigns._experiment_config
+
+    def spy(c, run_id, req):
+        cfg = original(c, run_id, req)
+        seen["cfg"] = cfg
+        return original(c, run_id, req.model_copy(update={"mock_mode": True}))
+
+    monkeypatch.setattr(campaigns, "_experiment_config", spy)
+    r = client.post(f"/api/campaigns/{cid}/proposals/{proposal.proposal_id}/confirm", json={
+        "autonomy_mode": "autonomous",
+        "models": {"research": "anthropic/claude-opus-5.5", "supervisor": "anthropic/claude-haiku-5.5",
+                   "writing": ""}})
+    assert r.status_code == 200, r.text
+    cfg = seen["cfg"]
+    assert cfg.human.autonomy.value == "autonomous"
+    assert cfg.models.for_phase("research") == "anthropic/claude-opus-5.5"
+    assert cfg.models.for_phase("writing") == cfg.models.agent
+    assert cfg.models.supervisor == "anthropic/claude-haiku-5.5"
+    wait_done(client, cid, r.json()["experiment_id"])
+    bad = client.post(f"/api/campaigns/{cid}/experiments",
+                      json={"instruction": "x", "mock_mode": True, "models": {"reserch": "a/b"}})
+    assert bad.status_code == 400 and "reserch" in bad.json()["detail"]

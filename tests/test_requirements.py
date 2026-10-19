@@ -24,3 +24,14 @@ def test_passes_when_everything_is_there(monkeypatch):
     monkeypatch.setattr(requirements.shutil, "which", lambda name: f"/usr/bin/{name}")
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
     check_runtime_requirements(AuroraConfig(objective="x", sandbox={"docker": False}))
+
+
+def test_unknown_model_ids_are_reported_with_suggestions(monkeypatch):
+    monkeypatch.setattr(requirements, "available_models",
+                        lambda *a, **k: {"anthropic/claude-opus-5.5", "anthropic/claude-sonnet-5.5",
+                                         "anthropic/claude-haiku-5.5", "openai/gpt-5.6-sol",
+                                         "google/gemini-3.1-pro-preview", "moonshotai/kimi-k3"})
+    cfg = AuroraConfig(objective="x", models={"research": "anthropic/claude-opus-55"})
+    [problem] = requirements.unknown_models(cfg)
+    assert "models.research" in problem and "anthropic/claude-opus-5.5" in problem
+    assert requirements.unknown_models(AuroraConfig(objective="x")) == []

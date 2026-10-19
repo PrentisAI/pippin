@@ -315,7 +315,8 @@ class StartExperimentRequest(BaseModel):
     instruction: str
     name: str = ""
     skip_phases: list[str] | None = None
-    model: str = ""                    # models.agent
+    model: str = ""                    # models.agent (shorthand)
+    models: dict[str, Any] | None = None  # any keys of the models section, e.g. {"research": "..."}
     docker_image: str = ""             # sandbox.image
     inputs: list[str] = []             # paths on the server
     data_paths: list[str] = []         # older name of inputs
@@ -343,6 +344,8 @@ def _experiment_config(campaign: CampaignState, run_id: str, req: StartExperimen
     raw["skip_phases"] = req.skip_phases if req.skip_phases is not None else default_skip_phases(req.instruction)
     if req.model:
         raw.setdefault("models", {})["agent"] = req.model
+    if req.models:
+        raw["models"] = {**raw.get("models", {}), **{k: v for k, v in req.models.items() if v not in ("", None)}}
     if req.docker_image:
         raw.setdefault("sandbox", {})["image"] = req.docker_image
     if req.inputs or req.data_paths:
@@ -429,7 +432,7 @@ async def _start(campaign: CampaignState, req: StartExperimentRequest, *, run_id
         config = _experiment_config(campaign, run_id, req)
     except Exception as exc:
         raise HTTPException(400, f"Invalid experiment settings: {exc}") from exc
-    run = ExperimentRunState(run_id, campaign.campaign_id, req.name or slug, config.models.agent,
+    run = ExperimentRunState(run_id, campaign.campaign_id, req.name or slug, config.models.for_phase("research"),
                              config.human.autonomy.value)
     if resume:
         # keep the earlier stream and conversation visible
@@ -728,6 +731,8 @@ async def campaign_chat_send(campaign_id: str, body: ChatBody) -> dict[str, Any]
 class ConfirmProposalBody(BaseModel):
     skip_phases: list[str] | None = None
     model: str = ""
+    models: dict[str, Any] | None = None   # per-role model overrides from the card's advanced settings
+    autonomy_mode: str = ""
     ideation_mode: str = ""             # roundtable | independent; empty: the proposal's
     max_cost_usd: float | None = None   # null: no limit; omitted: the proposal's default
 
@@ -747,6 +752,7 @@ async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProp
         model=body.model or p.get("model", ""),
         skip_phases=body.skip_phases if body.skip_phases is not None else proposal.suggested_skip,
         ideation_mode=body.ideation_mode or p.get("ideation_mode", ""),
+        models=body.models, autonomy_mode=body.autonomy_mode,
         max_cost_usd=body.max_cost_usd if "max_cost_usd" in body.model_fields_set else proposal.max_cost_usd)
     result = await _start(campaign, req)
     proposal.confirmed = True
@@ -917,3 +923,36 @@ async def workspace_write(campaign_id: str, exp_id: str, body: WorkspaceWriteBod
     local.parent.mkdir(parents=True, exist_ok=True)
     local.write_text(body.content)
     return {"path": path, "size": len(body.content), "synced_to_docker": False}
+
+
+# ---------------------------------------------------------------------------
+# Defaults for the console's forms
+# ---------------------------------------------------------------------------
+
+settings_router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+# Offered in the model fields of the proposal card (any OpenRouter ID can be typed)
+MODEL_SUGGESTIONS = [
+    "anthropic/claude-opus-5.5", "anthropic/claude-sonnet-5.5", "anthropic/claude-haiku-5.5",
+    "anthropic/claude-fable-5.1", "openai/gpt-5.6-sol", "openai/gpt-5.6-luna", "openai/gpt-5.6-terra",
+    "google/gemini-3.1-pro-preview", "google/gemini-3-flash-preview", "moonshotai/kimi-k3",
+    "deepseek/deepseek-v4-pro", "deepseek/deepseek-v4.1-flash", "x-ai/grok-4.7", "z-ai/glm-5.3",
+    "qwen/qwen3.8-max-prime",
+]
+
+
+@settings_router.get("")
+async def get_settings() -> dict[str, Any]:
+    """Settings a new experiment gets unless the proposal card changes them."""
+    from aurora.config import AuroraConfig
+    from aurora.core.requirements import available_models
+
+    cfg = AuroraConfig.model_validate({**base_config(), "objective": "defaults"})
+    served = available_models(cfg.api_base_url) if "openrouter.ai" in cfg.api_base_url else None
+    return {
+        "models": cfg.models.model_dump(),
+        "autonomy_mode": cfg.human.autonomy.value,
+        "ideation_mode": cfg.ideation.mode,
+        "max_cost_usd": default_max_cost(),
+        "model_suggestions": [m for m in MODEL_SUGGESTIONS if served is None or m in served],
+    }

@@ -15,6 +15,9 @@ agents will get, a summary, and the phases to run. Change the phases on the
 card, choose the ideation mode (*Round table* or *Independent*) when ideation
 runs, set the budget (US$20 by default; empty means no limit), or ask the front
 desk to change the instruction, then **confirm** to start the experiment.
+*Advanced settings* on the card set whether decisions wait for you
+(supervised or autonomous) and the model of every role: the agents of each
+phase, the ideation seats and chair, both auditors and the front desk.
 
 An **experiment** is one campaign. Its page shows
 

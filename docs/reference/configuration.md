@@ -26,7 +26,12 @@ Which model plays each role.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `models.agent` | str | `"anthropic/claude-sonnet-5.5"` | Model of the Claude Code sessions that run screening, planning, research, analysis and writing. |
+| `models.agent` | str | `"anthropic/claude-sonnet-5.5"` | Model of the Claude Code sessions that run screening, planning, research, analysis and writing, unless a phase sets its own below. |
+| `models.screening` | str | `""` | Model of the screening agent. Empty: models.agent. |
+| `models.planning` | str | `""` | Model of the planning agent. Empty: models.agent. |
+| `models.research` | str | `""` | Model of the research agent. Empty: models.agent. |
+| `models.analysis` | str | `""` | Model of the analysis agent. Empty: models.agent. |
+| `models.writing` | str | `""` | Model of the writing agent. Empty: models.agent. |
 | `models.ideation_seats` | list[str] | `["anthropic/claude-sonnet-5.5", "openai/gpt-5.6-sol", "google/gemini-3.1-pro-preview"]` | One model per ideation seat. Heterogeneous models give more diverse ideas. |
 | `models.ideation_chair` | str | `"moonshotai/kimi-k3"` | Model of the ideation chair, who decides the research direction. Pick a family not among the seats so it judges the ideas neutrally. |
 | `models.auditor` | str | `"anthropic/claude-sonnet-5.5"` | Model of the milestone auditor that reviews each phase's output. |

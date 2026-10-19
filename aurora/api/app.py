@@ -53,10 +53,11 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
             allow_headers=["*"],
         )
 
-    from aurora.api.routes.campaigns import campaign_router, store
+    from aurora.api.routes.campaigns import campaign_router, settings_router, store
     from aurora.api.routes.skills import router as skills_router
 
     app.include_router(campaign_router)
+    app.include_router(settings_router)
     app.include_router(skills_router)
 
     @app.on_event("startup")

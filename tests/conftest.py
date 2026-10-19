@@ -8,6 +8,9 @@ def isolated_home(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     for key in ("OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "AURORA_SERVER_CONFIG"):
         monkeypatch.delenv(key, raising=False)
+    # no network in tests: model IDs are not checked against OpenRouter unless a test says so
+    from aurora.core import requirements
+    monkeypatch.setattr(requirements, "available_models", lambda *a, **k: None)
     from aurora.api.routes import campaigns, skills
     campaigns.store.reset()
     campaigns._campaigns.clear()

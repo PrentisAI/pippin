@@ -271,7 +271,7 @@ class TerminalIteration:
             self.transcript_path = live_path
         return make_claude_code_loop(
             self._config,
-            model=self._config.models.agent,
+            model=self._config.models.for_phase("research"),
             max_turns=max_turns,
             max_budget_usd=self._budget_fn() if self._budget_fn else None,
             docker_container=getattr(self._backend, "container_id", None),
