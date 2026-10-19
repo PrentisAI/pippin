@@ -201,6 +201,7 @@ class ResearchEngine:
         # Budget accounting
         self._started_at: float | None = None
         self._main_task: asyncio.Task | None = None
+        self._resuming = False
         self.cost_usd: float = 0.0
         self._stop_requested: str | None = None
 
@@ -236,6 +237,7 @@ class ResearchEngine:
         import time as _time
         self._started_at = _time.time()
         self._main_task = asyncio.current_task()
+        self._resuming = resume
         from aurora.core.requirements import check_runtime_requirements
         check_runtime_requirements(self._config)
         self._setup()
@@ -680,6 +682,19 @@ class ResearchEngine:
                     n += 1
         if n:
             logger.info("%d skills available to the agents in %s", n, dest)
+
+    async def _sync_container_files(self) -> None:
+        """Copy the container's /app to <campaign>/workspace (after every research job).
+
+        If the process dies, the files of finished jobs are already on the host.
+        """
+        backend = self._execution_backend
+        if backend is None or not getattr(backend, "container_id", None) or not self._workspace:
+            return
+        try:
+            await backend.extract_workspace(self._workspace.campaign_dir / "workspace")
+        except Exception:
+            logger.warning("Copying /app to the campaign directory failed", exc_info=True)
 
     async def _restore_container_files(self) -> None:
         """On resume, put the files of the previous run (saved to <campaign>/workspace) back into /app."""
@@ -1448,6 +1463,11 @@ Be specific: cite file names and concrete observations.
                     await self._publish("agent_reply_to_human", text=text[:2000])
                     await self._frontdesk.notify(f"The research agent replied: {text[:2000]}")
 
+            if completed_jobs is not None or self._resuming:
+                guidance = "\n\n".join(x for x in [guidance, (
+                    "This campaign was interrupted and resumed. Files from the earlier attempt are already "
+                    "in the working directory: look at them first and continue from where the work stopped "
+                    "instead of starting over.")] if x)
             runner = TerminalIteration(
                 config=self._config,
                 backend=self._execution_backend,
@@ -1505,6 +1525,7 @@ Be specific: cite file names and concrete observations.
                 else:
                     dag.mark_failed(job.job_id, [result.error or "failed"])
                 self._update_frontdesk_status(iteration=len(results), cost_usd=self.cost_usd)
+                await self._sync_container_files()
                 self._save_checkpoint(CampaignPhase.RESEARCH, self._current_round, plan_id=plan.plan_id,
                                       completed_jobs=dag.completed_job_ids(), iteration=len(results),
                                       current_iteration_id=result.iteration_id)

@@ -132,6 +132,12 @@ async def remove_orphaned_containers(under: Path) -> int:
     for line in out.splitlines():
         cid, _, campaign_dir = line.partition(" ")
         if campaign_dir and (campaign_dir == root or campaign_dir.startswith(root + "/")):
+            # keep what the agents produced before the crash: copy /app out first
+            dest = Path(campaign_dir) / "workspace"
+            dest.mkdir(parents=True, exist_ok=True)
+            code, _, err = await _run("docker", "cp", f"{cid}:/app/.", str(dest), timeout=600)
+            if code != 0:
+                logger.warning("Could not save /app of the orphaned container %s: %s", cid, err.strip())
             await _run("docker", "rm", "-f", cid, timeout=60)
             removed += 1
     return removed
