@@ -123,7 +123,9 @@ class ClaudeCodeLoop:
         text_callback: Any = None,
         allow_host_bash: bool = False,
         max_budget_usd: float | None = None,
+        session_callback: Any = None,
     ) -> None:
+        self._session_callback = session_callback
         self._max_budget_usd = max_budget_usd
         self._model = model
         self._api_key = api_key
@@ -240,8 +242,8 @@ class ClaudeCodeLoop:
 
         if self._resume_session_id:
             cmd.extend(["--resume", self._resume_session_id])
-        else:
-            cmd.extend(["--append-system-prompt", full_system])
+        # also on resume: the container and the rules may have changed since
+        cmd.extend(["--append-system-prompt", full_system])
 
         self._process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -253,14 +255,7 @@ class ClaudeCodeLoop:
             limit=1024 * 1024 * 1024,  # 1GB buffer — never be the bottleneck
         )
 
-        if self._resume_session_id:
-            await self.inject_message(
-                f"You are resuming from a previous session. The Docker container has been "
-                f"restored with your previous workspace. Continue working on the task from "
-                f"where you left off.\n\n{user_message}"
-            )
-        else:
-            await self.inject_message(user_message)
+        await self.inject_message(user_message)
 
         await self._emit("loop_started", {"model": self._model, "driver": "claude-code"})
 
@@ -315,8 +310,13 @@ class ClaudeCodeLoop:
 
                 if event_type == "system" and event.get("subtype") != "permission_denied":
                     sid = event.get("session_id")
-                    if sid:
+                    if sid and sid != self.session_id:
                         self.session_id = sid
+                        if self._session_callback:
+                            try:
+                                self._session_callback(sid)
+                            except Exception:
+                                logger.debug("session callback failed", exc_info=True)
                     continue
 
                 if event_type == "system" and event.get("subtype") == "permission_denied":
@@ -447,6 +447,10 @@ class ClaudeCodeLoop:
                     got_result = True
                     break
 
+        except asyncio.CancelledError:
+            # stopped from outside: close() must end the process now, not let it finish its turn
+            self._cancelled = True
+            raise
         except Exception as exc:
             logger.error("Claude Code subprocess failed: %s", exc)
             _track(TrajectoryEntry(
@@ -486,10 +490,12 @@ class ClaudeCodeLoop:
 
     async def close(self) -> None:
         if self._process and self._process.returncode is None:
+            if getattr(self, "_cancelled", False):
+                self.interrupt()
             if self._process.stdin:
                 self._process.stdin.close()
             try:
-                await asyncio.wait_for(self._process.wait(), timeout=30)
+                await asyncio.wait_for(self._process.wait(), timeout=5 if getattr(self, "_cancelled", False) else 30)
             except TimeoutError:
                 self._process.terminate()
                 try:

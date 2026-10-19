@@ -58,7 +58,9 @@ class AgentSession:
         model_override: str | None = None,
         resume_session_id: str | None = None,
         max_budget_usd: float | None = None,
+        session_callback: Any = None,
     ) -> None:
+        self._session_callback = session_callback
         self._max_budget_usd = max_budget_usd
         self._config = config
         self._bus = event_bus
@@ -138,6 +140,7 @@ class AgentSession:
             live_transcript_path=self._live_transcript_path,
             resume_session_id=self._resume_session_id,
             max_budget_usd=self._max_budget_usd,
+            session_callback=self._session_callback,
         )
 
 

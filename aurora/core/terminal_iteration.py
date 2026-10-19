@@ -26,6 +26,7 @@ from aurora.core.lifecycle import IterationDecision, IterationResult
 from aurora.llm.stream import StreamEvent
 from aurora.models.experiment import ExperimentJob, ExperimentPlan, JobResult
 from aurora.state.artifacts import ArtifactStore
+from aurora.state.sessions import CONTINUE_NOTE, RESTART_NOTE
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,14 @@ class TerminalIteration:
         text_callback: Any = None,
         cwd: str | None = None,
         budget_fn: Any = None,
+        sessions: Any = None,
+        round_n: int = 0,
+        resuming: bool = False,
     ) -> None:
+        self._sessions = sessions        # SessionRegistry: continue interrupted job sessions
+        self._round = round_n
+        self._resuming = resuming
+        self._session_callback: Any = None
         self._budget_fn = budget_fn
         self._config = config
         self._backend = backend
@@ -97,7 +105,14 @@ class TerminalIteration:
         turns, cost, errors = 0, 0.0, []
         passed = False
         message = self._job_message(job, plan)
-        resume_id: str | None = None
+        key = f"research:{job.job_id}:round{self._round}"
+        resume_id = self._sessions.open_session(key) if (self._resuming and self._sessions) else None
+        continuing = resume_id is not None
+        if continuing:
+            logger.info("Continuing the interrupted session %s of job %s", resume_id, job.job_id)
+            message = f"{CONTINUE_NOTE}\n\n{message}"
+        if self._sessions is not None:
+            self._session_callback = lambda sid: self._sessions.record(key, sid)
         try:
             for attempt in range(1 + (_MAX_TEST_RETRIES if self._config.sandbox.tests_dir else 0)):
                 if self._stop_requested:
@@ -112,6 +127,13 @@ class TerminalIteration:
                     self._pending_messages.clear()
 
                 result = await self._run_session(message, remaining, resume_id)
+                if continuing and result.get("error") and not result.get("turns"):
+                    # the old session could not be continued: start over from the files it left
+                    logger.warning("Could not continue session %s: %s", resume_id, result["error"])
+                    continuing, resume_id = False, None
+                    message = message.replace(CONTINUE_NOTE, RESTART_NOTE)
+                    result = await self._run_session(message, deadline - time.time(), None)
+                continuing = False
                 turns += result.get("turns", 0)
                 cost += result.get("cost_usd", 0.0)
                 if result.get("timed_out"):
@@ -134,6 +156,8 @@ class TerminalIteration:
             errors.append(str(exc))
 
         self.cost_usd += cost
+        if passed and self._sessions is not None:
+            self._sessions.done(key)
         wall = time.time() - start
         job_result = JobResult(
             job_id=job.job_id,
@@ -253,6 +277,7 @@ class TerminalIteration:
             stream_callback=stream_callback,
             live_transcript_path=live_path,
             text_callback=self._text_callback,
+            session_callback=self._session_callback,
         )
 
     def _record_to_artifact_store(

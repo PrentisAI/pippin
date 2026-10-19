@@ -683,6 +683,8 @@ function ideationProgress(d: Record<string, unknown>): Described {
       return system('muted', `The chair compares ${String(d.candidates ?? '')} ideas`)
     case 'chair_deciding':
       return system('muted', 'The chair decides the direction')
+    case 'resumed':
+      return system('info', `Ideation resumed: ${String(d.prepared ?? 0)} ideas kept${d.items_done ? `, ${String(d.items_done)} meeting items already discussed` : ''}`)
     case 'decided':
       return system('success', `Chair chose ${str(d.chosen)}: ${clip(str(d.headline), 200)}`, str(d.rationale) || undefined)
     default:

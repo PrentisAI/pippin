@@ -58,6 +58,7 @@ from aurora.skills.registry import SkillRegistry
 from aurora.state.artifacts import ArtifactStore
 from aurora.state.context import ContextReconstructor
 from aurora.state.mental_model import MentalModelManager
+from aurora.state.sessions import CONTINUE_NOTE, RESTART_NOTE, SessionRegistry
 from aurora.state.workspace import WorkspaceManager
 from aurora.tools.base import ToolRegistry
 
@@ -202,6 +203,7 @@ class ResearchEngine:
         self._started_at: float | None = None
         self._main_task: asyncio.Task | None = None
         self._resuming = False
+        self._sessions: SessionRegistry | None = None
         self.cost_usd: float = 0.0
         self._stop_requested: str | None = None
 
@@ -654,6 +656,7 @@ class ResearchEngine:
         self._registry.register(HookRegistry, hook_reg)
 
         self.human_gate._log_path = self._workspace.campaign_dir / "human_gates.jsonl"
+        self._sessions = SessionRegistry(self._workspace.campaign_dir / "sessions.json")
         self._setup_skills()
 
     def _setup_skills(self) -> None:
@@ -837,6 +840,7 @@ Be specific: cite file names and concrete observations.
                                 next_phase=next_phase.value, attempt=attempt + 1)
             await self._run_agent_session(
                 phase_name="audit",
+                session_key=f"audit:{completed_phase.value}->{next_phase.value}:round{self._current_round}",
                 system_prompt=self._AUDITOR_SYSTEM_PROMPT.format(audit_path=str(audit_path)),
                 user_message=(f"The '{completed_phase.value}' phase has finished; next is "
                               f"'{next_phase.value}'.\n\nCampaign objective: {self._config.objective[:1500]}\n\n"
@@ -994,19 +998,32 @@ Be specific: cite file names and concrete observations.
         max_turns: int = 30,
         model_override: str | None = None,
         resume_session_id: str | None = None,
+        session_key: str | None = None,
     ) -> dict[str, Any]:
         """Run a Claude Code agent session and return the full result.
 
-        Each phase starts a fresh session. Prior phases' transcripts are
-        saved to disk — the system prompt tells the agent where to find
-        them so it can read relevant context on demand.
+        Each phase starts a fresh session; prior phases' outputs and transcripts
+        are on disk and the system prompt says where.  The session is recorded
+        under *session_key* (default: phase and round): if the campaign is
+        stopped and resumed before it finishes, it is continued instead of
+        started over.
 
-        Returns dict with keys: text, session_id, turns, tokens, etc.
+        Returns dict with keys: final_text, session_id, turns, cost_usd, error, ...
         """
         container_id = getattr(self._execution_backend, "container_id", None)
+        key = session_key or f"{phase_name}:round{self._current_round}"
+        resumed = False
+        if resume_session_id is None and self._resuming and self._sessions is not None:
+            resume_session_id = self._sessions.open_session(key)
+            resumed = resume_session_id is not None
+        if resume_session_id and not system_prompt and self._sessions is not None:
+            system_prompt = self._sessions.system_prompt(key)
 
         prior_context = self._build_prior_context_prompt(phase_name)
         full_system = system_prompt + prior_context
+        if resumed:
+            logger.info("Continuing the interrupted %s session %s", key, resume_session_id)
+            user_message = f"{CONTINUE_NOTE}\n\n{user_message}"
 
         live_path = None
         if self._workspace:
@@ -1023,11 +1040,23 @@ Be specific: cite file names and concrete observations.
             model_override=model_override,
             resume_session_id=resume_session_id,
             max_budget_usd=self._remaining_budget(),
+            session_callback=(lambda sid: self._sessions.record(key, sid, full_system)) if self._sessions else None,
         )
         result = await session.run(full_system, user_message)
         self.cost_usd += float(result.get("cost_usd") or 0.0)
+        if resumed and result.get("error") and not result.get("turns"):
+            # the old session could not be continued (e.g. another machine): start over, but
+            # point the agent at what the interrupted attempt left behind
+            logger.warning("Could not continue session %s (%s); starting a new one", resume_session_id,
+                           result["error"])
+            self._sessions.done(key)
+            return await self._run_agent_session(
+                phase_name, system_prompt, user_message.replace(CONTINUE_NOTE, RESTART_NOTE),
+                max_turns=max_turns, model_override=model_override, session_key=key)
         if result.get("error"):
             logger.warning("The %s session ended with an error: %s", phase_name, result["error"])
+        elif self._sessions is not None:
+            self._sessions.done(key)
         self._save_phase_transcript(phase_name, result)
         return result
 
@@ -1213,7 +1242,9 @@ Be specific: cite file names and concrete observations.
         topic = artifacts.current_goal if artifacts else self._config.objective
         if guidance:
             topic = f"{topic}\n\nGuidance for this round: {guidance}"
-        rt = Roundtable(config=self._config, router=self._router, progress=self._publish)
+        rt = Roundtable(config=self._config, router=self._router, progress=self._publish,
+                        state_path=self._workspace.phase_round_dir("ideation", self._current_round)
+                        / "meeting_state.json")
         proposal = await rt.run(ctx, topic=topic)
 
         self._workspace.atomic_write_json(
@@ -1481,6 +1512,9 @@ Be specific: cite file names and concrete observations.
                 text_callback=_agent_text,
                 cwd=str(self._workspace.root) if self._workspace else None,
                 budget_fn=self._remaining_budget,
+                sessions=self._sessions,
+                round_n=self._current_round,
+                resuming=self._resuming,
             )
             if self._config.audit.live and transcript_dir:
                 await self._start_supervisor(str(transcript_dir / "research_loop.jsonl"), proposal)

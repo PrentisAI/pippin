@@ -29,9 +29,10 @@ import re
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime
+from pathlib import Path
 
 from aurora.agents.base import AgentContext
-from aurora.agents.roundtable.chair import Decision, ItemNotes, RoundtableChair
+from aurora.agents.roundtable.chair import Decision, ItemNotes, RoundtableChair, Selection
 from aurora.agents.roundtable.seat import RoundtableSeat, is_pass, raised_hand
 from aurora.config import AuroraConfig
 from aurora.llm.router import LLMRouter
@@ -55,8 +56,11 @@ def _headline(text: str) -> str:
 class Roundtable:
     """Runs the group meeting and returns the proposal for the chosen direction."""
 
-    def __init__(self, config: AuroraConfig, router: LLMRouter, progress: Progress | None = None) -> None:
+    def __init__(self, config: AuroraConfig, router: LLMRouter, progress: Progress | None = None,
+                 state_path: Path | None = None) -> None:
         self._progress = progress
+        self._state_path = Path(state_path) if state_path else None
+        self._state: dict = {}
         self._config = config
         self._router = router
         self._contributions: list[SeatContribution] = []
@@ -94,16 +98,25 @@ class Roundtable:
 
     async def select_independently(self, context: AgentContext, topic: str | None = None) -> RoundtableProposal:
         topic = topic or context.current_goal
-        self._contributions, self.notes, self.decision = [], [], None
+        state = self._load_state(topic)
         rnd = random.Random(int(hashlib.md5(topic.encode()).hexdigest(), 16))
-        drafts = await self._prepare_all(context, topic, rnd)
+        if state.get("prepared"):
+            drafts = list(self._contributions)
+            await self._emit("resumed", prepared=len(drafts))
+        else:
+            drafts = await self._prepare_all(context, topic, rnd)
+            self._save_state(topic, prepared=True)
         # anonymous, shuffled labels so the chair cannot favour a model or a position
         order = drafts[:]
         rnd.shuffle(order)
         labels = {chr(ord("A") + k): c for k, c in enumerate(order)}
         briefing = self._seats[0].briefing(context, topic)
-        await self._emit("chair_selecting", candidates=len(labels))
-        selection = await self._chair.select(briefing, {lab: c.content for lab, c in labels.items()})
+        if state.get("selection"):
+            selection = Selection(**state["selection"])
+        else:
+            await self._emit("chair_selecting", candidates=len(labels))
+            selection = await self._chair.select(briefing, {lab: c.content for lab, c in labels.items()})
+            self._save_state(topic, selection=selection.model_dump())
         chosen = next((labels[x] for x in re.findall(r"[A-Z]", selection.chosen) if x in labels), order[0])
         await self._emit("decided", chosen=chosen.seat_id, headline=_headline(chosen.content),
                          rationale=selection.rationale)
@@ -111,21 +124,33 @@ class Roundtable:
         final = await writer.write_proposal(
             context, topic, f"### {chosen.seat_id} — presentation\n\n{chosen.content}", None)
         self.decision = None
+        self._finish_state()
         return self._proposal(final, topic, decision={
             "mode": "independent", "chosen": chosen.seat_id,
             "labels": {lab: c.seat_id for lab, c in labels.items()}, **selection.model_dump()})
 
     async def deliberate(self, context: AgentContext, topic: str | None = None) -> RoundtableProposal:
         topic = topic or context.current_goal
-        self._contributions, self.notes, self.decision = [], [], None
+        state = self._load_state(topic)
         rnd = random.Random(int(hashlib.md5(topic.encode()).hexdigest(), 16))
         by_id = {s.agent_id: s for s in self._seats}
 
-        await self._prepare_all(context, topic, rnd)
+        if state.get("prepared"):
+            await self._emit("resumed", prepared=sum(c.kind == "presentation" for c in self._contributions),
+                             items_done=len(state.get("done_items", [])))
+        else:
+            await self._prepare_all(context, topic, rnd)
+            self._save_state(topic, prepared=True)
 
-        agenda = self.seat_ids[:]
-        rnd.shuffle(agenda)
+        agenda = state.get("agenda")
+        if not agenda:
+            agenda = self.seat_ids[:]
+            rnd.shuffle(agenda)
+            self._save_state(topic, agenda=agenda)
+        done_items: list[str] = list(state.get("done_items", []))
         for n, presenter in enumerate(agenda, 1):
+            if presenter in done_items:
+                continue
             await self._emit("agenda_item", item=n, of=len(agenda), presenter=presenter)
             start = len(self._contributions)
             speakers = [s for s in self._seats if s.agent_id != presenter]
@@ -140,24 +165,34 @@ class Roundtable:
                 if not speakers:
                     break
             self.notes.append(await self._chair.notes(presenter, self.transcript(self._contributions[start:])))
+            done_items.append(presenter)
+            self._save_state(topic, done_items=done_items)
             await self._emit("item_notes", presenter=presenter, summary=self.notes[-1].summary,
                              threads=len(self.notes[-1].threads))
 
-        await self._emit("open_discussion")
-        start = len(self._contributions)
-        for k in range(1, self._config.ideation.rounds_per_item + 1):
-            remarks = await self._parallel(
-                [s.open_discussion(context, topic, self.transcript(), k) for s in self._seats], rnd)
-            if all(is_pass(r.content) for r in remarks):
-                break
-        self.notes.append(await self._chair.notes("open discussion", self.transcript(self._contributions[start:])))
+        if not state.get("open_done"):
+            await self._emit("open_discussion")
+            start = len(self._contributions)
+            for k in range(1, self._config.ideation.rounds_per_item + 1):
+                remarks = await self._parallel(
+                    [s.open_discussion(context, topic, self.transcript(), k) for s in self._seats], rnd)
+                if all(is_pass(r.content) for r in remarks):
+                    break
+            self.notes.append(await self._chair.notes("open discussion",
+                                                      self.transcript(self._contributions[start:])))
+            self._save_state(topic, open_done=True)
 
         briefing = self._seats[0].briefing(context, topic)
-        await self._emit("chair_deciding")
-        try:
-            self.decision = await self._chair.decide(briefing, self.notes, self.transcript())
-        except Exception as exc:
-            raise RuntimeError(f"Ideation chair ({self._config.models.ideation_chair}) could not decide: {exc}") from exc
+        if state.get("decision"):
+            self.decision = Decision(**state["decision"])
+        else:
+            await self._emit("chair_deciding")
+            try:
+                self.decision = await self._chair.decide(briefing, self.notes, self.transcript())
+            except Exception as exc:
+                raise RuntimeError(f"Ideation chair ({self._config.models.ideation_chair}) could not decide: "
+                                   f"{exc}") from exc
+            self._save_state(topic, decision=self.decision.model_dump())
         # the chair sometimes writes a sentence instead of a bare seat ID
         named = [x for x in re.findall(r"p\d{2}", self.decision.chosen) if x in by_id]
         writer = by_id[named[0]] if named else self._seats[0]
@@ -165,7 +200,47 @@ class Roundtable:
                          rationale=self.decision.rationale)
         decision_txt = json.dumps(self.decision.model_dump(), ensure_ascii=False, indent=1)
         final = await writer.write_proposal(context, topic, self.transcript(), decision_txt)
+        self._finish_state()
         return self._proposal(final, topic, decision=self.decision.model_dump())
+
+    # -- saving the meeting as it goes (so a stopped campaign resumes mid-meeting) --
+
+    def _load_state(self, topic: str) -> dict:
+        """Restore the meeting saved for *topic*, if any; otherwise start empty."""
+        self._contributions, self.notes, self.decision = [], [], None
+        self._state: dict = {"topic": topic, "mode": self._config.ideation.mode,
+                             "seats": self._config.models.ideation_seats}
+        path = self._state_path
+        if path is None or not path.exists():
+            return {}
+        try:
+            saved = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return {}
+        if (saved.get("topic"), saved.get("mode"), saved.get("seats")) != (
+                topic, self._config.ideation.mode, self._config.models.ideation_seats):
+            return {}       # a different meeting
+        self._state = saved
+        self._contributions = [SeatContribution(**c) for c in saved.get("contributions", [])]
+        self.notes = [ItemNotes(**n) for n in saved.get("notes", [])]
+        logger.info("Resuming the ideation meeting from %s", path)
+        return saved
+
+    def _save_state(self, topic: str, **updates) -> None:
+        if self._state_path is None:
+            return
+        self._state.update(updates)
+        self._state["contributions"] = [c.model_dump(mode="json") for c in self._contributions]
+        self._state["notes"] = [n.model_dump(mode="json") for n in self.notes]
+        self._state_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self._state_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(self._state, ensure_ascii=False))
+        tmp.replace(self._state_path)
+
+    def _finish_state(self) -> None:
+        """The meeting is over: keep its record, but never resume from it."""
+        if self._state_path is not None and self._state_path.exists():
+            self._state_path.replace(self._state_path.with_name("meeting_state.finished.json"))
 
     def _proposal(self, final, topic: str, decision: dict) -> RoundtableProposal:
         return RoundtableProposal(

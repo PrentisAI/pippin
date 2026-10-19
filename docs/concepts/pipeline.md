@@ -43,10 +43,23 @@ up to `agent.max_followup_cycles` times; after that it writes up what there is.
 
 ## Stopping and resuming
 
-After every phase and every research job the campaign saves `checkpoint.json`.
-A campaign that was interrupted (Ctrl-C, a crash, a budget limit, a human
-*stop*) continues with `aurora resume <campaign dir>` (or *Resume* in the web
-console) from the last checkpoint.
+A campaign can be stopped at any time (Ctrl-C, *Stop* in the web console, a
+budget limit, a human *stop*, or a crash) and continued with
+`aurora resume <campaign dir>` (or *Resume* in the web console). Work in
+progress is kept as far as possible:
+
+- **Finished phases and jobs** are not repeated (`checkpoint.json`).
+- **Files** written on the host are on disk; the container's `/app` is copied
+  to `<campaign>/workspace/` when the campaign ends and after every research
+  job, and put back into the new container on resume.
+- **An interrupted agent session** (screening, planning, a research job,
+  analysis, writing, a milestone audit) is continued in the same Claude Code
+  session (`sessions.json`), with what it had read, thought and written so far,
+  and told to pick up where it stopped. If that session cannot be restored, a
+  new one starts and is pointed at the partial outputs.
+- **An interrupted ideation meeting** resumes after the last finished step:
+  prepared ideas, discussed agenda items and the chair's notes are kept
+  (`phases/ideation/round_N/meeting_state.json`).
 
 ## Budgets
 
