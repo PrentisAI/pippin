@@ -228,7 +228,7 @@ class RoundtableSeat(Agent):
     def system_prompt(self) -> str:
         base = self._custom_system_prompt or SEAT_SYSTEM_PROMPT
         return base.replace("{seat_id}", self._agent_id).replace(
-            "{search_note}", SEARCH_NOTE if self._web_search else ""
+            "{search_note}", SEARCH_NOTE if self._web_search and "/" in self.model_id else ""
         )
 
     def briefing(self, context: AgentContext, topic: str) -> str:
@@ -240,8 +240,10 @@ class RoundtableSeat(Agent):
         if transcript:
             parts.append(f"## Meeting transcript so far\n\n{transcript}")
         parts.append(f"## Your turn (you are {self._agent_id})\n\n{instructions}")
+        # the web plugin is OpenRouter's (vendor/model IDs); other providers search nothing
+        searchable = "/" in self.model_id
         kwargs = {"extra_body": {"plugins": [{"id": "web", "engine": "native", "max_results": 5}]}} \
-            if self._web_search and kind in SEARCH_TURNS else {}
+            if self._web_search and searchable and kind in SEARCH_TURNS else {}
         response = await self._router.generate(
             PipelineStage.ROUNDTABLE_SEAT,
             [Message.system(self.system_prompt()), Message.user("\n\n".join(parts))],

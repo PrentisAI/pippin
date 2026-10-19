@@ -42,7 +42,7 @@ Multi-agent ideation: several models propose directions and a chair decides.
 | `ideation.mode` | `roundtable` \| `independent` | `"roundtable"` | 'roundtable': the seats present their ideas and discuss them in a group meeting before the chair decides. 'independent': each seat proposes an idea on its own and the chair picks one, without discussion (cheaper). |
 | `ideation.seats` | list[SeatConfig] | `[]` | Named seats with their own prompts. Empty: one seat per models.ideation_seats. |
 | `ideation.rounds_per_item` | int | `2` | Roundtable mode: remark/response exchanges per presentation. |
-| `ideation.web_search` | bool | `false` | Let seats search the web while preparing (OpenRouter web plugin; seat models must be OpenRouter models). |
+| `ideation.web_search` | bool | `true` | Let seats search the literature and the web while preparing and answering (OpenRouter web plugin, a small extra cost per call; seat models must be OpenRouter models). Turn it off when evaluating ideation on known problems, so ideas cannot simply be looked up. |
 | `ideation.chair_prompt` | str | `""` | System prompt of the chair. Empty: built-in. |
 | `ideation.seat_prompt` | str | `""` | System prompt of the seats. Empty: built-in. '{seat_id}' is replaced by the seat ID. |
 

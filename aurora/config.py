@@ -229,9 +229,11 @@ class IdeationConfig(_Section):
         description="Roundtable mode: remark/response exchanges per presentation.",
     )
     web_search: bool = Field(
-        default=False,
-        description="Let seats search the web while preparing (OpenRouter web plugin; seat models "
-                    "must be OpenRouter models).",
+        default=True,
+        description="Let seats search the literature and the web while preparing and answering "
+                    "(OpenRouter web plugin, a small extra cost per call; seat models must be OpenRouter "
+                    "models). Turn it off when evaluating ideation on known problems, so ideas cannot "
+                    "simply be looked up.",
     )
     chair_prompt: str = Field(default="", description="System prompt of the chair. Empty: built-in.")
     seat_prompt: str = Field(
@@ -440,6 +442,7 @@ class AuroraConfig(_Section):
             frontdesk="mock-frontdesk",
         )
         self.ideation.seats = [sc.model_copy(update={"model": ""}) for sc in self.ideation.seats]
+        self.ideation.web_search = False
         self.sandbox.docker = False
         self.audit.live = False
         self.human.frontdesk = False

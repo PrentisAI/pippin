@@ -16,6 +16,7 @@ import {
   type ExperimentEventRecord,
   type ExperimentSummary,
   type GateAction,
+  type IdeationMode,
   type PendingDecision,
   type Phase,
   type Proposal,
@@ -1272,6 +1273,7 @@ function ProposalCard({
 }) {
   const [skipPhases, setSkipPhases] = useState<Phase[]>(proposal.skip_phases)
   const [budget, setBudget] = useState<string>(proposal.max_cost_usd != null ? String(proposal.max_cost_usd) : '')
+  const [ideationMode, setIdeationMode] = useState<IdeationMode>(proposal.params.ideation_mode ?? 'roundtable')
   const [confirming, setConfirming] = useState(false)
   const [confirmed, setConfirmed] = useState(proposal.confirmed)
   const [error, setError] = useState<string | null>(null)
@@ -1289,6 +1291,7 @@ function ProposalCard({
       const result = await api.proposals.confirm(campaignId, proposal.proposal_id, {
         skip_phases: skipPhases,
         max_cost_usd: maxCost,
+        ideation_mode: ideationMode,
       })
       setConfirmed(true)
       onConfirmed(result.experiment_id)
@@ -1337,6 +1340,22 @@ function ProposalCard({
       {model && <div className="proposal-meta">Model: {model}</div>}
 
       <PhasePipelineSelector skipPhases={skipPhases} onChange={setSkipPhases} />
+
+      {!skipPhases.includes('ideation') && (
+        <div className="proposal-meta proposal-ideation">
+          <span>Ideation:</span>
+          <label>
+            <input type="radio" name={`ideation-${proposal.proposal_id}`} checked={ideationMode === 'roundtable'}
+              onChange={() => setIdeationMode('roundtable')} />
+            Round table <span className="proposal-hint">the models discuss their ideas, then the chair decides</span>
+          </label>
+          <label>
+            <input type="radio" name={`ideation-${proposal.proposal_id}`} checked={ideationMode === 'independent'}
+              onChange={() => setIdeationMode('independent')} />
+            Independent <span className="proposal-hint">the chair picks one of the ideas; about 4× cheaper</span>
+          </label>
+        </div>
+      )}
 
       <label className="proposal-meta proposal-budget">
         Budget: US$

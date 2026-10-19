@@ -1608,6 +1608,9 @@ Be specific: cite file names and concrete observations.
                     lines.append(f"**{label}:** {value}")
         if self._config.inputs:
             lines.append("Input files are in `inputs/` (in the container: `/app/inputs`).")
+        understanding = self._understanding_text()
+        if understanding:
+            lines.append(understanding)
         return "\n\n".join(lines)
 
     # ------------------------------------------------------------------
@@ -1864,66 +1867,146 @@ Be specific: cite file names and concrete observations.
         return loop_back_to
 
     async def _run_analysis_agent(self) -> CampaignPhase | None:
-        """Run analysis via Claude Code agent session."""
+        """Analysis as a Claude Code session: verdict, findings and the updated mental model."""
         assert self._workspace is not None
-
-        artifacts = self._store.load() if self._store else None
-        if artifacts is not None:
-            experiments_summary = "\n".join(
-                f"- {e.job_id}: {e.status} (skill: {e.skill_used})"
-                for e in artifacts.experiments
-            ) or "(no experiments recorded)"
-            observations_summary = "\n".join(
-                f"- {o.observation_id}: {o.description[:100]}"
-                for o in artifacts.observations
-            ) or "(no observations)"
-            goal_text = artifacts.current_goal
-        else:
-            experiments_summary = "(artifact store disabled)"
-            observations_summary = "(artifact store disabled)"
-            goal_text = self._config.objective
-
+        verdict_path = self._workspace.analysis_verdict_path(self._current_round)
+        mm_path = self._workspace.mental_model_path
+        understanding = self._understanding_text() or "## Current understanding\n(none recorded yet)"
         user_msg = (
-            f"## Research Goal\n{goal_text}\n\n"
-            f"## Experiments Run\n{experiments_summary}\n\n"
-            f"## Observations\n{observations_summary}\n\n"
-            f"## Instructions\n"
-            f"Analyze the results in the workspace. You can read result files, "
-            f"run analysis scripts, and inspect outputs.\n\n"
-            f"After analysis, write your verdict as a JSON file to: "
-            f"{self._workspace.analysis_verdict_path(self._current_round)}\n\n"
-            f"The JSON should have:\n"
-            f'{{"sufficient": true/false, "target_phase": "research"|"planning"|"ideation", '
-            f'"reason": "...", "findings": ["..."]}}\n\n'
-            f'Set "sufficient": true if the results answer the objective well enough to write them up.\n'
-            f'Set "sufficient": false and "target_phase" to the phase that should run again: research '
-            f'(more or corrected experiments), planning (a different plan) or ideation (a different direction).'
+            f"## Research objective\n{self._config.objective}\n\n"
+            f"{self._results_summary()}\n\n"
+            f"{understanding}\n\n"
+            "## Instructions\n"
+            "Analyse the results: read the job outputs (in the container under /app, and the research "
+            "transcript), check them, and run your own analyses where needed. Then decide whether they "
+            "answer the objective well enough to be written up, and update the campaign's scientific "
+            f"mental model (the previous one, if any, is {mm_path}).\n\n"
+            f"Write your verdict as JSON to {verdict_path}:\n"
+            "```json\n"
+            '{"sufficient": true, "target_phase": "research|planning|ideation", "reason": "...",\n'
+            ' "findings": [{"statement": "...", "status": "supported|tentative|refuted",\n'
+            '               "evidence": ["file paths, job ids or numbers that back it"], "confidence": 0.0}],\n'
+            ' "open_questions": ["..."],\n'
+            ' "mental_model": {\n'
+            '   "active_hypotheses": [{"hypothesis_id": "h1", "statement": "...",\n'
+            '      "status": "active|competing|confirmed|refuted", "confidence": 0.0,\n'
+            '      "supporting_evidence": ["..."], "contradicting_evidence": ["..."]}],\n'
+            '   "inferred_mechanisms": ["..."], "unresolved_ambiguity": ["..."],\n'
+            '   "current_rationale": "what we now believe and why, in a few sentences"}}\n'
+            "```\n"
+            "List ALL current findings and hypotheses (this replaces the previous lists), keeping "
+            "refuted ones with status refuted so the record shows what was overturned. "
+            'Set "sufficient": false and "target_phase" to the phase that should run again when more '
+            "work is needed: research (more or corrected experiments), planning (a different plan) or "
+            "ideation (a different direction)."
         )
-
         result = await self._run_agent_session(
-            "analysis",
-            self._config.prompts.analysis,
-            user_msg,
+            "analysis", self._config.prompts.analysis, user_msg,
             max_turns=self._config.agent.phase_max_turns,
         )
         self._last_phase_session_id = result.get("session_id")
-
-        # Read the verdict file
-        verdict_path = self._workspace.analysis_verdict_path(self._current_round)
         try:
             verdict = json.loads(verdict_path.read_text())
-            if verdict.get("sufficient", True):
-                return None
-            target = {"research_loop": "research", "roundtable": "ideation"}.get(
-                verdict.get("target_phase", "research"), verdict.get("target_phase", "research"))
-            try:
-                return CampaignPhase(target)
-            except ValueError:
-                return CampaignPhase.RESEARCH
         except Exception as exc:
             logger.warning("Analysis wrote no valid verdict (%s); proceeding to writing", exc)
             await self._publish("analysis_verdict_missing", reason=str(exc))
             return None
+        await self._apply_analysis(verdict)
+        if verdict.get("sufficient", True):
+            return None
+        target = {"research_loop": "research", "roundtable": "ideation"}.get(
+            verdict.get("target_phase", "research"), verdict.get("target_phase", "research"))
+        try:
+            return CampaignPhase(target)
+        except ValueError:
+            return CampaignPhase.RESEARCH
+
+    async def _apply_analysis(self, verdict: dict[str, Any]) -> None:
+        """Record the analysis: findings as claims, open questions, and the new mental model."""
+        from aurora.models.claims import ScientificClaim
+        from aurora.models.mental_model import Hypothesis, ScientificMentalModel
+
+        status_map = {"supported": "accepted", "tentative": "tentative", "refuted": "rejected"}
+        if self._store is not None and isinstance(verdict.get("findings"), list):
+            artifacts = self._store.load().model_copy(deep=True)
+            artifacts.claims = []
+            for i, f in enumerate(verdict["findings"]):
+                if isinstance(f, str):
+                    f = {"statement": f}
+                if not isinstance(f, dict) or not f.get("statement"):
+                    continue
+                try:
+                    claim = ScientificClaim(
+                        claim_id=f"claim_r{self._current_round}_{i + 1}", statement=str(f["statement"]),
+                        status=status_map.get(str(f.get("status", "tentative")), "tentative"),
+                        supporting_evidence=[str(e) for e in f.get("evidence", [])],
+                        confidence=min(max(float(f.get("confidence", 0.5) or 0.5), 0.0), 1.0))
+                except Exception as exc:
+                    logger.warning("Skipping malformed finding %s: %s", f, exc)
+                    continue
+                artifacts = self._store.add_claim(artifacts, claim)
+            if isinstance(verdict.get("open_questions"), list):
+                artifacts = artifacts.model_copy(update={
+                    "open_questions": [str(q) for q in verdict["open_questions"]]})
+                self._store.save(artifacts)
+        mm = verdict.get("mental_model")
+        if isinstance(mm, dict) and self._mm is not None:
+            try:
+                hyps = [Hypothesis(**h) for h in mm.get("active_hypotheses", []) if isinstance(h, dict)]
+                model = ScientificMentalModel(
+                    active_hypotheses=[h for h in hyps if h.status != "competing"],
+                    competing_hypotheses=[h for h in hyps if h.status == "competing"],
+                    inferred_mechanisms=[str(x) for x in mm.get("inferred_mechanisms", [])],
+                    unresolved_ambiguity=[str(x) for x in mm.get("unresolved_ambiguity", [])],
+                    current_rationale=str(mm.get("current_rationale", "")),
+                    reconstructed_from_evidence_at=datetime.now(UTC),
+                )
+                self._mm.save(model)
+                await self._publish("mental_model_updated", round=self._current_round,
+                                    hypotheses=[{"statement": h.statement, "status": h.status,
+                                                 "confidence": h.confidence} for h in hyps],
+                                    rationale=model.current_rationale)
+            except Exception as exc:
+                logger.warning("The analysis returned an invalid mental model (%s); keeping the previous one", exc)
+                await self._publish("mental_model_invalid", reason=str(exc))
+        else:
+            logger.warning("The analysis did not update the mental model")
+
+    def _results_summary(self) -> str:
+        """What the research jobs reported, for analysis and writing."""
+        artifacts = self._store.load() if self._store else None
+        if artifacts is None or not artifacts.observations:
+            return "## Research jobs\n(no results recorded)"
+        lines = ["## Research jobs and what they reported"]
+        for o in artifacts.observations[-20:]:
+            lines.append(f"### {o.source_job_id} ({o.observation_id})\n{o.description[:3000]}")
+        return "\n\n".join(lines)
+
+    def _understanding_text(self) -> str:
+        """The campaign's current understanding: mental model, findings and open questions."""
+        parts: list[str] = []
+        model = self._mm.load() if self._mm else None
+        if model is not None:
+            if model.current_rationale:
+                parts.append(f"**Current rationale:** {model.current_rationale}")
+            hyps = model.active_hypotheses + model.competing_hypotheses
+            if hyps:
+                parts.append("**Hypotheses:**\n" + "\n".join(
+                    f"- [{h.status}, confidence {h.confidence:.2f}] {h.statement}"
+                    + (f" (evidence: {', '.join(h.supporting_evidence[:4])})" if h.supporting_evidence else "")
+                    for h in hyps))
+            if model.inferred_mechanisms:
+                parts.append("**Mechanisms:**\n" + "\n".join(f"- {m}" for m in model.inferred_mechanisms))
+            if model.unresolved_ambiguity:
+                parts.append("**Unresolved:**\n" + "\n".join(f"- {u}" for u in model.unresolved_ambiguity))
+        artifacts = self._store.load() if self._store else None
+        if artifacts is not None:
+            if artifacts.claims:
+                parts.append("**Findings so far:**\n" + "\n".join(
+                    f"- [{c.status}] {c.statement}" for c in artifacts.claims[:30]))
+            if artifacts.open_questions:
+                parts.append("**Open questions:**\n" + "\n".join(f"- {q}" for q in artifacts.open_questions[:20]))
+        return ("## Current understanding (from earlier rounds)\n" + "\n".join(parts)) if parts else ""
 
     async def _run_writing(self) -> str | None:
         """Run the writer agent to produce the final manuscript."""
@@ -1981,34 +2064,20 @@ Be specific: cite file names and concrete observations.
         """Run writing via Claude Code agent session."""
         assert self._workspace is not None
 
-        artifacts = self._store.load() if self._store else None
-        experiments_summary = "\n".join(
-            f"- {e.job_id}: {e.status} (skill: {e.skill_used})"
-            for e in artifacts.experiments
-        ) or "(no experiments recorded)"
-        observations_summary = "\n".join(
-            f"- {o.observation_id}: {o.description[:100]}"
-            for o in artifacts.observations
-        ) or "(no observations)"
-        claims_summary = "\n".join(
-            f"- [{c.status}] {c.statement[:100]}"
-            for c in artifacts.claims
-        ) or "(no claims)"
-
         versions = self._list_manuscript_versions()
         version = max(versions, default=0) + 1
         ms_path = self._workspace.manuscript_path(version)
-
         user_msg = (
-            f"## Research Goal\n{artifacts.current_goal}\n\n"
-            f"## Experiments\n{experiments_summary}\n\n"
-            f"## Observations\n{observations_summary}\n\n"
-            f"## Claims\n{claims_summary}\n\n"
-            f"## Instructions\n"
-            f"Read the experiment results and data files in the workspace. "
-            f"Write a comprehensive report based on the research findings.\n\n"
+            f"## Research objective\n{self._config.objective}\n\n"
+            f"{self._results_summary()}\n\n"
+            f"{self._understanding_text()}\n\n"
+            "## Instructions\n"
+            "Write the report of this campaign. Read the results, figures and data (in the container "
+            "under /app, and in the campaign directory) and the analysis verdicts. Report what was found "
+            "with its evidence and uncertainty; include refuted hypotheses and open questions; do not "
+            "claim more than the evidence supports.\n\n"
             f"Save the report as Markdown to: {ms_path}\n"
-            f"Put figures next to it and link them with relative paths."
+            "Copy the figures you use next to it and link them with relative paths."
         )
 
         result = await self._run_agent_session(
@@ -2074,15 +2143,17 @@ Be specific: cite file names and concrete observations.
         else:
             self._store.record_experiment(artifacts, record)
 
-        if result.job_result and result.job_result.metrics:
+        if result.job_result:
             from aurora.models.artifacts import Observation
             obs = Observation(
                 observation_id=f"obs_{result.iteration_id}",
                 source_job_id=job.job_id,
                 description=(
-                    f"Job {job.job_id}: reward={result.job_result.metrics.get('reward', 'N/A')}, "
-                    f"turns={result.job_result.metrics.get('turns', 'N/A')}, "
-                    f"wall_time={result.wall_time_seconds:.1f}s"
+                    result.job_result.summary
+                    or f"Job {job.job_id} ({job.skill_name}): "
+                       f"{'done' if result.job_result.success else 'failed'} in "
+                       f"{result.wall_time_seconds / 60:.1f} min"
+                       + (f"; errors: {'; '.join(result.job_result.errors)}" if result.job_result.errors else "")
                 ),
                 numerical_values={
                     k: float(v) for k, v in result.job_result.metrics.items()
@@ -2139,6 +2210,7 @@ Be specific: cite file names and concrete observations.
             recent_observations=observations,
             active_claims=claims,
             available_skills=available_skills,
+            mental_model_summary=self._understanding_text(),
             # real runs: Claude Code brings its own tools, so none are listed here
             available_tools=(
                 tool_reg.list_tools()

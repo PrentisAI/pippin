@@ -70,6 +70,10 @@ def default_max_cost() -> float | None:
     return budget["max_cost_usd"] if "max_cost_usd" in budget else WEB_DEFAULT_MAX_COST_USD
 
 
+def default_ideation_mode() -> str:
+    return (base_config().get("ideation") or {}).get("mode", "roundtable")
+
+
 def _projects_root() -> Path:
     return store.data_dir / "projects"
 
@@ -670,7 +674,9 @@ def _project_frontdesk(campaign: CampaignState) -> Any:
                 p.superseded = True
         proposal = ExperimentProposal(
             {"instruction": instruction, "name": params.get("name", ""),
-             "inputs": params.get("inputs", []), "model": params.get("model", "")},
+             "inputs": params.get("inputs", []), "model": params.get("model", ""),
+             "ideation_mode": params.get("ideation_mode") if params.get("ideation_mode") in
+             ("roundtable", "independent") else default_ideation_mode()},
             skip, str(params.get("summary", instruction[:100])))
         campaign.proposals[proposal.proposal_id] = proposal
         agent.set_proposal(proposal.to_dict())
@@ -685,6 +691,10 @@ def _project_frontdesk(campaign: CampaignState) -> Any:
             "summary": {"type": "string", "description": "one line for the card"},
             "name": {"type": "string", "description": "short name"},
             "skip_phases": {"type": "array", "items": {"type": "string", "enum": list(PHASES)}},
+            "ideation_mode": {"type": "string", "enum": ["roundtable", "independent"],
+                              "description": "roundtable: the models discuss their ideas in a group meeting "
+                                             "before the chair decides; independent: the chair picks one of "
+                                             "the independent ideas (about four times cheaper)"},
             "inputs": {"type": "array", "items": {"type": "string"},
                        "description": "paths on the server the researcher mentioned"},
         }, "required": ["instruction", "summary"]},
@@ -718,6 +728,7 @@ async def campaign_chat_send(campaign_id: str, body: ChatBody) -> dict[str, Any]
 class ConfirmProposalBody(BaseModel):
     skip_phases: list[str] | None = None
     model: str = ""
+    ideation_mode: str = ""             # roundtable | independent; empty: the proposal's
     max_cost_usd: float | None = None   # null: no limit; omitted: the proposal's default
 
 
@@ -735,6 +746,7 @@ async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProp
         instruction=p["instruction"], name=p.get("name", ""), inputs=p.get("inputs", []),
         model=body.model or p.get("model", ""),
         skip_phases=body.skip_phases if body.skip_phases is not None else proposal.suggested_skip,
+        ideation_mode=body.ideation_mode or p.get("ideation_mode", ""),
         max_cost_usd=body.max_cost_usd if "max_cost_usd" in body.model_fields_set else proposal.max_cost_usd)
     result = await _start(campaign, req)
     proposal.confirmed = True

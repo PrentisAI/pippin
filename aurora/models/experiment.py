@@ -70,6 +70,7 @@ class JobResult(BaseModel):
         description="Key numerical results (energies, errors, …).",
     )
     errors: list[str] = Field(default_factory=list)
+    summary: str = Field(default="", description="What the agent reported at the end of the job.")
     wall_time_seconds: float = 0.0
     gpu_hours: float = 0.0
 

@@ -111,7 +111,7 @@ export const api = {
   },
 
   proposals: {
-    confirm: (campaignId: string, proposalId: string, body: { skip_phases?: string[]; model?: string; max_cost_usd?: number | null }) =>
+    confirm: (campaignId: string, proposalId: string, body: { skip_phases?: string[]; model?: string; max_cost_usd?: number | null; ideation_mode?: string }) =>
       request<{ status: string; experiment_id: string; skip_phases: string[]; active_phases: string[] }>(
         `/campaigns/${campaignId}/proposals/${proposalId}/confirm`,
         post(body),

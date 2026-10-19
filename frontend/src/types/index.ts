@@ -156,10 +156,12 @@ export interface FileNode {
 // Project conversation
 // ---------------------------------------------------------------------------
 
+export type IdeationMode = 'roundtable' | 'independent'
+
 export interface Proposal {
   proposal_id: string
   kind: 'custom'
-  params: { instruction: string; name?: string; inputs?: string[]; model?: string }
+  params: { instruction: string; name?: string; inputs?: string[]; model?: string; ideation_mode?: IdeationMode }
   max_cost_usd?: number | null
   skip_phases: Phase[]
   active_phases: Phase[]

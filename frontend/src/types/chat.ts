@@ -53,6 +53,8 @@ export type KnownEventType =
   | 'instruction_relayed'
   | 'instruction_queued'
   | 'ideation_progress'
+  | 'mental_model_updated'
+  | 'mental_model_invalid'
   | 'agent_interrupted'
   | 'agent_reply_to_human'
   | 'frontdesk_response'

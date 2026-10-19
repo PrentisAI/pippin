@@ -12,8 +12,9 @@ A **project** groups related experiments and has its own chat. Type what you
 want to investigate on the start page to create one. The project's front desk
 asks what is unclear and then shows a **proposal card**: the instruction the
 agents will get, a summary, and the phases to run. Change the phases on the
-card, or ask the front desk to change the instruction, then **confirm** to start
-the experiment.
+card, choose the ideation mode (*Round table* or *Independent*) when ideation
+runs, set the budget (US$20 by default; empty means no limit), or ask the front
+desk to change the instruction, then **confirm** to start the experiment.
 
 An **experiment** is one campaign. Its page shows
 

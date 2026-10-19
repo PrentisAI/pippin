@@ -100,3 +100,26 @@ def test_stop_and_resume_in_the_console(client, monkeypatch):
     done = wait_done(client, cid, eid)
     assert done["status"] == "completed", done["error"]
     assert done["event_count"] > events_before and done["report"]
+
+
+def test_confirm_uses_the_chosen_ideation_mode(client, monkeypatch):
+    from aurora.api.routes import campaigns
+    cid = client.post("/api/campaigns/quick", json={"prompt": "p"}).json()["campaign_id"]
+    campaign = campaigns._ensure_campaign(cid)
+    proposal = campaigns.ExperimentProposal({"instruction": "Investigate Zn segregation", "ideation_mode": "roundtable"},
+                                            [], "s")
+    campaign.proposals[proposal.proposal_id] = proposal
+    seen = {}
+    original = campaigns._experiment_config
+
+    def spy(c, run_id, req):
+        cfg = original(c, run_id, req.model_copy(update={"mock_mode": True}))
+        seen["mode"] = cfg.ideation.mode
+        return cfg
+
+    monkeypatch.setattr(campaigns, "_experiment_config", spy)
+    r = client.post(f"/api/campaigns/{cid}/proposals/{proposal.proposal_id}/confirm",
+                    json={"skip_phases": [], "ideation_mode": "independent"})
+    assert r.status_code == 200, r.text
+    assert seen["mode"] == "independent"
+    wait_done(client, cid, r.json()["experiment_id"])

@@ -2299,3 +2299,5 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 
 .proposal-budget { display: flex; align-items: center; gap: 6px; margin: 6px 0 10px; }
 .proposal-budget input { width: 80px; padding: 2px 6px; font: inherit; }
+.proposal-ideation { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 6px 0; }
+.proposal-ideation label { display: flex; align-items: center; gap: 4px; }

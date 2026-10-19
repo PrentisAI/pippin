@@ -115,6 +115,14 @@ function describeEvent(event: StreamEvent): Described {
     // -- phase results -----------------------------------------------------------
     case 'ideation_progress':
       return ideationProgress(d)
+    case 'mental_model_updated': {
+      const hyps = Array.isArray(d.hypotheses) ? (d.hypotheses as Array<Record<string, unknown>>) : []
+      const refuted = hyps.filter((h) => h.status === 'refuted').length
+      return system('info', `Mental model updated — ${hyps.length} hypotheses${refuted ? `, ${refuted} refuted` : ''}`,
+        lines(d.rationale, ...hyps.map((h) => `[${str(h.status)}] ${str(h.statement)}`)))
+    }
+    case 'mental_model_invalid':
+      return system('warning', 'The analysis returned an invalid mental model; the previous one is kept', str(d.reason))
     case 'ideation_complete':
       return system('success', `Idea: ${str(d.title) || 'untitled'}`, str(d.hypothesis) || undefined)
     case 'screening_complete': {

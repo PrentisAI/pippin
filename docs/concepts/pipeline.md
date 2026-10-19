@@ -35,6 +35,23 @@ the campaign directory. When the campaign ends, the container's `/app` is
 copied to `<campaign>/workspace/` and the container is removed. See
 [Sandbox and security](../guide/sandbox.md).
 
+## What the campaign knows: the mental model
+
+Each analysis records the campaign's current understanding:
+
+- **findings**, each with its evidence and status (supported, tentative or
+  refuted), stored as claims in `artifacts.json`;
+- **open questions**;
+- the **scientific mental model** (`mental_model.json`): the hypotheses with their
+  status (active, competing, confirmed, refuted), confidence and evidence,
+  inferred mechanisms, unresolved ambiguities and the current rationale.
+
+Refuted hypotheses stay in the record, so the report and later rounds see what
+was overturned. Later phases receive this understanding: ideation seats in a
+new round, planning, the research agent and the live auditor (in their brief),
+and the writing agent. Each research job's final summary is recorded too, so
+analysis and writing work from what the agent actually reported.
+
 ## Follow-up rounds
 
 When analysis finds the results insufficient it names a phase to return to.

@@ -15,7 +15,6 @@ import json
 import logging
 import time
 import uuid
-from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -103,6 +102,7 @@ class TerminalIteration:
         await self._publish("iteration_started", iteration_id=iter_id, job_id=job.job_id)
 
         turns, cost, errors = 0, 0.0, []
+        summary = ""
         passed = False
         message = self._job_message(job, plan)
         key = f"research:{job.job_id}:round{self._round}"
@@ -134,6 +134,8 @@ class TerminalIteration:
                     message = message.replace(CONTINUE_NOTE, RESTART_NOTE)
                     result = await self._run_session(message, deadline - time.time(), None)
                 continuing = False
+                if result.get("final_text"):
+                    summary = result["final_text"]
                 turns += result.get("turns", 0)
                 cost += result.get("cost_usd", 0.0)
                 if result.get("timed_out"):
@@ -164,10 +166,10 @@ class TerminalIteration:
             success=passed,
             metrics={"turns": float(turns), "cost_usd": round(cost, 4)},
             errors=errors,
+            summary=summary.strip()[-4000:],
             wall_time_seconds=wall,
         )
         decision = IterationDecision.DONE.value if passed else IterationDecision.ERROR.value
-        self._record_to_artifact_store(job, job_result, iter_id)
         await self._publish("iteration_complete", iteration_id=iter_id, job_id=job.job_id,
                             decision=decision, cost_usd=round(cost, 4), errors=errors)
         return IterationResult(
@@ -279,50 +281,3 @@ class TerminalIteration:
             text_callback=self._text_callback,
             session_callback=self._session_callback,
         )
-
-    def _record_to_artifact_store(
-        self,
-        job: ExperimentJob,
-        job_result: JobResult,
-        iter_id: str,
-    ) -> None:
-        """Write experiment results to ArtifactStore for downstream phases."""
-        if self._artifact_store is None:
-            return
-        try:
-            from datetime import datetime
-
-            from aurora.models.artifacts import ExperimentRecord, Observation
-
-            artifacts = self._artifact_store.load()
-            now = datetime.now(UTC)
-
-            record = ExperimentRecord(
-                job_id=job.job_id,
-                skill_used=job.skill_name or "terminal_execution",
-                parameters=job.parameters,
-                status="completed" if job_result.success else "failed",
-                completed_at=now,
-            )
-            artifacts = self._artifact_store.record_experiment(artifacts, record)
-
-            obs = Observation(
-                observation_id=f"obs_{iter_id}",
-                source_job_id=job.job_id,
-                description=(
-                    f"Research job {job.job_id} {'completed' if job_result.success else 'failed'}. "
-                    f"Turns: {job_result.metrics.get('turns', 0)}, "
-                    f"Wall time: {job_result.wall_time_seconds:.1f}s"
-                ),
-                numerical_values={
-                    k: float(v)
-                    for k, v in job_result.metrics.items()
-                    if isinstance(v, (int, float))
-                },
-                timestamp=now,
-            )
-            self._artifact_store.record_observation(artifacts, obs)
-
-        except Exception as exc:
-            logger.warning("Failed to record to ArtifactStore: %s", exc)
-

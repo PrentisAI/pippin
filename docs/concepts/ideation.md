@@ -46,11 +46,20 @@ ideation:
     - {name: Experimentalist, model: openai/gpt-5.6-sol}
     - {name: Skeptic,      model: google/gemini-3.1-pro-preview, prompt: "You look for confounders ..."}
   chair_prompt: ""        # empty: the built-in chair prompt
-  web_search: false       # let seats search the web (OpenRouter web plugin)
+  web_search: true        # seats search the literature (OpenRouter web plugin); the default
 ```
 
-Leave `web_search` off when evaluating ideation on known problems, so ideas
-cannot be looked up.
+Seats search the literature while they prepare and answer (OpenRouter's web
+plugin, a small extra cost per call). Turn `web_search` off when evaluating
+ideation on known problems, so ideas cannot simply be looked up; the paper's
+evaluation scripts do so.
+
+## Choosing the mode
+
+Set `ideation.mode` in the config, or pick *Round table* or *Independent* on
+the proposal card in the web console (the front desk asks if you have a
+preference). Seats see the campaign's current understanding — the mental model,
+findings and open questions — when ideation runs again in a later round.
 
 ## Failures
 
