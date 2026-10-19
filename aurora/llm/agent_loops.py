@@ -88,12 +88,8 @@ def permission_args(cwd: str | Path, docker_container: str | None = None,
     ]
     if docker_container:
         c = docker_container
-        allowed += [
-            f"Bash(docker exec {c} *)",
-            f"Bash(docker exec -i {c} *)",
-            f"Bash(docker exec -w /app {c} *)",
-            f"Bash(docker exec -i -w /app {c} *)",
-        ]
+        # any docker exec options (-i, -w, -e, -d, ...) but only into this container
+        allowed += [f"Bash(docker exec {c} *)", f"Bash(docker exec * {c} *)"]
     elif allow_host_bash:
         allowed.append("Bash")
     return ["--permission-mode", "dontAsk", "--allowedTools", *allowed]
@@ -126,7 +122,9 @@ class ClaudeCodeLoop:
         live_transcript_path: str | Path | None = None,
         text_callback: Any = None,
         allow_host_bash: bool = False,
+        max_budget_usd: float | None = None,
     ) -> None:
+        self._max_budget_usd = max_budget_usd
         self._model = model
         self._api_key = api_key
         self._base_url = base_url
@@ -202,24 +200,27 @@ class ClaudeCodeLoop:
         temperature: float = 0.3,
     ) -> dict[str, Any]:
         docker_preamble = ""
+        root = Path(self._cwd).resolve()
         if self._docker_container:
+            c = self._docker_container
             docker_preamble = (
-                f"\n## Docker Container\n"
-                f"You are working inside Docker container `{self._docker_container}`.\n"
-                f"ALL commands must be executed via:\n"
-                f"```\n"
-                f"docker exec -w /app {self._docker_container} bash -c '...'\n"
-                f"```\n"
-                f"To read files: `docker exec {self._docker_container} cat /app/path`\n"
-                f"To write files: use `docker exec {self._docker_container} bash -c 'cat > /app/path << '\\''EOF'\\''\\n...\\nEOF'`\n"
-                f"To list files: `docker exec {self._docker_container} ls -la /app/`\n"
-                f"Never run commands directly on the host — always use docker exec.\n"
+                f"\n## Where you work\n"
+                f"Run every command inside Docker container `{c}`, working directory /app:\n"
+                f"  docker exec -w /app {c} bash -lc '<command>'\n"
+                f"Options such as -i, -e KEY=VALUE or -d are fine. Put pipes, redirects and multi-step "
+                f"commands inside the bash -lc '...' string. There is no shell on the host.\n"
+                f"You can read and edit files on the host only under {root} (with the Read/Edit/Write "
+                f"tools). The container does not see that directory. To move a file into the "
+                f"container: docker exec -i {c} bash -lc 'cat > /app/x.py' < relative/path/x.py (or a "
+                f"heredoc). Keep your code, data and results in /app.\n"
             )
-        elif not self._allow_host_bash:
+        elif self._allow_host_bash:
+            docker_preamble = f"\n## Where you work\nYour working directory is {root}.\n"
+        else:
             docker_preamble = (
-                f"\n## Sandbox\n"
-                f"Shell commands are disabled in this session. You can read and edit "
-                f"files only under `{Path(self._cwd).resolve()}`.\n"
+                f"\n## Where you work\n"
+                f"Shell commands are disabled in this session. You can read and edit files only "
+                f"under {root}.\n"
             )
 
         full_system = system_prompt + docker_preamble
@@ -234,6 +235,8 @@ class ClaudeCodeLoop:
             *self._permission_args(),
             "--model", self._model,
         ]
+        if self._max_budget_usd is not None:
+            cmd += ["--max-budget-usd", f"{max(self._max_budget_usd, 0.01):.2f}"]
 
         if self._resume_session_id:
             cmd.extend(["--resume", self._resume_session_id])

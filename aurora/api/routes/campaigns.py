@@ -206,7 +206,10 @@ def _ensure_campaign(campaign_id: str) -> CampaignState:
         rs.status = e.get("status", "completed")
         rs.started_at = e.get("started_at", 0.0)
         rs.finished_at = e.get("finished_at")
-        rs.error = e.get("error")
+        rs.error = e.get("error") or None
+        rs.phase = e.get("phase") or ""
+        rs.cost_usd = e.get("cost_usd") or 0.0
+        rs.turn = e.get("turn") or 0
         campaign.experiments[e["run_id"]] = rs
     _campaigns[campaign_id] = campaign
     return campaign
@@ -354,7 +357,7 @@ async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any,
         name, data = event.name, event.data
         if name == "phase_started":
             run.phase = data.get("phase", run.phase)
-            store.update_experiment(run.run_id, status="running")
+            store.update_experiment(run.run_id, status="running", phase=run.phase)
         elif name == "tool_call_start":
             run.turn += 1
         elif name == "human_gate_opened":
@@ -394,7 +397,7 @@ async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any,
         finally:
             run.finished_at = time.time()
             store.update_experiment(run.run_id, status=run.status, finished_at=run.finished_at,
-                                    error=run.error or "")
+                                    error=run.error or "", cost_usd=run.cost_usd, turn=run.turn)
             campaign.note(f"{run.task_name}: {run.status}")
             _touch(campaign)
 

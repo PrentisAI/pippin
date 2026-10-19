@@ -420,7 +420,7 @@ class ResearchEngine:
                 await self._router.close_all()
 
         total = (datetime.now(UTC) - campaign_start).total_seconds()
-        self.cost_usd += self._router.usage_tracker.total_cost if self._router else 0.0
+        self.cost_usd = self._spent()
         await self._publish(f"campaign_{status}", status=status, summary=summary,
                             cost_usd=round(self.cost_usd, 4), wall_time_seconds=round(total))
         return CampaignResult(
@@ -438,6 +438,15 @@ class ResearchEngine:
             summary=summary,
         )
 
+    def _spent(self) -> float:
+        """API cost so far: finished sessions, the running live auditor and direct calls."""
+        live = self._supervisor.cost_usd if self._supervisor is not None else 0.0
+        return self.cost_usd + live + (self._router.usage_tracker.total_cost if self._router else 0.0)
+
+    def _remaining_budget(self) -> float | None:
+        cap = self._config.budget.max_cost_usd
+        return None if cap is None else max(cap - self._spent(), 0.0)
+
     def _check_budget(self) -> None:
         """Raise :class:`CampaignStopped` when the user stopped the campaign or a budget is used up."""
         import time as _time
@@ -446,7 +455,7 @@ class ResearchEngine:
         budget = self._config.budget
         if self._started_at and _time.time() - self._started_at > budget.max_hours * 3600:
             raise CampaignStopped(f"time budget of {budget.max_hours:g} h used up")
-        spent = self.cost_usd + (self._router.usage_tracker.total_cost if self._router else 0.0)
+        spent = self._spent()
         if budget.max_cost_usd is not None and spent >= budget.max_cost_usd:
             raise CampaignStopped(f"cost budget of ${budget.max_cost_usd:g} used up (${spent:.2f} spent)")
 
@@ -954,9 +963,12 @@ Be specific: cite file names and concrete observations.
             live_transcript_path=live_path,
             model_override=model_override,
             resume_session_id=resume_session_id,
+            max_budget_usd=self._remaining_budget(),
         )
         result = await session.run(full_system, user_message)
-
+        self.cost_usd += float(result.get("cost_usd") or 0.0)
+        if result.get("error"):
+            logger.warning("The %s session ended with an error: %s", phase_name, result["error"])
         self._save_phase_transcript(phase_name, result)
         return result
 
@@ -1301,7 +1313,7 @@ Be specific: cite file names and concrete observations.
         self._last_phase_session_id = result.get("session_id")
         for attempt in range(2):
             try:
-                plan = self._workspace.read_json(plan_path, ExperimentPlan)
+                plan = ExperimentPlan.model_validate_json(plan_path.read_text())
                 if plan.jobs:
                     return plan
                 raise ValueError("the plan has no jobs")
@@ -1404,6 +1416,7 @@ Be specific: cite file names and concrete observations.
                 transcript_dir=transcript_dir,
                 text_callback=_agent_text,
                 cwd=str(self._workspace.root) if self._workspace else None,
+                budget_fn=self._remaining_budget,
             )
             if self._config.audit.live and transcript_dir:
                 await self._start_supervisor(str(transcript_dir / "research_loop.jsonl"), proposal)
@@ -1424,6 +1437,7 @@ Be specific: cite file names and concrete observations.
         self._update_frontdesk_status(phase="research", max_iterations=max_iters, agent_status="running")
 
         results: list[IterationResult] = []
+        watchdog = asyncio.create_task(self._watch_budget())
         try:
             while not dag.is_complete() and not dag.is_blocked() and len(results) < max_iters:
                 self._check_budget()
@@ -1458,6 +1472,7 @@ Be specific: cite file names and concrete observations.
                       "recent_events": [{"job_id": r.job_id, "decision": r.decision} for r in results[-5:]]},
                 metadata={"campaign_id": self._config.campaign_id}))
         finally:
+            watchdog.cancel()
             self._update_frontdesk_status(agent_status="idle")
             await self._stop_supervisor()
             self.current_iteration_runner = None
@@ -1468,6 +1483,18 @@ Be specific: cite file names and concrete observations.
 
         await self._publish("research_loop_complete", iterations=len(results), completed=dag.is_complete())
         return results
+
+    async def _watch_budget(self) -> None:
+        """During research, stop the campaign as soon as the time or cost budget is used up."""
+        while True:
+            await asyncio.sleep(20)
+            try:
+                self._check_budget()
+            except CampaignStopped as exc:
+                if not self._stop_requested:
+                    logger.warning("Budget reached during research: %s", exc)
+                    self.request_stop(str(exc))
+            self._update_frontdesk_status(cost_usd=self._spent())
 
     def _campaign_brief(self, proposal: RoundtableProposal | None) -> str:
         lines = [f"## Research objective\n\n{self._config.objective}"]
@@ -1593,6 +1620,7 @@ Be specific: cite file names and concrete observations.
         def status() -> str:
             st = self._frontdesk_status
             st.open_gates = [g.to_dict() for g in self.human_gate.pending]
+            st.cost_usd = self._spent()
             return st.format()
 
         async def broadcast(data: dict[str, Any]) -> None:
@@ -1600,6 +1628,16 @@ Be specific: cite file names and concrete observations.
                                           data=data.get("data", {}), source="frontdesk"))
 
         async def on_event(event: Event) -> None:
+            st = self._frontdesk_status
+            if event.name == "job_started":
+                st.current_job = f"{event.data.get('index')}/{event.data.get('total')} {event.data.get('title', '')}"
+            elif event.name == "tool_call_start" and event.source == "terminal_iteration":
+                import time as _time
+                st.recent_actions = (st.recent_actions + [
+                    f"{_time.strftime('%H:%M:%S')} {event.data.get('tool_name')}: "
+                    f"{str(event.data.get('input_preview', ''))[:160]}"])[-20:]
+            elif event.name == "reasoning" and event.source == "terminal_iteration":
+                st.recent_actions = (st.recent_actions + [f"(thinking) {event.data.get('text', '')[:160]}"])[-20:]
             if event.name == "human_gate_opened" and self._frontdesk is not None:
                 asyncio.create_task(self._frontdesk.notify(
                     f"Human gate {event.data.get('gate_id')} opened ({event.data.get('source')}): "

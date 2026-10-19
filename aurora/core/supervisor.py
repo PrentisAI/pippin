@@ -259,7 +259,8 @@ class Supervisor:
             except json.JSONDecodeError:
                 continue
             if event.get("type") == "result":
-                self.cost_usd += float(event.get("total_cost_usd") or 0.0)
+                # total_cost_usd is the session's running total, not the cost of this turn
+                self.cost_usd = max(self.cost_usd, float(event.get("total_cost_usd") or 0.0))
             if event.get("type") != "assistant":
                 continue
             for block in event.get("message", {}).get("content", []):

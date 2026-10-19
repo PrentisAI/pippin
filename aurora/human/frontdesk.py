@@ -57,12 +57,19 @@ class SystemStatus:
     supervisor_status: str = ""
     open_gates: list[dict[str, Any]] = field(default_factory=list)
     cost_usd: float = 0.0
+    current_job: str = ""
+    recent_actions: list[str] = field(default_factory=list)   # newest last
 
     def format(self) -> str:
         lines = [f"Phase: {self.phase or 'not started'}",
                  f"Research jobs: {self.iteration}/{self.max_iterations or '?'}",
                  f"Research agent: {self.agent_status}",
                  f"API cost so far: ${self.cost_usd:.2f}"]
+        if self.current_job:
+            lines.append(f"Current job: {self.current_job}")
+        if self.recent_actions:
+            lines.append("Recent actions of the research agent (newest last):")
+            lines += [f"  {a}" for a in self.recent_actions[-8:]]
         if self.supervisor_status:
             lines.append(f"Live auditor: {self.supervisor_status}")
         for g in self.open_gates:

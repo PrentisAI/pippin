@@ -50,7 +50,9 @@ class TerminalIteration:
         transcript_dir: str | Path | None = None,
         text_callback: Any = None,
         cwd: str | None = None,
+        budget_fn: Any = None,
     ) -> None:
+        self._budget_fn = budget_fn
         self._config = config
         self._backend = backend
         self._bus = event_bus
@@ -112,6 +114,8 @@ class TerminalIteration:
                 result = await self._run_session(message, remaining, resume_id)
                 turns += result.get("turns", 0)
                 cost += result.get("cost_usd", 0.0)
+                if result.get("timed_out"):
+                    errors.append("time limit reached; the results may be incomplete")
                 if result.get("error"):
                     errors.append(result["error"])
                     break
@@ -152,15 +156,34 @@ class TerminalIteration:
         )
 
     async def _run_session(self, message: str, time_left: float, resume_id: str | None) -> dict[str, Any]:
+        """One research session, with a warning before the time limit and a short grace period after it."""
         loop = self._create_loop(self._config.agent.research_max_turns)
         if resume_id:
             loop._resume_session_id = resume_id
         self._current_loop = loop
+        grace = min(300.0, max(60.0, time_left * 0.1))
+        task = asyncio.create_task(loop.run(self._build_system_prompt(), message))
+        timed_out = False
         try:
-            return await asyncio.wait_for(loop.run(self._build_system_prompt(), message), timeout=time_left)
-        except TimeoutError:
-            loop.interrupt()
-            return {"error": "research time limit reached", "turns": 0}
+            done, _ = await asyncio.wait({task}, timeout=max(time_left * 0.8, 1.0))
+            if not done:
+                await loop.inject_message(
+                    f"[Time] About {time_left * 0.2 / 60:.0f} minutes are left for this job. Finish the "
+                    "current step, save your results and write the summary; do not start new analyses.")
+                done, _ = await asyncio.wait({task}, timeout=time_left * 0.2)
+            if not done:
+                timed_out = True
+                loop.interrupt()
+                await loop.inject_message(
+                    "[Time is up] Stop now. Save what you have and reply with a short summary of what is "
+                    "done, where the outputs are, and what is unfinished.")
+                done, _ = await asyncio.wait({task}, timeout=grace)
+            if not done:
+                task.cancel()
+                return {"error": "research time limit reached", "turns": 0, "timed_out": True}
+            result = task.result()
+            result["timed_out"] = timed_out
+            return result
         finally:
             self._current_loop = None
             if getattr(loop, "session_id", None):
@@ -224,6 +247,7 @@ class TerminalIteration:
             self._config,
             model=self._config.models.agent,
             max_turns=max_turns,
+            max_budget_usd=self._budget_fn() if self._budget_fn else None,
             docker_container=getattr(self._backend, "container_id", None),
             cwd=self._cwd,
             stream_callback=stream_callback,

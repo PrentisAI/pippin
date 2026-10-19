@@ -30,17 +30,15 @@ CREATE TABLE IF NOT EXISTS experiments (
     campaign_id    TEXT NOT NULL,
     task_name      TEXT NOT NULL,
     model          TEXT NOT NULL,
-    driver         TEXT DEFAULT 'claude-code',
-    autonomy_mode  TEXT DEFAULT 'autonomous',
+    autonomy_mode  TEXT DEFAULT 'supervised',
     status         TEXT DEFAULT 'starting',
-    phase          INTEGER DEFAULT 0,
+    phase          TEXT DEFAULT '',
     turn           INTEGER DEFAULT 0,
-    reward         REAL DEFAULT 0.0,
+    cost_usd       REAL DEFAULT 0.0,
     started_at     REAL NOT NULL,
     finished_at    REAL,
     error          TEXT,
     config_json    TEXT DEFAULT '{}',
-    watchdog_mode  TEXT DEFAULT '',
     FOREIGN KEY (campaign_id) REFERENCES campaigns(campaign_id)
 );
 """
@@ -130,26 +128,20 @@ class Store:
         campaign_id: str,
         task_name: str,
         model: str,
-        driver: str = "claude-code",
-        autonomy_mode: str = "autonomous",
+        autonomy_mode: str = "supervised",
         status: str = "starting",
         started_at: float = 0.0,
         config: dict[str, Any] | None = None,
-        watchdog_mode: str = "",
     ) -> None:
         self._conn.execute(
             """INSERT INTO experiments
-               (run_id, campaign_id, task_name, model, driver, autonomy_mode,
-                status, started_at, config_json, watchdog_mode)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               (run_id, campaign_id, task_name, model, autonomy_mode, status, started_at, config_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(run_id) DO UPDATE SET
                    status=excluded.status,
                    config_json=excluded.config_json""",
-            (
-                run_id, campaign_id, task_name, model, driver,
-                autonomy_mode, status, started_at,
-                json.dumps(config or {}), watchdog_mode,
-            ),
+            (run_id, campaign_id, task_name, model, autonomy_mode, status, started_at,
+             json.dumps(config or {})),
         )
         self._conn.commit()
 
@@ -157,7 +149,7 @@ class Store:
         if not fields:
             return
         allowed = {
-            "status", "phase", "turn", "reward", "finished_at",
+            "status", "phase", "turn", "cost_usd", "finished_at",
             "error", "autonomy_mode", "config_json",
         }
         parts = []

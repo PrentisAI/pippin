@@ -57,7 +57,9 @@ class AgentSession:
         live_transcript_path: str | None = None,
         model_override: str | None = None,
         resume_session_id: str | None = None,
+        max_budget_usd: float | None = None,
     ) -> None:
+        self._max_budget_usd = max_budget_usd
         self._config = config
         self._bus = event_bus
         self._phase_name = phase_name
@@ -135,11 +137,16 @@ class AgentSession:
             stream_callback=stream_callback,
             live_transcript_path=self._live_transcript_path,
             resume_session_id=self._resume_session_id,
+            max_budget_usd=self._max_budget_usd,
         )
 
 
-def make_claude_code_loop(config: AuroraConfig, *, model: str, max_turns: int, **kwargs: Any) -> Any:
-    """A :class:`ClaudeCodeLoop` that uses the campaign's endpoint, key and sandbox settings."""
+def make_claude_code_loop(config: AuroraConfig, *, model: str, max_turns: int,
+                          max_budget_usd: float | None = None, **kwargs: Any) -> Any:
+    """A :class:`ClaudeCodeLoop` that uses the campaign's endpoint, key and sandbox settings.
+
+    *max_budget_usd* (the campaign's remaining budget) is enforced by Claude Code itself.
+    """
     from aurora.llm.agent_loops import ClaudeCodeLoop
     return ClaudeCodeLoop(
         model=model,
@@ -147,5 +154,6 @@ def make_claude_code_loop(config: AuroraConfig, *, model: str, max_turns: int, *
         base_url=config.claude_code_base_url,
         max_turns=max_turns,
         allow_host_bash=config.sandbox.allow_host_bash,
+        max_budget_usd=max_budget_usd,
         **kwargs,
     )

@@ -42,6 +42,11 @@ from pydantic import BaseModel
 
 from aurora.config import WorkspaceConfig
 
+# mkstemp creates 0600 files; written files should get the usual umask-based mode
+_umask = os.umask(0)
+os.umask(_umask)
+_FILE_MODE = 0o666 & ~_umask
+
 logger = logging.getLogger(__name__)
 
 
@@ -271,6 +276,7 @@ class WorkspaceManager:
             content = json.dumps(data, indent=2, default=str, ensure_ascii=False)
 
         fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        os.chmod(tmp_path, _FILE_MODE)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(content)
@@ -291,6 +297,7 @@ class WorkspaceManager:
         path.parent.mkdir(parents=True, exist_ok=True)
 
         fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        os.chmod(tmp_path, _FILE_MODE)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(text)
