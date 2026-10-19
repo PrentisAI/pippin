@@ -162,6 +162,7 @@ class ExperimentProposal:
         self.created_at = time.time()
         self.confirmed = False
         self.superseded = False
+        self.confirmed_settings: dict[str, Any] | None = None   # what the researcher started
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -171,6 +172,7 @@ class ExperimentProposal:
             "max_cost_usd": self.max_cost_usd,
             "summary": self.summary, "created_at": self.created_at,
             "confirmed": self.confirmed, "superseded": self.superseded,
+            "confirmed_settings": self.confirmed_settings,
         }
 
 
@@ -756,6 +758,16 @@ async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProp
         max_cost_usd=body.max_cost_usd if "max_cost_usd" in body.model_fields_set else proposal.max_cost_usd)
     result = await _start(campaign, req)
     proposal.confirmed = True
+    run = campaign.experiments.get(result["experiment_id"])
+    cfg = getattr(getattr(run, "engine", None), "_config", None)
+    proposal.confirmed_settings = {
+        "experiment_id": result["experiment_id"],
+        "skip_phases": result["skip_phases"],
+        "ideation_mode": cfg.ideation.mode if cfg else req.ideation_mode,
+        "max_cost_usd": cfg.budget.max_cost_usd if cfg else req.max_cost_usd,
+        "autonomy_mode": cfg.human.autonomy.value if cfg else req.autonomy_mode,
+        "models": cfg.models.model_dump() if cfg else (req.models or {}),
+    }
     campaign.note(f"Experiment started: {result['experiment_id']}")
     return {"status": "started", "experiment_id": result["experiment_id"],
             "skip_phases": result["skip_phases"], "active_phases": result["active_phases"]}

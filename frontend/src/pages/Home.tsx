@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api, describeError } from '../api/client'
 import { AgentStreamView } from '../components/AgentStreamView'
@@ -16,6 +16,7 @@ import {
   type ExperimentEventRecord,
   type ExperimentSummary,
   type AutonomyMode,
+  type ConfirmedSettings,
   type ConsoleSettings,
   type GateAction,
   type IdeationMode,
@@ -592,6 +593,7 @@ function ChatArea({
                       onSelectExperiment(expId)
                       setTimeout(fetchHistory, 1000)
                     }}
+                    onOpen={onSelectExperiment}
                   />
                 )}
                 <div className="msg-time" style={isUser ? { textAlign: 'right' } : undefined}>
@@ -1269,10 +1271,12 @@ function ProposalCard({
   proposal,
   campaignId,
   onConfirmed,
+  onOpen,
 }: {
   proposal: Proposal
   campaignId: string
   onConfirmed: (expId: string) => void
+  onOpen: (expId: string) => void
 }) {
   const [skipPhases, setSkipPhases] = useState<Phase[]>(proposal.skip_phases)
   const [budget, setBudget] = useState<string>(proposal.max_cost_usd != null ? String(proposal.max_cost_usd) : '')
@@ -1280,6 +1284,7 @@ function ProposalCard({
   const [advanced, setAdvanced] = useState<AdvancedChoices>({ autonomy: null, models: {} })
   const [confirming, setConfirming] = useState(false)
   const [confirmed, setConfirmed] = useState(proposal.confirmed)
+  const [started, setStarted] = useState<ConfirmedSettings | null>(proposal.confirmed_settings ?? null)
   const [error, setError] = useState<string | null>(null)
   const [showInstruction, setShowInstruction] = useState(false)
 
@@ -1298,6 +1303,14 @@ function ProposalCard({
         ideation_mode: ideationMode,
         ...(advanced.autonomy ? { autonomy_mode: advanced.autonomy } : {}),
         ...(Object.keys(advanced.models).length ? { models: advanced.models } : {}),
+      })
+      setStarted({
+        experiment_id: result.experiment_id,
+        skip_phases: skipPhases,
+        ideation_mode: ideationMode,
+        max_cost_usd: maxCost,
+        autonomy_mode: advanced.autonomy,
+        models: advanced.models,
       })
       setConfirmed(true)
       onConfirmed(result.experiment_id)
@@ -1318,9 +1331,11 @@ function ProposalCard({
 
   if (confirmed) {
     return (
-      <div className="proposal-card confirmed">
-        <div className="proposal-status">Experiment started</div>
-      </div>
+      <StartedProposal
+        proposal={proposal}
+        started={started}
+        onOpen={onOpen}
+      />
     )
   }
 
@@ -1741,6 +1756,81 @@ function AdvancedSettings({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+
+// ---------------------------------------------------------------------------
+// A confirmed proposal: what was started, read-only
+// ---------------------------------------------------------------------------
+
+const MODEL_ROLE_LABELS: Record<string, string> = {
+  agent: 'Agents',
+  screening: 'Screening',
+  planning: 'Planning',
+  research: 'Research',
+  analysis: 'Analysis',
+  writing: 'Writing',
+  ideation_seats: 'Ideation seats',
+  ideation_chair: 'Ideation chair',
+  auditor: 'Milestone auditor',
+  supervisor: 'Live auditor',
+  frontdesk: 'Front desk',
+}
+
+function StartedProposal({
+  proposal,
+  started,
+  onOpen,
+}: {
+  proposal: Proposal
+  started: ConfirmedSettings | null
+  onOpen: (expId: string) => void
+}) {
+  const [showInstruction, setShowInstruction] = useState(false)
+  const skip = started?.skip_phases ?? proposal.skip_phases
+  const active = PHASES.filter((p) => !skip.includes(p.key)).map((p) => p.label)
+  const models = Object.entries(started?.models ?? {}).filter(([role, v]) =>
+    v !== '' && v != null && !(Array.isArray(v) && v.length === 0) && role in MODEL_ROLE_LABELS)
+  const budget = started && 'max_cost_usd' in started
+    ? (started.max_cost_usd == null ? 'no limit' : `US$${started.max_cost_usd}`)
+    : proposal.max_cost_usd != null ? `US$${proposal.max_cost_usd}` : null
+
+  return (
+    <div className="proposal-card confirmed">
+      <div className="proposal-header">
+        <span className="proposal-icon">{'✓'}</span>
+        <span className="proposal-title">Experiment started</span>
+        {started?.experiment_id && (
+          <button className="proposal-open" onClick={() => onOpen(started.experiment_id)}>Open experiment →</button>
+        )}
+      </div>
+      <div className="proposal-summary">{proposal.summary}</div>
+      {proposal.params.instruction && (
+        <div className="proposal-detail">
+          <button className="proposal-detail-toggle" onClick={() => setShowInstruction(!showInstruction)}>
+            {showInstruction ? '▾' : '▸'} Instruction
+          </button>
+          {showInstruction && <div className="proposal-instruction">{proposal.params.instruction}</div>}
+        </div>
+      )}
+      <dl className="proposal-settings">
+        <dt>Phases</dt><dd>{active.join(' → ')}</dd>
+        {!skip.includes('ideation') && started?.ideation_mode && (
+          <><dt>Ideation</dt><dd>{started.ideation_mode === 'independent' ? 'Independent' : 'Round table'}</dd></>
+        )}
+        {budget && <><dt>Budget</dt><dd>{budget}</dd></>}
+        {started?.autonomy_mode && (
+          <><dt>Decisions</dt><dd>{started.autonomy_mode === 'autonomous' ? 'Autonomous' : 'Supervised'}</dd></>
+        )}
+        {models.map(([role, v]) => (
+          <Fragment key={role}>
+            <dt>{MODEL_ROLE_LABELS[role]}</dt><dd>{Array.isArray(v) ? v.join(', ') : v}</dd>
+          </Fragment>
+        ))}
+        {started?.experiment_id && <><dt>Experiment</dt><dd>{started.experiment_id}</dd></>}
+      </dl>
     </div>
   )
 }

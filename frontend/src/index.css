@@ -2320,3 +2320,15 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 @media (max-width: 640px) {
   .proposal-card .advanced-field { grid-template-columns: 1fr; gap: 3px; }
 }
+
+.proposal-card.confirmed .proposal-header { display: flex; align-items: center; gap: 8px; }
+.proposal-card .proposal-open {
+  margin-left: auto; font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--border-subtle); background: var(--bg); color: var(--fg);
+}
+.proposal-card .proposal-settings {
+  display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 4px 12px;
+  margin: 4px 0 0; padding: 8px 14px 12px; font-size: 12px; border-top: 1px solid var(--border-subtle);
+}
+.proposal-card .proposal-settings dt { color: var(--fg-dim); }
+.proposal-card .proposal-settings dd { margin: 0; overflow-wrap: anywhere; }

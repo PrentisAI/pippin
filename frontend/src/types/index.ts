@@ -169,6 +169,17 @@ export interface Proposal {
   created_at?: number
   confirmed: boolean
   superseded: boolean
+  confirmed_settings?: ConfirmedSettings | null
+}
+
+/** What the researcher started from a proposal card. */
+export interface ConfirmedSettings {
+  experiment_id: string
+  skip_phases: Phase[]
+  ideation_mode?: IdeationMode
+  max_cost_usd?: number | null
+  autonomy_mode?: AutonomyMode | string | null
+  models?: Partial<Record<string, string | string[]>>
 }
 
 export interface ConversationMessage {
