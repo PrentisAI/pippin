@@ -100,13 +100,17 @@ A campaign runs these phases in order; any can be skipped:
    writes the proposal. No code runs in this phase; its cost is the models' API calls.
 2. Screening: an agent scores the proposal for novelty, feasibility and significance; a
    low score sends the campaign back to ideation.
-3. Planning: an agent turns the proposal into a plan of jobs.
-4. Research: for each job a research agent (a Claude Code session) works in the
-   campaign's Docker container: writes and runs code, saves results. A live auditor watches
-   its transcript and may advise it, interrupt it or escalate to the researcher.
-5. Analysis: an agent checks the results against the objective and may ask for another
+3. Planning: an agent turns the proposal into a plan of jobs with dependencies.
+4. Pre-flight: an agent checks every job before it runs at full scale: inputs, data,
+   software and parameters, plus a short smoke run on a small input that also estimates
+   time and memory. Problems go back to planning; if they remain, the researcher decides.
+5. Research: for each job a research agent (a Claude Code session) works in the
+   campaign's Docker container: writes and runs code, saves results. Independent jobs may
+   run at the same time. A live auditor watches the transcripts and may advise, interrupt
+   or escalate to the researcher.
+6. Analysis: an agent checks the results against the objective and may ask for another
    research round.
-6. Writing: an agent writes the report.
+7. Writing: an agent writes the report.
 Between phases a milestone auditor reviews the output: pass, reject (the phase revises its
 work) or escalate (the researcher decides). A human gate is a point where the campaign waits
 for the researcher's decision: continue, instruct, or stop. The gate that opens when

@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api, describeError } from '../api/client'
 import { AgentStreamView } from '../components/AgentStreamView'
+import { ScopePicker, type ScopeValue } from '../components/SkillScope'
 import { WorkspacePanel } from '../components/WorkspacePanel'
 import { formatCost, formatDuration } from '../format'
 import {
@@ -1078,176 +1079,191 @@ function ApprovalBar({
 // Skills Panel
 // ---------------------------------------------------------------------------
 
-function skillIconType(skill: Skill): string {
-  const n = (skill.name + ' ' + (skill.description || '')).toLowerCase()
-  if (n.includes('code') || n.includes('implement')) return 'code'
-  if (n.includes('test') || n.includes('verify')) return 'test'
-  if (n.includes('debug') || n.includes('fix')) return 'debug'
-  if (n.includes('docker') || n.includes('container')) return 'docker'
-  return 'default'
+const SKILL_KIND_LABELS: Record<string, string> = {
+  procedure: 'procedure',
+  failure: 'failure mode',
+  convention: 'convention',
+  correction: 'correction',
 }
 
-function skillIconChar(type: string): string {
-  switch (type) {
-    case 'code': return '<>'
-    case 'test': return '✓'
-    case 'debug': return '⚡'
-    case 'docker': return '🐳'
-    default: return '✦'
-  }
+const SKILL_ORIGIN_LABELS: Record<string, string> = {
+  human: 'from your corrections',
+  self: 'learned from runs',
+  manual: 'written by hand',
 }
 
+/** Standard sections a skill's text lacks (the template's headings). */
+function missingSections(text: string, sections: string[]): string[] {
+  const low = text.toLowerCase()
+  return sections.filter((h) => !low.includes(`## ${h.toLowerCase()}`))
+}
+
+type SkillsTab = 'all' | 'human' | 'self' | 'manual'
+
+/** The skill library: what the agents may use; skills learned from your corrections and from runs. */
 function SkillsPanel({ collapsed, panelRef }: { collapsed: boolean; panelRef: React.RefObject<HTMLDivElement | null> }) {
   const [skills, setSkills] = useState<Skill[]>([])
+  const [sections, setSections] = useState<string[]>([])
+  const [template, setTemplate] = useState('')
   const [search, setSearch] = useState('')
-  const [activeTab, setActiveTab] = useState<'all' | 'enabled' | 'distilled'>('all')
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [enabledMap, setEnabledMap] = useState<Record<string, boolean>>({})
-  const [editingRule, setEditingRule] = useState('')
+  const [tab, setTab] = useState<SkillsTab>('all')
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [draft, setDraft] = useState({ text: '', description: '' })
+  const [scopeDraft, setScopeDraft] = useState<ScopeValue>({ scope: 'global', projects: [] })
+  const [creating, setCreating] = useState<{ name: string; description: string; text: string } | null>(null)
+  const [showHistory, setShowHistory] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const fetchSkills = useCallback(async () => {
     try {
-      const res = await fetch('/api/skills/')
-      if (res.ok) {
-        const data = await res.json()
-        setSkills(data.skills || data || [])
-      }
-    } catch {}
+      setSkills(await api.skills.list())
+    } catch (err) {
+      setError(describeError(err))
+    }
   }, [])
 
-  useEffect(() => { fetchSkills() }, [fetchSkills])
+  useEffect(() => {
+    if (collapsed) return
+    fetchSkills()
+    api.skills.template().then((t) => {
+      setSections(t.sections.map((x) => x.name))
+      setTemplate(t.template)
+    }).catch(() => {})
+  }, [collapsed, fetchSkills])
 
-  const filtered = skills.filter((s) => {
-    if (search) {
-      const q = search.toLowerCase()
-      if (!s.name.toLowerCase().includes(q) && !(s.description || '').toLowerCase().includes(q)) return false
-    }
-    if (activeTab === 'enabled') return enabledMap[s.skill_id] !== false
-    if (activeTab === 'distilled') return s.source_phase === 'auto' || s.source_phase === 'distilled'
-    return true
+  const filtered = skills.filter((sk) => {
+    if (tab !== 'all' && (sk.origin || 'manual') !== tab) return false
+    if (!search) return true
+    const q = search.toLowerCase()
+    return [sk.name, sk.description, sk.rule].some((x) => (x || '').toLowerCase().includes(q))
   })
 
-  const handleToggle = (id: string) => {
-    setEnabledMap((prev) => ({ ...prev, [id]: !prev[id] }))
+  const open = (sk: Skill) => {
+    if (openId === sk.skill_id) {
+      setOpenId(null)
+      return
+    }
+    setOpenId(sk.skill_id)
+    setDraft({ text: sk.rule, description: sk.description })
+    setScopeDraft({ scope: (sk.scope || 'global') as ScopeValue['scope'], projects: sk.projects ?? [] })
+    setShowHistory(false)
+    setError(null)
   }
 
-  const handleExpand = (id: string) => {
-    if (expandedId === id) {
-      setExpandedId(null)
-    } else {
-      setExpandedId(id)
-      const skill = skills.find((s) => s.skill_id === id)
-      if (skill) setEditingRule(skill.rule)
+  const act = async (what: () => Promise<unknown>) => {
+    setError(null)
+    try {
+      await what()
+      await fetchSkills()
+    } catch (err) {
+      setError(describeError(err))
     }
   }
 
-  const handleSave = async (id: string) => {
-    try {
-      await fetch(`/api/skills/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rule: editingRule }),
-      })
-      fetchSkills()
-    } catch {}
-  }
-
-  const handleDelete = async (id: string) => {
-    try {
-      await fetch(`/api/skills/${id}`, { method: 'DELETE' })
-      setExpandedId(null)
-      fetchSkills()
-    } catch {}
-  }
-
-  const handleDuplicate = async (skill: Skill) => {
-    try {
-      await fetch('/api/skills/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: `${skill.name} (copy)`,
-          rule: skill.rule,
-          description: skill.description,
-          scope: skill.scope,
-          source_phase: skill.source_phase,
-          tags: skill.tags,
-        }),
-      })
-      fetchSkills()
-    } catch {}
-  }
+  const saveScope = (sk: Skill) => act(async () => {
+    if (scopeDraft.scope === 'projects' && scopeDraft.projects.length === 0) throw new Error('Choose at least one project')
+    await api.skills.update(sk.skill_id, { scope: scopeDraft.scope, projects: scopeDraft.projects })
+  })
+  const scopeChanged = (sk: Skill) => scopeDraft.scope !== sk.scope
+    || scopeDraft.projects.slice().sort().join(',') !== (sk.projects ?? []).slice().sort().join(',')
+  const save = (sk: Skill) => act(() => api.skills.revise(sk.skill_id, draft.text, 'edited in the console', draft.description))
+  const remove = (sk: Skill) => act(async () => {
+    await api.skills.remove(sk.skill_id)
+    setOpenId(null)
+  })
+  const create = () => creating && act(async () => {
+    const name = creating.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    if (!name) throw new Error('Give the skill a name')
+    await api.skills.create({ name, rule: creating.text, description: creating.description })
+    setCreating(null)
+  })
 
   return (
     <div className={`skills-panel${collapsed ? ' collapsed' : ''}`} ref={panelRef}>
       <div className="skills-header">
-        <div className="skills-title">Skills</div>
-        <input
-          className="skills-search"
-          placeholder="Search skills..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <div className="skills-title">
+          Skills
+          <button className="skills-new" title="Write a new skill" onClick={() => setCreating({ name: '', description: '', text: template })}>+ New</button>
+        </div>
+        <input className="skills-search" placeholder="Search skills..." value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
       <div className="skills-tabs">
-        {(['all', 'enabled', 'distilled'] as const).map((tab) => (
-          <button
-            key={tab}
-            className={`skills-tab${activeTab === tab ? ' active' : ''}`}
-            onClick={() => setActiveTab(tab)}
-          >
-            {tab === 'all' ? 'All' : tab === 'enabled' ? 'Enabled' : 'Auto-distilled'}
+        {(['all', 'human', 'self', 'manual'] as const).map((t) => (
+          <button key={t} className={`skills-tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
+            {t === 'all' ? 'All' : t === 'human' ? 'From you' : t === 'self' ? 'Learned' : 'Written'}
           </button>
         ))}
       </div>
+      {error && <div className="tl-detail tone-error" style={{ padding: '6px 12px' }}>{error}</div>}
       <div className="skills-list">
-        {filtered.length === 0 && (
-          <div style={{ padding: '24px 16px', textAlign: 'center', fontSize: 11, color: 'var(--fg-dim)' }}>
-            {search ? 'No matching skills' : 'No skills yet'}
+        {creating && (
+          <div className="skill-card expanded">
+            <div className="skill-edit">
+              <input placeholder="name (kebab-case)" value={creating.name} onChange={(e) => setCreating({ ...creating, name: e.target.value })} />
+              <input placeholder="one line: what it is for and when to use it" value={creating.description}
+                onChange={(e) => setCreating({ ...creating, description: e.target.value })} />
+              <textarea rows={16} value={creating.text} onChange={(e) => setCreating({ ...creating, text: e.target.value })} />
+              <div className="skill-actions">
+                <button className="btn-sm" onClick={() => setCreating(null)}>Cancel</button>
+                <button className="btn-sm btn-approve" onClick={create}>Add to library</button>
+              </div>
+            </div>
           </div>
         )}
-        {filtered.map((skill) => {
-          const iconType = skillIconType(skill)
-          const isExpanded = expandedId === skill.skill_id
-          const isEnabled = enabledMap[skill.skill_id] !== false
-          const isAuto = skill.source_phase === 'auto' || skill.source_phase === 'distilled'
+        {filtered.length === 0 && !creating && (
+          <div style={{ padding: '24px 16px', textAlign: 'center', fontSize: 11, color: 'var(--fg-dim)' }}>
+            {search || tab !== 'all' ? 'No matching skills' : 'No skills yet. They are learned from runs and from your corrections, or write one with + New.'}
+          </div>
+        )}
+        {filtered.map((sk) => {
+          const isOpen = openId === sk.skill_id
+          const missing = missingSections(isOpen ? draft.text : sk.rule, sections)
           return (
-            <div key={skill.skill_id} className={`skill-card${isExpanded ? ' expanded' : ''}`} onClick={() => handleExpand(skill.skill_id)}>
-              <div className="skill-card-top">
-                <div className={`skill-icon ${iconType}`}>{skillIconChar(iconType)}</div>
+            <div key={sk.skill_id} className={`skill-card${isOpen ? ' expanded' : ''}`}>
+              <div className="skill-card-top" onClick={() => open(sk)}>
                 <div className="skill-info">
                   <div className="skill-name">
-                    {skill.name}
-                    {isAuto && <span className="skill-auto-badge">Auto</span>}
+                    {sk.name}
+                    <span className="skill-badge">v{sk.version || 1}</span>
+                    {sk.kind && <span className="skill-badge">{SKILL_KIND_LABELS[sk.kind] ?? sk.kind}</span>}
+                    {sk.scope === 'experiment' && <span className="skill-badge">one run</span>}
+                    {sk.scope === 'campaign' && <span className="skill-badge">one project</span>}
+                    {sk.scope === 'projects' && <span className="skill-badge">{sk.projects?.length ?? 0} project{sk.projects?.length === 1 ? '' : 's'}</span>}
                   </div>
-                  <div className="skill-desc">{skill.description || skill.rule}</div>
-                  <div className="skill-meta">
-                    <span className="skill-scope-badge">{skill.scope}</span>
-                  </div>
+                  <div className="skill-desc">{sk.description}</div>
+                  <div className="skill-meta">{SKILL_ORIGIN_LABELS[sk.origin] ?? sk.origin}{sk.source_experiment ? ` · ${sk.source_experiment}` : ''}</div>
                 </div>
-                <label className="skill-toggle" onClick={(e) => e.stopPropagation()}>
-                  <input type="checkbox" checked={isEnabled} onChange={() => handleToggle(skill.skill_id)} />
-                  <span className="slider" />
-                </label>
               </div>
-              {isExpanded && (
-                <div className="skill-detail" onClick={(e) => e.stopPropagation()}>
-                  <div className="skill-detail-section">
-                    <div className="skill-detail-label">Rule</div>
-                    <div
-                      className="skill-detail-content"
-                      contentEditable
-                      suppressContentEditableWarning
-                      onBlur={(e) => setEditingRule(e.currentTarget.textContent || '')}
-                    >
-                      {skill.rule}
+              {isOpen && (
+                <div className="skill-edit">
+                  <input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
+                  <textarea rows={16} value={draft.text} onChange={(e) => setDraft({ ...draft, text: e.target.value })} />
+                  {missing.length > 0 && sections.length > 0 && (
+                    <div className="skill-missing">Missing sections: {missing.join(', ')}</div>
+                  )}
+                  <ScopePicker value={scopeDraft} onChange={setScopeDraft} idPrefix={sk.skill_id}
+                    run={sk.source_experiment || undefined} project={sk.source_campaign || undefined} />
+                  {scopeChanged(sk) && (
+                    <div className="skill-actions">
+                      <span style={{ flex: 1 }} />
+                      <button className="btn-sm btn-approve" onClick={() => saveScope(sk)}>Save where it is used</button>
                     </div>
-                  </div>
+                  )}
                   <div className="skill-actions">
-                    <button className="primary" onClick={() => handleSave(skill.skill_id)}>Save</button>
-                    <button onClick={() => handleDuplicate(skill)}>Duplicate</button>
-                    <button className="danger" onClick={() => handleDelete(skill.skill_id)}>Delete</button>
+                    <button className="btn-sm btn-reject" onClick={() => remove(sk)}>Delete</button>
+                    {sk.history?.length > 0 && (
+                      <button className="btn-sm" onClick={() => setShowHistory(!showHistory)}>History ({sk.history.length})</button>
+                    )}
+                    <span style={{ flex: 1 }} />
+                    <button className="btn-sm btn-approve" disabled={draft.text === sk.rule && draft.description === sk.description}
+                      onClick={() => save(sk)}>Save as v{(sk.version || 1) + 1}</button>
                   </div>
+                  {showHistory && sk.history.slice().reverse().map((h) => (
+                    <details key={h.version} className="skill-history">
+                      <summary>v{h.version}{h.replaced_because ? ` — replaced: ${h.replaced_because}` : ''}</summary>
+                      <pre>{h.text}</pre>
+                    </details>
+                  ))}
                 </div>
               )}
             </div>

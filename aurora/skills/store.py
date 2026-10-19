@@ -1,9 +1,11 @@
-"""Distilled skill store — SQLite-backed CRUD for learned rules.
+"""The skill library: SQLite-backed store of skills learned from people and from runs.
 
-Distilled skills are reusable rules/patterns extracted from human
-interactions and experiment runs.  They live in SQLite for persistent
-storage and are materialized as `.claude/skills/<name>/SKILL.md`
-at experiment runtime so Claude Code loads them natively.
+A skill is a structured specification (Appendix B of the paper; see :data:`SKILL_SECTIONS`):
+its purpose, inputs and preconditions, tools, procedure, expected outputs, validation checks,
+failure modes, interpretation, and when to ask a human.  Skills come from the researcher's
+corrections (``origin="human"``), from the agents' own runs (``origin="self"``) or are written
+by hand (``origin="manual"``), and are revised over time (``version``, ``history``).  At
+runtime they are written as ``.claude/skills/<name>/SKILL.md`` so Claude Code loads them.
 """
 
 from __future__ import annotations
@@ -17,6 +19,12 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 _SKILL_SCHEMA = """
+CREATE TABLE IF NOT EXISTS suggestion_outcomes (
+    suggestion_id TEXT PRIMARY KEY,
+    state         TEXT NOT NULL,          -- added | dismissed
+    detail        TEXT DEFAULT '{}',      -- where it went: skill_id, version, scope
+    decided_at    REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS distilled_skills (
     skill_id     TEXT PRIMARY KEY,
     name         TEXT NOT NULL UNIQUE,
@@ -32,6 +40,34 @@ CREATE TABLE IF NOT EXISTS distilled_skills (
 );
 """
 
+# The sections of a skill (Appendix B): (heading, what goes there)
+SKILL_SECTIONS: list[tuple[str, str]] = [
+    ("Purpose", "the scientific or practical task the skill is for, and when to use it"),
+    ("Inputs and preconditions", "what must be given or true before starting"),
+    ("Tools", "the programs, libraries or commands it uses"),
+    ("Procedure", "the steps, with the settings that matter"),
+    ("Expected outputs", "files and results it produces"),
+    ("Validation checks", "how to tell the result is right"),
+    ("Failure modes", "what goes wrong, how it shows, and what to do"),
+    ("Interpretation", "how to read the results, and their limits"),
+    ("When to ask a human", "decisions the agent should not take alone"),
+]
+
+ORIGINS = ("human", "self", "manual")
+SCOPES = ("experiment", "campaign", "projects", "global")
+KINDS = ("procedure", "failure", "convention", "correction")
+
+
+def skill_template() -> str:
+    """An empty skill in the standard sections."""
+    return "\n\n".join(f"## {h}\n\n<{what}>" for h, what in SKILL_SECTIONS)
+
+
+def missing_sections(text: str) -> list[str]:
+    """Standard sections a skill's text lacks."""
+    low = text.lower()
+    return [h for h, _ in SKILL_SECTIONS if f"## {h.lower()}" not in low]
+
 
 class DistilledSkill(BaseModel):
     skill_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
@@ -41,10 +77,18 @@ class DistilledSkill(BaseModel):
     source_phase: str = ""
     source_experiment: str = ""
     source_campaign: str = ""
-    scope: str = "experiment"  # experiment | campaign | global
+    # where agents may use it: experiment (its run only) | campaign (its project) |
+    # projects (the projects listed in ``projects``) | global (everywhere)
+    scope: str = "experiment"
+    projects: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     created_at: float = Field(default_factory=time.time)
     updated_at: float = Field(default_factory=time.time)
+    # ``rule`` holds the skill's text: Markdown in the SKILL_SECTIONS (older skills: one rule)
+    origin: str = "manual"     # human | self | manual
+    kind: str = ""             # procedure | failure | convention | correction
+    version: int = 1
+    history: list[dict[str, Any]] = Field(default_factory=list)   # earlier versions, oldest first
 
 
 class SkillStore:
@@ -55,13 +99,13 @@ class SkillStore:
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SKILL_SCHEMA)
         self._conn.execute("PRAGMA journal_mode=WAL")
-        try:
-            self._conn.execute(
-                "ALTER TABLE distilled_skills ADD COLUMN source_campaign TEXT DEFAULT ''"
-            )
-            self._conn.commit()
-        except sqlite3.OperationalError:
-            pass
+        for column in ("source_campaign TEXT DEFAULT ''", "origin TEXT DEFAULT 'manual'", "kind TEXT DEFAULT ''",
+                       "version INTEGER DEFAULT 1", "history TEXT DEFAULT '[]'", "projects TEXT DEFAULT '[]'"):
+            try:
+                self._conn.execute(f"ALTER TABLE distilled_skills ADD COLUMN {column}")
+                self._conn.commit()
+            except sqlite3.OperationalError:
+                pass        # the column exists
 
     def close(self) -> None:
         self._conn.close()
@@ -69,7 +113,12 @@ class SkillStore:
     def _row_to_skill(self, row: sqlite3.Row) -> DistilledSkill:
         import json
         d = dict(row)
-        d["tags"] = json.loads(d.get("tags", "[]"))
+        d["tags"] = json.loads(d.get("tags") or "[]")
+        d["history"] = json.loads(d.get("history") or "[]")
+        d["projects"] = json.loads(d.get("projects") or "[]")
+        d["origin"] = d.get("origin") or "manual"
+        d["kind"] = d.get("kind") or ""
+        d["version"] = d.get("version") or 1
         return DistilledSkill(**d)
 
     def create(self, skill: DistilledSkill) -> DistilledSkill:
@@ -81,13 +130,15 @@ class SkillStore:
             """INSERT INTO distilled_skills
                (skill_id, name, rule, description, source_phase,
                 source_experiment, source_campaign, scope, tags,
-                created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                created_at, updated_at, origin, kind, version, history, projects)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 skill.skill_id, skill.name, skill.rule, skill.description,
                 skill.source_phase, skill.source_experiment,
                 skill.source_campaign, skill.scope,
                 json.dumps(skill.tags), skill.created_at, skill.updated_at,
+                skill.origin, skill.kind, skill.version, json.dumps(skill.history),
+                json.dumps(skill.projects),
             ),
         )
         self._conn.commit()
@@ -127,12 +178,13 @@ class SkillStore:
 
     def update(self, skill_id: str, **fields: Any) -> DistilledSkill | None:
         import json
-        allowed = {"name", "rule", "description", "scope", "tags", "source_phase", "source_experiment"}
+        allowed = {"name", "rule", "description", "scope", "tags", "source_phase", "source_experiment",
+                   "source_campaign", "origin", "kind", "projects"}
         parts: list[str] = []
         values: list[Any] = []
         for k, v in fields.items():
             if k in allowed:
-                if k == "tags":
+                if k in ("tags", "projects"):
                     v = json.dumps(v)
                 parts.append(f"{k}=?")
                 values.append(v)
@@ -147,6 +199,43 @@ class SkillStore:
         )
         self._conn.commit()
         return self.get(skill_id)
+
+    def revise(self, skill_id: str, text: str, *, reason: str = "", description: str | None = None,
+               source_experiment: str = "") -> DistilledSkill | None:
+        """A new version of a skill; the current one goes into its history."""
+        import json
+        skill = self.get(skill_id)
+        if skill is None:
+            return None
+        previous = {"version": skill.version, "text": skill.rule, "description": skill.description,
+                    "updated_at": skill.updated_at, "replaced_because": reason}
+        history = (skill.history + [previous])[-20:]
+        self._conn.execute(
+            """UPDATE distilled_skills SET rule=?, description=?, version=?, history=?, updated_at=?,
+               source_experiment=CASE WHEN ?='' THEN source_experiment ELSE ? END WHERE skill_id=?""",
+            (text, skill.description if description is None else description, skill.version + 1,
+             json.dumps(history), time.time(), source_experiment, source_experiment, skill_id))
+        self._conn.commit()
+        return self.get(skill_id)
+
+    # -- what the researcher did with suggested skills (so a card stays answered) --
+
+    def record_outcome(self, suggestion_id: str, state: str, **detail: Any) -> None:
+        import json
+        self._conn.execute(
+            "INSERT OR REPLACE INTO suggestion_outcomes (suggestion_id, state, detail, decided_at) VALUES (?, ?, ?, ?)",
+            (suggestion_id, state, json.dumps(detail), time.time()))
+        self._conn.commit()
+
+    def outcomes(self, suggestion_ids: list[str]) -> dict[str, dict[str, Any]]:
+        import json
+        if not suggestion_ids:
+            return {}
+        rows = self._conn.execute(
+            f"SELECT * FROM suggestion_outcomes WHERE suggestion_id IN ({','.join('?' * len(suggestion_ids))})",
+            suggestion_ids).fetchall()
+        return {r["suggestion_id"]: {"state": r["state"], **json.loads(r["detail"] or "{}"),
+                                     "decided_at": r["decided_at"]} for r in rows}
 
     def delete(self, skill_id: str) -> bool:
         cur = self._conn.execute(
@@ -167,13 +256,14 @@ class SkillStore:
     def list_for_experiment(
         self, experiment_id: str, campaign_id: str = ""
     ) -> list[DistilledSkill]:
-        """Return skills relevant to a specific experiment: its own + its campaign's + global."""
+        """Skills an experiment may use: global ones, its project's, those listing its project, its own."""
         rows = self._conn.execute(
             """SELECT * FROM distilled_skills
-               WHERE scope='global'
+               WHERE scope='global' OR scope='projects'
                   OR (scope='campaign' AND source_campaign=?)
                   OR (scope='experiment' AND source_experiment=?)
                ORDER BY updated_at DESC""",
             (campaign_id, experiment_id),
         ).fetchall()
-        return [self._row_to_skill(r) for r in rows]
+        skills = [self._row_to_skill(r) for r in rows]
+        return [s for s in skills if s.scope != "projects" or (campaign_id and campaign_id in s.projects)]

@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 
 /** Campaign phases, in order; these are the names used in `skip_phases`. */
-export type Phase = 'ideation' | 'screening' | 'planning' | 'research' | 'analysis' | 'writing'
+export type Phase = 'ideation' | 'screening' | 'planning' | 'preflight' | 'research' | 'analysis' | 'writing'
 
 export interface PhaseInfo {
   key: Phase
@@ -18,14 +18,15 @@ export const PHASES: readonly PhaseInfo[] = [
   { key: 'ideation', label: 'Ideation', desc: 'Generate and debate candidate hypotheses' },
   { key: 'screening', label: 'Screening', desc: 'Pick the most promising idea' },
   { key: 'planning', label: 'Planning', desc: 'Break the work into jobs' },
+  { key: 'preflight', label: 'Pre-flight', desc: 'Check each job and smoke-run it before the full run' },
   { key: 'research', label: 'Research', desc: 'The agent runs the experiments', required: true },
   { key: 'analysis', label: 'Analysis', desc: 'Check the results; loop back if needed' },
   { key: 'writing', label: 'Writing', desc: 'Write the report' },
 ]
 
 export const PHASE_PRESETS: Record<'quick' | 'standard' | 'full', { label: string; skip: Phase[]; desc: string }> = {
-  quick: { label: 'Quick', skip: ['ideation', 'screening', 'planning', 'analysis', 'writing'], desc: 'Research only' },
-  standard: { label: 'Standard', skip: ['ideation', 'screening'], desc: 'Plan → Research → Analyze → Write' },
+  quick: { label: 'Quick', skip: ['ideation', 'screening', 'planning', 'preflight', 'analysis', 'writing'], desc: 'Research only' },
+  standard: { label: 'Standard', skip: ['ideation', 'screening'], desc: 'Plan → Pre-flight → Research → Analyze → Write' },
   full: { label: 'Full', skip: [], desc: 'The whole pipeline, from ideation to the report' },
 }
 
@@ -72,6 +73,7 @@ export const GATE_SOURCE_LABELS: Record<string, string> = {
   milestone_audit: 'Milestone auditor',
   supervisor: 'Live auditor',
   screening: 'Screening',
+  preflight: 'Pre-flight',
   termination: 'Before finishing',
 }
 
@@ -216,14 +218,34 @@ export interface ProjectChatStatus {
 export interface Skill {
   skill_id: string
   name: string
+  /** The skill's text: Markdown in the standard sections (older skills: one rule). */
   rule: string
   description: string
   source_phase: string
   source_experiment: string
+  source_campaign?: string
+  /** experiment (one run) | campaign (one project) | projects (those in `projects`) | global (everywhere) */
   scope: string
+  projects: string[]
   tags: string[]
-  created_at: string
-  updated_at: string
+  created_at: number
+  updated_at: number
+  /** human (your corrections) | self (learned from runs) | manual */
+  origin: string
+  /** procedure | failure | convention | correction */
+  kind: string
+  version: number
+  history: { version: number; text: string; description?: string; updated_at: number; replaced_because?: string }[]
+}
+
+/** What the researcher did with a suggested skill (kept on the server). */
+export interface SuggestionOutcome {
+  state: 'added' | 'dismissed'
+  skill_id?: string
+  name?: string
+  version?: number
+  scope?: string
+  decided_at?: number
 }
 
 /** Defaults for new experiments (GET /api/settings). */

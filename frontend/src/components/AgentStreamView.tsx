@@ -1,8 +1,9 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, describeError } from '../api/client'
 import { clip, formatCost, formatDuration } from '../format'
-import { GATE_SOURCE_LABELS, phaseLabel, PHASES } from '../types'
+import { GATE_SOURCE_LABELS, phaseLabel, PHASES, type SuggestionOutcome } from '../types'
 import { turnKey, type StreamEvent } from '../types/chat'
+import { ScopePicker, type ScopeValue } from './SkillScope'
 
 interface AgentStreamViewProps {
   events: StreamEvent[]
@@ -150,6 +151,18 @@ function describeEvent(event: StreamEvent): Described {
       const what = typeof d.selected === 'string' ? `"${d.selected}"` : 'an idea'
       return system('success', `Screening selected ${what}${score}`)
     }
+    case 'preflight_complete': {
+      const jobs = Array.isArray(d.jobs) ? (d.jobs as Array<Record<string, unknown>>) : []
+      const problems = Number(d.problems) || 0
+      return system(problems ? 'warning' : 'success',
+        `Pre-flight: ${String(d.ok ?? 0)} ok, ${problems} with problems, ${String(d.untestable ?? 0)} untestable`
+          + (Number(d.revisions) ? ` (after ${String(d.revisions)} revision${Number(d.revisions) === 1 ? '' : 's'})` : ''),
+        lines(d.summary, ...jobs.map((j) => `[${str(j.status)}] ${str(j.job_id)}: ${str(j.smoke_run) || '—'}`
+          + (j.estimate ? ` · full run: ${str(j.estimate)}` : '')
+          + (Array.isArray(j.problems) && j.problems.length ? `\n    problems: ${(j.problems as unknown[]).map(str).join('; ')}` : ''))))
+    }
+    case 'preflight_revision':
+      return system('warning', 'Pre-flight found problems; planning revises the plan', bullets(d.problems))
     case 'planning_complete':
       return system('success', `Plan ready — ${d.num_jobs ?? '?'} job${d.num_jobs === 1 ? '' : 's'}`)
     case 'planning_fallback':
@@ -181,7 +194,10 @@ function describeEvent(event: StreamEvent): Described {
     case 'report_missing':
       return system('warning', 'No report was written', d.path ? str(d.path) : undefined)
     case 'skill_suggestion':
-      return system('info', `Skill suggested: ${str(d.name)}`, str(d.rule) || undefined)
+      return system('info', `Skill suggested: ${str(d.name)}`, str(d.description) || undefined)
+    case 'skill_learned':
+      return system('success', `Skill ${d.action === 'revise' ? 'revised' : 'added'}: ${str(d.name)}`
+        + ` (${d.origin === 'human' ? 'from your correction' : 'learned from this run'})`, str(d.description) || undefined)
 
     // -- the research agent ----------------------------------------------------------
     case 'loop_started':
@@ -567,27 +583,81 @@ type SkillOutcome =
   | { state: 'error'; message: string }
 
 /** A rule the engine distilled from a phase: add it to the skill library, to this project only, or dismiss it. */
-function SkillSuggestionCard({ event, campaignId, experimentId }: {
+const SKILL_KIND: Record<string, string> = {
+  procedure: 'procedure', failure: 'failure mode', convention: 'convention', correction: 'correction',
+}
+
+/** A skill learned from your correction or from a run: add it, keep it to this project, or dismiss it;
+ * a revision of an existing skill can be applied or dismissed. */
+/** A stable ID for a suggestion (events from before suggestion IDs: their time and name). */
+function suggestionId(event: StreamEvent): string {
+  return str(event.data?.suggestion_id) || `${event.timestamp}-${str(event.data?.name)}`
+}
+
+function answeredOutcome(answer: SuggestionOutcome | undefined): SkillOutcome | null {
+  if (!answer) return null
+  if (answer.state === 'dismissed') return { state: 'dismissed' }
+  const where = answer.scope === 'global' ? 'the skill library' : 'this project'
+  return { state: 'added', where: `${where} as ${answer.name ?? 'the skill'} v${answer.version ?? 1}` }
+}
+
+function SkillSuggestionCard({ event, campaignId, experimentId, answer }: {
   event: StreamEvent
   campaignId: string
   experimentId: string
+  /** What was done with it before (from the server), if anything. */
+  answer?: SuggestionOutcome
 }) {
-  const [outcome, setOutcome] = useState<SkillOutcome>({ state: 'open' })
+  const [local, setOutcome] = useState<SkillOutcome>({ state: 'open' })
+  const [scope, setScope] = useState<ScopeValue>({ scope: 'global', projects: [] })
+  const [editing, setEditing] = useState(false)
+  // what was done here now, else what was done before (the answer may arrive after the card is shown)
+  const outcome = local.state !== 'open' ? local : (answeredOutcome(answer) ?? local)
+  const [showText, setShowText] = useState(false)
   const d = event.data ?? {}
+  const [draft, setDraft] = useState(() => ({
+    name: str(d.name), description: str(d.description), text: str(d.text) || str(d.rule),
+  }))
+  const sid = suggestionId(event)
+  const revise = d.action === 'revise' && !!d.skill_id
+  const fromYou = d.origin === 'human'
 
-  const add = async (scope: 'global' | 'campaign') => {
+  const dismiss = async () => {
+    setOutcome({ state: 'dismissed' })
+    try {
+      await api.skills.dismiss(sid)
+    } catch {
+      // shown as dismissed anyway; it may reappear after a reload
+    }
+  }
+
+  const where = (v: ScopeValue) => v.scope === 'global' ? 'the skill library (all projects)'
+    : v.scope === 'experiment' ? 'this run only'
+    : v.scope === 'campaign' ? 'this project'
+    : `${v.projects.length} selected project${v.projects.length === 1 ? '' : 's'}`
+
+  const add = async () => {
+    if (!revise && scope.scope === 'projects' && scope.projects.length === 0) {
+      setOutcome({ state: 'error', message: 'Choose at least one project' })
+      return
+    }
     setOutcome({ state: 'saving' })
     try {
       await api.skills.suggest({
-        name: str(d.name),
-        rule: str(d.rule),
-        description: str(d.description),
+        name: draft.name.trim() || str(d.name),
+        rule: draft.text,
+        description: draft.description,
         source_phase: str(d.source_phase),
         source_experiment: str(d.source_experiment) || experimentId,
-        ...(scope === 'campaign' ? { source_campaign: campaignId } : {}),
-        scope,
+        source_campaign: campaignId,
+        scope: scope.scope,
+        projects: scope.scope === 'projects' ? scope.projects : [],
+        origin: str(d.origin),
+        kind: str(d.kind),
+        ...(revise ? { skill_id: str(d.skill_id), reason: str(d.reason) } : {}),
+        suggestion_id: sid,
       })
-      setOutcome({ state: 'added', where: scope === 'global' ? 'the skill library' : 'this project' })
+      setOutcome({ state: 'added', where: revise ? `v${Number(d.version || 1) + 1} of ${str(d.name)}` : where(scope) })
     } catch (err) {
       setOutcome({ state: 'error', message: describeError(err) })
     }
@@ -602,21 +672,53 @@ function SkillSuggestionCard({ event, campaignId, experimentId }: {
       <div className="skill-suggest" style={{ flex: 1 }}>
         <div className="skill-suggest-header">
           <span className="ss-icon">✦</span>
-          Suggested skill: {str(d.name)}
-          {d.source_phase && <span className="ss-phase">{phaseLabel(d.source_phase)}</span>}
+          {revise ? `Revise skill: ${str(d.name)} (v${String(d.version || 1)} → v${Number(d.version || 1) + 1})` : `New skill: ${str(d.name)}`}
+          {d.kind && <span className="ss-phase">{SKILL_KIND[str(d.kind)] ?? str(d.kind)}</span>}
+          <span className="ss-phase">{fromYou ? 'from your correction' : `learned in ${phaseLabel(d.source_phase) || 'this run'}`}</span>
         </div>
         <div className="skill-suggest-body">
-          <div className="skill-suggest-rule">{str(d.rule)}</div>
+          <div className="skill-suggest-rule">{str(d.description)}</div>
+          {fromYou && d.feedback && <div className="skill-suggest-source">You said: “{clip(str(d.feedback), 300)}”</div>}
+          {d.reason && <div className="skill-suggest-source">Why: {str(d.reason)}</div>}
+          {editing ? (
+            <div className="skill-edit">
+              {!revise && <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="name" />}
+              <input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="one line: what it is for" />
+              <textarea rows={14} value={draft.text} onChange={(e) => setDraft({ ...draft, text: e.target.value })} />
+              {revise && (
+                <details className="skill-history"><summary>Current text (v{String(d.version || 1)})</summary><pre>{str(d.previous_text)}</pre></details>
+              )}
+            </div>
+          ) : (
+            <>
+              <button className="proposal-detail-toggle" onClick={() => setShowText(!showText)}>
+                {showText ? '▾' : '▸'} {revise ? 'New and current text' : 'The skill'}
+              </button>
+              {showText && (
+                <div className={revise ? 'skill-compare' : ''}>
+                  <pre className="skill-text">{draft.text}</pre>
+                  {revise && <pre className="skill-text old">{str(d.previous_text)}</pre>}
+                </div>
+              )}
+            </>
+          )}
+          {outcome.state !== 'added' && !revise && (
+            <ScopePicker value={scope} onChange={setScope} run={experimentId} project={campaignId} idPrefix={sid} />
+          )}
           {outcome.state === 'added' ? (
             <div className="skill-suggest-source" style={{ color: 'var(--green)', marginBottom: 0 }}>✓ Added to {outcome.where}</div>
           ) : (
             <div className="skill-suggest-actions">
-              <button className="ss-accept" disabled={outcome.state === 'saving'} onClick={() => add('global')}>Add to library</button>
-              <button className="ss-edit" disabled={outcome.state === 'saving'} onClick={() => add('campaign')}>Only this project</button>
-              <button className="ss-dismiss" disabled={outcome.state === 'saving'} onClick={() => setOutcome({ state: 'dismissed' })}>Dismiss</button>
+              <button className="ss-accept" disabled={outcome.state === 'saving'} onClick={add}>
+                {revise ? (editing ? 'Apply edited revision' : 'Apply revision') : (editing ? 'Add edited skill' : 'Add')}
+              </button>
+              <button className="ss-edit" disabled={outcome.state === 'saving'} onClick={() => { setEditing(!editing); setShowText(false) }}>
+                {editing ? 'Done editing' : 'Edit first'}
+              </button>
+              <button className="ss-dismiss" disabled={outcome.state === 'saving'} onClick={dismiss}>Dismiss</button>
             </div>
           )}
-          {outcome.state === 'error' && <div className="tl-detail tone-error">Could not add the skill: {outcome.message}</div>}
+          {outcome.state === 'error' && <div className="tl-detail tone-error">Could not save the skill: {outcome.message}</div>}
         </div>
       </div>
     </div>
@@ -639,6 +741,18 @@ export function AgentStreamView({ events, live = [], campaignId, experimentId }:
   const [timeWidth, setTimeWidth] = useState(44)
   const [mainPct, setMainPct] = useState(55)
   const timelineRows = useMemo(() => buildTimeline(events), [events])
+  // what was done with the skill suggestions in the stream, from the server (one request)
+  const suggestionIds = useMemo(
+    () => events.filter((e) => e.event_type === 'skill_suggestion').map(suggestionId).join(','), [events])
+  const [answers, setAnswers] = useState<Record<string, SuggestionOutcome>>({})
+  useEffect(() => {
+    if (!suggestionIds) return
+    let cancelled = false
+    api.skills.outcomes(suggestionIds.split(','))
+      .then((got) => { if (!cancelled) setAnswers(got) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [suggestionIds])
   const liveLength = live.reduce((n, e) => n + str(e.data?.text).length + str(e.data?.thinking).length, 0)
 
   useEffect(() => {
@@ -739,10 +853,11 @@ export function AgentStreamView({ events, live = [], campaignId, experimentId }:
               case 'skill':
                 return (
                   <SkillSuggestionCard
-                    key={`skill-${row.event.timestamp}-${str(row.event.data?.name)}`}
+                    key={`skill-${suggestionId(row.event)}`}
                     event={row.event}
                     campaignId={campaignId}
                     experimentId={experimentId}
+                    answer={answers[suggestionId(row.event)]}
                   />
                 )
               case 'event-row': {

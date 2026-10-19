@@ -85,6 +85,26 @@ PLANNING_DEFAULT = (
     "skill name and note the gap in the parameters."
 )
 
+PREFLIGHT_DEFAULT = (
+    "You are the pre-flight checker of a research pipeline. A plan of jobs is about to run at full scale. "
+    "Before that, check every job, so that problems surface now and cheaply, not hours into a run.\n\n"
+    "For each job:\n"
+    "1. Prerequisites. The inputs and data it needs exist or can be obtained (check paths, URLs, sizes, "
+    "formats, schemas). The software it needs is installed or installable (import it, check versions). "
+    "Its parameters are consistent with each other and with the proposal (units, ranges, settings that "
+    "must agree; in a DFT study, for example, slab geometry and pseudopotentials).\n"
+    "2. Smoke run. Run the job's critical steps on the smallest representative input (a small sample of "
+    "the data, one iteration, a tiny system), under /app/preflight/<job_id>/, within a few minutes. It "
+    "must exercise the real code path, not a toy. Measure time and memory, estimate the full run from "
+    "them, and compare with the container's limits.\n"
+    "3. If the job needs outputs of an earlier job that do not exist yet, build a minimal stand-in input "
+    "if you can; otherwise mark the job untestable and say why.\n\n"
+    "Fix what is quick to fix in the environment (install a package, fetch a small file) and say so. "
+    "Anything that needs the plan changed is a problem. Do not run the full jobs. Keep the files you "
+    "make for the checks under /app/preflight/; what you set up for real use (installed packages, "
+    "downloaded data) may stay where the jobs expect it."
+)
+
 RESEARCH_DEFAULT = (
     "You are an autonomous research agent. You have direct access to "
     "computational tools and should use them to advance the research goal.\n\n"
@@ -149,7 +169,7 @@ WRITING_DEFAULT = (
 # Sections
 # ---------------------------------------------------------------------------
 
-PHASE_AGENTS = ("screening", "planning", "research", "analysis", "writing")
+PHASE_AGENTS = ("screening", "planning", "preflight", "research", "analysis", "writing")
 
 
 class ModelConfig(_Section):
@@ -166,6 +186,7 @@ class ModelConfig(_Section):
     )
     screening: str = Field(default="", description="Model of the screening agent. Empty: models.agent.")
     planning: str = Field(default="", description="Model of the planning agent. Empty: models.agent.")
+    preflight: str = Field(default="", description="Model of the pre-flight agent. Empty: models.agent.")
     research: str = Field(default="", description="Model of the research agent. Empty: models.agent.")
     analysis: str = Field(default="", description="Model of the analysis agent. Empty: models.agent.")
     writing: str = Field(default="", description="Model of the writing agent. Empty: models.agent.")
@@ -265,6 +286,13 @@ class AgentConfig(_Section):
         default=30, ge=1,
         description="Turn limit of the screening, planning, analysis and writing sessions.",
     )
+    preflight_timeout_minutes: float = Field(
+        default=20, gt=0, description="Time limit of the pre-flight checks of a plan (all its jobs).",
+    )
+    preflight_max_revisions: int = Field(
+        default=2, ge=0,
+        description="How often planning revises the plan when pre-flight finds problems, before you decide.",
+    )
     max_parallel_jobs: int = Field(
         default=1, ge=1, le=16,
         description="Research jobs that may run at the same time, each with its own agent, when the plan's "
@@ -276,6 +304,26 @@ class AgentConfig(_Section):
     max_followup_cycles: int = Field(
         default=2, ge=0,
         description="How often analysis may send the campaign back for more research.",
+    )
+
+
+class SkillsConfig(_Section):
+    """How the skill library grows (Section 3.1, Appendix B)."""
+
+    distill: bool = Field(
+        default=True,
+        description="Self-distillation: after each phase and research job, propose new skills (or "
+                    "revisions) from procedures that worked and failures that were diagnosed.",
+    )
+    from_feedback: bool = Field(
+        default=True,
+        description="Turn the researcher's reusable corrections and conventions into skills on their "
+                    "first occurrence.",
+    )
+    auto_accept: bool = Field(
+        default=False,
+        description="Add proposed skills to the library at once. Off: each one waits for you in the web "
+                    "console (add to the library, to this project only, or dismiss).",
     )
 
 
@@ -383,6 +431,8 @@ class PromptConfig(_Section):
         description="Screening: scores the proposal for novelty, feasibility and significance.",
     )
     planning: str = Field(default=PLANNING_DEFAULT, description="Planning: turns the proposal into jobs.")
+    preflight: str = Field(default=PREFLIGHT_DEFAULT,
+                           description="Pre-flight: checks prerequisites and smoke-runs each job before research.")
     research: str = Field(default=RESEARCH_DEFAULT, description="Research: executes the jobs.")
     analysis: str = Field(
         default=ANALYSIS_DEFAULT,
@@ -391,7 +441,7 @@ class PromptConfig(_Section):
     writing: str = Field(default=WRITING_DEFAULT, description="Writing: produces the final report.")
 
 
-PHASES = ("ideation", "screening", "planning", "research", "analysis", "writing")
+PHASES = ("ideation", "screening", "planning", "preflight", "research", "analysis", "writing")
 
 # ---------------------------------------------------------------------------
 # Top-level configuration
@@ -416,6 +466,7 @@ class AuroraConfig(_Section):
         description="Files or directories the agents should work with (data, code, papers). They are "
                     "copied to inputs/ in the agents' working directory (/app/inputs in the container).",
     )
+    skills: SkillsConfig = Field(default_factory=lambda: SkillsConfig())
     skills_dirs: list[str] = Field(
         default_factory=list,
         description="Directories of Claude Code skills (<name>/SKILL.md) written by you; every agent "

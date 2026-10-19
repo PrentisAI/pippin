@@ -1,4 +1,7 @@
-"""Pre-flight verification for experiment plans.
+"""Static pre-flight checks for plans made by the single-call planner (mock mode, no Docker).
+
+With agent sessions, pre-flight is its own phase (``ResearchEngine._run_preflight``): an agent
+checks each job's prerequisites in the container and smoke-runs it.
 
 The :class:`PreflightVerifier` runs a battery of checks on each job in an
 :class:`ExperimentPlan` *before* any computation begins.  This catches

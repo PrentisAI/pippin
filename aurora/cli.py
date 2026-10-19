@@ -259,26 +259,46 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 def cmd_skills(args: argparse.Namespace) -> int:
     from aurora.paths import aurora_home
-    from aurora.skills.store import DistilledSkill, SkillStore
+    from aurora.skills.store import DistilledSkill, SkillStore, missing_sections, skill_template
 
     store = SkillStore(aurora_home() / "skills.db")
     if args.skills_cmd == "list":
         skills = store.list_all()
         if not skills:
-            print("The skill library is empty. Add one with: aurora skills add NAME 'rule'")
+            print("The skill library is empty. Write one: aurora skills template > my-skill.md, edit it, then "
+                  "aurora skills add my-skill @my-skill.md --description '...'")
+        origins = {"human": "from your corrections", "self": "learned from runs", "manual": "written by hand"}
         for sk in skills:
-            print(f"- {sk.name} [{sk.scope}] {sk.description or ''}\n    {sk.rule}")
+            print(f"- {sk.name} v{sk.version} [{sk.scope}] {sk.kind or 'rule'}, {origins.get(sk.origin, sk.origin)}"
+                  f"\n    {sk.description or ''}")
+    elif args.skills_cmd == "show":
+        sk = store.get_by_name(args.name)
+        if sk is None:
+            print(f"No skill named '{args.name}'.", file=sys.stderr)
+            return 1
+        print(f"# {sk.name} (v{sk.version}, {sk.kind or 'rule'}, {sk.origin})\n{sk.description}\n\n{sk.rule}")
+    elif args.skills_cmd == "template":
+        print(skill_template())
     elif args.skills_cmd == "add":
-        rule = Path(args.rule[1:]).read_text() if args.rule.startswith("@") else args.rule
-        store.create(DistilledSkill(name=args.name, rule=rule, description=args.description,
-                                    scope="global", source_phase="human"))
-        print(f"Added skill '{args.name}'. Every new campaign can use it.")
+        text = Path(args.rule[1:]).read_text() if args.rule.startswith("@") else args.rule
+        existing = store.get_by_name(args.name)
+        if existing:
+            store.revise(existing.skill_id, text, reason="replaced with aurora skills add",
+                         description=args.description or None)
+            print(f"Revised skill '{args.name}' (now v{existing.version + 1}).")
+        else:
+            store.create(DistilledSkill(name=args.name, rule=text, description=args.description,
+                                        scope="global", origin="manual"))
+            print(f"Added skill '{args.name}'. Every new campaign can use it.")
+        missing = missing_sections(text)
+        if missing:
+            print(f"Note: it lacks the standard sections {', '.join(missing)} (see aurora skills template).")
     elif args.skills_cmd == "remove":
         sk = store.get_by_name(args.name)
         if sk is None:
             print(f"No skill named '{args.name}'.", file=sys.stderr)
             return 1
-        store.delete(sk.id)
+        store.delete(sk.skill_id)
         print(f"Removed skill '{args.name}'.")
     return 0
 
@@ -335,6 +355,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("skills", help="manage the skill library shared by all campaigns")
     sk = p.add_subparsers(dest="skills_cmd", metavar="ACTION", required=True)
     sk.add_parser("list", help="list skills")
+    sk.add_parser("show", help="print a skill").add_argument("name")
+    sk.add_parser("template", help="print an empty skill in the standard sections")
     a = sk.add_parser("add", help="add a skill written by you")
     a.add_argument("name", help="kebab-case name")
     a.add_argument("rule", help="the skill text, or @file.md to read it from a file")

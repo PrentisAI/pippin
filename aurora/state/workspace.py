@@ -255,7 +255,7 @@ class WorkspaceManager:
         (self._root / "backups").mkdir(exist_ok=True)
         (self._root / "audit_records").mkdir(exist_ok=True)
 
-        for phase in ("ideation", "screening", "planning", "research",
+        for phase in ("ideation", "screening", "planning", "preflight", "research",
                        "analysis", "writing"):
             (self.phases_dir / phase).mkdir(exist_ok=True)
 

@@ -76,12 +76,21 @@ class SkillMaterializer:
                 source_line += f" / {skill.source_experiment}"
             source_line += "\n"
 
+        origin = {"human": "the researcher's corrections", "self": "earlier runs",
+                  "manual": "written by hand"}.get(skill.origin, skill.origin)
         content = f"""---
 name: {skill.name}
-description: {skill.description or skill.name}
+description: {_one_line(skill.description or skill.name)}
 {tags_line}{source_line}---
+
+<!-- skill v{skill.version}, learned from {origin} -->
 
 {skill.rule}
 """
         skill_file.write_text(content)
         return skill_file
+
+
+def _one_line(text: str) -> str:
+    """Frontmatter values must stay on one line."""
+    return " ".join(text.split())

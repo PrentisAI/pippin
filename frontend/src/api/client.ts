@@ -1,4 +1,4 @@
-import type {
+import type { SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -48,6 +48,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const body = await res.text().catch(() => '')
     throw new ApiError(res.status, errorMessage(res.status, res.statusText, body))
   }
+  if (res.status === 204) return undefined as T
   return res.json()
 }
 
@@ -140,7 +141,17 @@ export const api = {
   },
 
   skills: {
-    /** Accept a suggested skill (creates it, or updates the rule of a skill with the same name). */
+    list: () => request<Skill[]>('/skills/'),
+    template: () => request<{ sections: { name: string; what: string }[]; template: string }>('/skills/template'),
+    create: (skill: { name: string; rule: string; description?: string; scope?: string; kind?: string }) =>
+      request<Skill>('/skills/', post({ origin: 'manual', scope: 'global', ...skill })),
+    /** A new version of a skill; the current one goes into its history. */
+    revise: (skillId: string, rule: string, reason: string, description?: string) =>
+      request<Skill>(`/skills/${skillId}/revise`, post({ rule, reason, description })),
+    update: (skillId: string, fields: Partial<Pick<Skill, 'name' | 'description' | 'scope' | 'kind' | 'projects'>>) =>
+      request<Skill>(`/skills/${skillId}`, { method: 'PATCH', body: JSON.stringify(fields) }),
+    remove: (skillId: string) => request<void>(`/skills/${skillId}`, { method: 'DELETE' }),
+    /** Accept a suggested skill: a new one, or a revision of the skill it names. */
     suggest: (skill: {
       name: string
       rule: string
@@ -148,8 +159,19 @@ export const api = {
       source_phase?: string
       source_experiment?: string
       source_campaign?: string
-      scope: 'experiment' | 'campaign' | 'global'
+      scope: 'experiment' | 'campaign' | 'projects' | 'global'
+      origin?: string
+      kind?: string
+      skill_id?: string
+      reason?: string
+      suggestion_id?: string
+      projects?: string[]
     }) => request<Skill>('/skills/suggest', post(skill)),
+    /** What was done with suggestions, by ID: added (with where) or dismissed. */
+    outcomes: (ids: string[]) =>
+      request<Record<string, SuggestionOutcome>>(`/skills/suggestions?ids=${encodeURIComponent(ids.join(','))}`),
+    dismiss: (suggestionId: string) =>
+      request<{ state: string }>(`/skills/suggestions/${encodeURIComponent(suggestionId)}/dismiss`, post()),
   },
 
   /** The project conversation with the front desk. */

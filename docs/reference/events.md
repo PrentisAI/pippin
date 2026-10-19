@@ -39,6 +39,8 @@ result = await engine.run_campaign()
 | `screening_skipped` | `proposal_id`, `reason` (the researcher's direction, developed by ideation, is not screened) |
 | `screening_complete` | `proposal_id`, `selected`, `score` |
 | `planning_complete` | `plan_id`, `num_jobs` |
+| `preflight_complete` | `attempt`, `revisions`, `ok`, `problems`, `untestable`, `summary`, `jobs` (each: `job_id`, `status`, `smoke_run`, `estimate`, `problems`) |
+| `preflight_revision` | `attempt`, `problems` (sent back to planning) |
 | `planning_fallback` | `reason` (no valid plan; one job carries out the whole proposal) |
 | `job_started` | `job_id`, `title`, `index`, `total`, `parallel_with` (jobs already running) |
 | `iteration_complete` | `job_id`, `decision`, `cost_usd`, `errors` |
@@ -74,4 +76,5 @@ Events from research agents also carry `job_id`, since several jobs may run at o
 | `agent_interrupted` | `reason`, `by` |
 | `agent_reply_to_human` | `text` |
 | `frontdesk_response` / `frontdesk_tool_call` / `frontdesk_tool_result` / `frontdesk_error` | front-desk activity |
-| `skill_suggestion` | `name`, `rule`, `description`, `source_phase`, `source_experiment` |
+| `skill_suggestion` | `action` (new, revise), `name`, `description`, `kind`, `origin` (human, self), `text`, `reason`, `source_phase`, `source_experiment`; for a revision `skill_id`, `version`, `previous_text`; from a correction `feedback` |
+| `skill_learned` | as `skill_suggestion`; the skill was added or revised at once (`skills.auto_accept`) |

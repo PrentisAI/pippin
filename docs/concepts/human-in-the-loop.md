@@ -11,6 +11,7 @@ A gate opens when
 - the **milestone auditor** escalates, or a phase keeps failing its audit;
 - the **live auditor** escalates during research;
 - **screening** keeps rejecting proposals;
+- **pre-flight** still finds problems in the plan after planning revised it;
 - the campaign is about to finish and `human.approve_termination` is on.
 
 Each gate shows what happened and asks for one of these answers:

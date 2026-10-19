@@ -312,6 +312,10 @@ class TerminalIteration:
             parts.append("Details:\n```json\n" + json.dumps(job.parameters, indent=2, ensure_ascii=False) + "\n```")
         if job.expected_outputs:
             parts.append("Expected outputs:\n" + "\n".join(f"- {o}" for o in job.expected_outputs))
+        if isinstance(job.parameters.get("preflight"), dict):
+            parts.append("Pre-flight checked this job before the run (see 'preflight' in the details: smoke "
+                         "run, estimate, problems, notes). Its smoke-run files are in /app/preflight/"
+                         f"{job.job_id}/; build on what worked and heed the problems it found.")
         if job.dependencies:
             parts.append("This job builds on: " + ", ".join(job.dependencies)
                          + ". Their outputs are in the working directory.")

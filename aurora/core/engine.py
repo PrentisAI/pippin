@@ -79,6 +79,7 @@ class CampaignPhase(str, Enum):
     IDEATION = "ideation"
     SCREENING = "screening"
     PLANNING = "planning"
+    PREFLIGHT = "preflight"
     RESEARCH = "research"
     ANALYSIS = "analysis"
     WRITING = "writing"
@@ -251,6 +252,7 @@ class ResearchEngine:
 
         # Skill distillation store (initialized in _setup)
         self._skill_store: Any = None
+        self._skill_tasks: set[asyncio.Task] = set()     # skill learning running in the background
 
         # Pause mechanism — starts *set* (not paused).
         # ``clear()`` pauses; ``set()`` resumes.
@@ -323,7 +325,8 @@ class ResearchEngine:
                 self._workspace.atomic_write_json(
                     self._workspace.proposal_path(proposal.proposal_id, self._current_round), proposal)
             order = [CampaignPhase.IDEATION, CampaignPhase.SCREENING, CampaignPhase.PLANNING,
-                     CampaignPhase.RESEARCH, CampaignPhase.ANALYSIS, CampaignPhase.WRITING]
+                     CampaignPhase.PREFLIGHT, CampaignPhase.RESEARCH, CampaignPhase.ANALYSIS,
+                     CampaignPhase.WRITING]
 
             def next_phase(phase: CampaignPhase) -> CampaignPhase:
                 """*phase* itself, or the first later phase that is not skipped."""
@@ -444,6 +447,27 @@ class ResearchEngine:
                     guidance = ""
                     following = after(current)
 
+                elif current == CampaignPhase.PREFLIGHT:
+                    proposal = proposal or self._load_latest_proposal()
+                    plan = plan or self._load_plan() or self._single_job_plan(proposal)
+                    plan, problems = await self._run_preflight(plan, proposal, self._with_queued(guidance))
+                    guidance = ""
+                    following = after(current)
+                    if problems:
+                        decision = await self.human_gate.request(
+                            "preflight", "Pre-flight checks found problems in the plan",
+                            "\n".join(f"- {p}" for p in problems)
+                            + "\ncontinue: run the plan anyway (the research agents are told about the "
+                            "problems); instruct: plan again following your message; stop: end the campaign.")
+                        if decision.action == "stop":
+                            raise CampaignStopped(f"stopped at pre-flight: {decision.message or 'human decision'}")
+                        if decision.action == "instruct":
+                            guidance = decision.message
+                            current = CampaignPhase.PLANNING
+                            self._save_checkpoint(current, research_cycle, metadata=meta())
+                            continue
+                        guidance = decision.message
+
                 elif current == CampaignPhase.RESEARCH:
                     plan = plan or self._load_plan() or self._single_job_plan(proposal)
                     completed_jobs = (checkpoint.completed_jobs if checkpoint
@@ -519,6 +543,10 @@ class ResearchEngine:
             logger.exception("Campaign failed")
         finally:
             self._finishing = True
+            try:
+                await self._finish_skill_learning()
+            except Exception:
+                logger.debug("waiting for skill learning failed", exc_info=True)
             self._phase = {"completed": CampaignPhase.COMPLETED}.get(status, CampaignPhase.FAILED)
             self.human_gate.cancel_all("campaign ended")
             await self._stop_supervisor()
@@ -950,6 +978,7 @@ class ResearchEngine:
         except Exception:
             logger.warning("Skill library unavailable", exc_info=True)
             n = 0
+        self._bus.subscribe_all(self._on_feedback_event)
         dest = self._workspace.root / ".claude" / "skills"
         for d in self._config.skills_dirs:
             src = Path(d).expanduser()
@@ -1245,40 +1274,146 @@ Be specific: cite file names and concrete observations.
                             summary=f"{sum(r.passed for r in hook_results)}/{len(hook_results)} checks passed",
                             recommendations=[], report_path=str(audit_path))
 
-    async def _distill_phase_skills(self, completed_phase: CampaignPhase) -> None:
-        """Suggest reusable rules learned in the completed phase (self-distillation).
+    # ------------------------------------------------------------------
+    # Skills: learning (self-distillation, the researcher's corrections) and using them
+    # ------------------------------------------------------------------
 
-        Emits ``skill_suggestion`` events; the human accepts or rejects each one
-        in the web console (Skills panel), so nothing is saved automatically.
-        """
-        if not self._router or not self._skill_store or not self._phase_transcripts:
+    async def _distill_phase_skills(self, completed_phase: CampaignPhase) -> None:
+        """Self-distillation after a phase hand-off (research jobs are distilled one by one)."""
+        if completed_phase in (CampaignPhase.IDEATION, CampaignPhase.RESEARCH):
             return
-        phase_text = self._phase_transcripts[-1].get("content", "")
-        if len(phase_text) < 100:
+        entry = next((t for t in reversed(self._phase_transcripts) if t.get("phase") == completed_phase.value), None)
+        if entry and entry.get("path"):
+            self._learn(self._learn_from_work(f"the {completed_phase.value} phase", entry["path"],
+                                              source_phase=completed_phase.value))
+
+    def _learn(self, coro: Any) -> None:
+        """Run skill learning in the background; the campaign does not wait for it."""
+        if self._skill_store is None or self._router is None:
+            coro.close()
             return
-        prompt = (
-            "You distill reusable know-how from research work. Read the end of this phase "
-            "transcript and extract 0-3 rules that would help future campaigns: concise, "
-            "actionable, general beyond this one task.\n\n"
-            f"Phase: {completed_phase.value}\nObjective: {self._config.objective[:500]}\n\n"
-            f"Transcript (last 3000 characters):\n{phase_text[-3000:]}\n\n"
-            'Answer with a JSON list: [{"name": "kebab-case-name", "rule": "the rule", '
-            '"description": "one line"}], or [] if nothing is worth keeping.'
-        )
+        task = asyncio.create_task(coro)
+        self._skill_tasks.add(task)
+        task.add_done_callback(self._skill_tasks.discard)
+
+    async def _learn_from_work(self, what: str, transcript: str, *, job: str | None = None,
+                               source_phase: str = "") -> None:
+        """Self-distillation: skills from what an agent did in a phase or a research job."""
+        from aurora.skills import learning
+        if not self._config.skills.distill:
+            return
         try:
-            response = await self._router.generate(PipelineStage.AUDITOR_TRIAGE,
-                                                   [Message(role="user", content=prompt)])
-            import re
-            match = re.search(r"\[.*\]", response.content, re.DOTALL)
-            candidates = json.loads(match.group()) if match else []
+            digest = await asyncio.to_thread(learning.transcript_digest, transcript, job=job)
+            proposals = await learning.distill(
+                self._router, PipelineStage.AUDITOR_TRIAGE, digest=digest, library=self._library_text(),
+                what=f"{what}, in a campaign on: {self._config.objective[:600]}")
         except Exception:
-            logger.warning("Skill distillation failed", exc_info=True)
+            logger.warning("Self-distillation of %s failed", what, exc_info=True)
             return
-        for c in candidates:
-            if isinstance(c, dict) and c.get("name") and c.get("rule"):
-                await self._publish("skill_suggestion", name=c["name"], rule=c["rule"],
-                                    description=c.get("description", ""), source_phase=completed_phase.value,
-                                    source_experiment=self._config.campaign_id)
+        await self._offer_skills(proposals, origin="self", source_phase=source_phase)
+
+    async def _on_feedback_event(self, event: Event) -> None:
+        """The researcher's words to the agents: candidates for skills (first occurrence)."""
+        if not self._config.skills.from_feedback:
+            return
+        d = event.data
+        if event.name == "instruction_relayed" and d.get("message"):
+            message, where = str(d["message"]), "an instruction relayed to the research agent while it worked"
+        elif event.name == "instruction_queued" and d.get("message"):
+            message, where = str(d["message"]), (f"an instruction given in the {d.get('phase', '')} phase, "
+                                                 "kept for the planning and research agents")
+        elif (event.name == "human_gate_resolved" and str(d.get("message", "")).strip()
+              and d.get("decided_by") in ("human", "frontdesk") and d.get("action") in ("instruct", "continue")):
+            message, where = str(d["message"]), f"the researcher's answer at a decision point: {d.get('title', '')}"
+        else:
+            return
+        self._learn(self._learn_from_feedback(message, where))
+
+    async def _learn_from_feedback(self, message: str, where: str) -> None:
+        from aurora.skills import learning
+        context = f"Phase: {self._phase.value}. This was {where}. Campaign objective: {self._config.objective[:600]}"
+        st = getattr(self, "_frontdesk_status", None)
+        if st is not None and getattr(st, "recent_actions", None):
+            context += "\nWhat the research agent was doing:\n" + "\n".join(st.recent_actions[-8:])
+        try:
+            proposals = await learning.from_feedback(self._router, PipelineStage.AUDITOR_TRIAGE, message=message,
+                                                     context=context, library=self._library_text())
+        except Exception:
+            logger.warning("Turning the researcher's message into a skill failed", exc_info=True)
+            return
+        await self._offer_skills(proposals, origin="human", source_phase=self._phase.value, feedback=message)
+
+    def _library_text(self) -> str:
+        from aurora.skills.learning import library_summary
+        try:
+            return library_summary(self._skill_store.list_for_experiment(self._config.campaign_id,
+                                                                         campaign_id=self.project_id))
+        except Exception:
+            return "(the library is unavailable)"
+
+    async def _offer_skills(self, proposals: list, *, origin: str, source_phase: str, feedback: str = "") -> None:
+        """Offer proposed skills to the researcher, or add them at once (skills.auto_accept)."""
+        from aurora.skills import learning
+        from aurora.skills.store import DistilledSkill
+        existing = {s.name: s for s in self._skill_store.list_all()}
+        for p in learning.clean(proposals, existing):
+            old = existing.get(p.name)
+            data = {"suggestion_id": uuid.uuid4().hex[:12],
+                    "action": p.action, "name": p.name, "description": p.description, "kind": p.kind,
+                    "origin": origin, "text": p.text, "rule": p.text, "reason": p.reason,
+                    "source_phase": source_phase, "source_experiment": self._config.campaign_id,
+                    "feedback": feedback}
+            if old is not None:
+                data.update(skill_id=old.skill_id, previous_text=old.rule, version=old.version)
+            if not self._config.skills.auto_accept:
+                await self._publish("skill_suggestion", **data)
+                continue
+            if old is not None:
+                self._skill_store.revise(old.skill_id, p.text, reason=p.reason, description=p.description,
+                                         source_experiment=self._config.campaign_id)
+            else:
+                self._skill_store.create(DistilledSkill(
+                    name=p.name, rule=p.text, description=p.description, kind=p.kind, origin=origin,
+                    source_phase=source_phase, source_experiment=self._config.campaign_id,
+                    source_campaign=self.project_id, scope="global"))
+            await self._publish("skill_learned", **data)
+        self._refresh_skills()
+
+    def _refresh_skills(self) -> None:
+        """Write the current library where the agents' Claude Code finds it (also in the container)."""
+        if self._skill_store is None or self._workspace is None:
+            return
+        from aurora.skills.materializer import SkillMaterializer
+        roots = [self._workspace.root]
+        if getattr(self._execution_backend, "agent_env", None):
+            roots.append(self._workspace.root / "agent_home")     # ~ of agents inside the container
+        try:
+            for root in roots:
+                SkillMaterializer(self._skill_store, root).materialize_for_experiment(
+                    self._config.campaign_id, campaign_id=self.project_id)
+        except Exception:
+            logger.debug("Refreshing the skills failed", exc_info=True)
+
+    def _skills_note(self) -> str:
+        """The skills an agent can use, for its system prompt."""
+        skills_dir = self._workspace.root / ".claude" / "skills" if self._workspace else None
+        if skills_dir is None or not skills_dir.is_dir():
+            return ""
+        lines = []
+        for d in sorted(skills_dir.iterdir()):
+            md = d / "SKILL.md"
+            if md.is_file():
+                m = re.search(r"^description:\s*(.+)$", md.read_text(errors="replace"), re.M)
+                lines.append(f"- {d.name}: {m.group(1).strip() if m else ''}")
+        if not lines:
+            return ""
+        return ("\n\n## Skills\nThe team's skill library (learned from earlier work and the researcher's "
+                "corrections). When your task matches one, load it with the Skill tool and follow its "
+                "procedure, validation checks and failure modes:\n" + "\n".join(lines[:60]))
+
+    async def _finish_skill_learning(self, timeout: float = 180.0) -> None:
+        if self._skill_tasks:
+            await asyncio.wait(set(self._skill_tasks), timeout=timeout)
 
     # ==================================================================
     # Phase implementations
@@ -1321,7 +1456,8 @@ Be specific: cite file names and concrete observations.
             system_prompt = self._sessions.system_prompt(key)
 
         prior_context = self._build_prior_context_prompt(phase_name)
-        full_system = system_prompt + prior_context
+        self._refresh_skills()
+        full_system = system_prompt + prior_context + (self._skills_note() if phase_name != "audit" else "")
         if resumed:
             logger.info("Continuing the interrupted %s session %s", key, resume_session_id)
             user_message = f"{CONTINUE_NOTE}\n\n{user_message}"
@@ -1435,7 +1571,7 @@ Be specific: cite file names and concrete observations.
         # Phase directories with actual content
         lines.append("\n### Phase Artifacts (`phases/`)\n")
 
-        phase_order = ["ideation", "screening", "planning", "research", "analysis", "writing"]
+        phase_order = ["ideation", "screening", "planning", "preflight", "research", "analysis", "writing"]
         for phase in phase_order:
             if phase == current_phase:
                 lines.append(f"**{phase}/** ← you are here")
@@ -1768,6 +1904,112 @@ Be specific: cite file names and concrete observations.
 
         return plan
 
+    # ------------------------------------------------------------------
+    # Pre-flight
+    # ------------------------------------------------------------------
+
+    async def _run_preflight(self, plan: ExperimentPlan, proposal: RoundtableProposal | None,
+                             guidance: str = "") -> tuple[ExperimentPlan, list[str]]:
+        """Check every job before research: prerequisites and a smoke run (Section 3.1).
+
+        When jobs have problems, planning revises the plan with the report and the checks run
+        again (``agent.preflight_max_revisions`` times).  The findings are attached to the jobs
+        (``parameters.preflight``) so the research agents know them.  Returns the plan and the
+        problems still open.
+        """
+        await self._publish("phase_started", phase="preflight")
+        if not self._should_use_agent_session():
+            # mock mode: the plan's static checks already ran at planning
+            await self._publish("preflight_complete", ok=len(plan.jobs), problems=0, untestable=0, revisions=0)
+            return plan, []
+        revisions = self._config.agent.preflight_max_revisions
+        for attempt in range(revisions + 1):
+            self._check_budget()
+            report = await self._preflight_check(plan, proposal, attempt, guidance)
+            jobs = report.get("jobs", [])
+            problems = [f"{j.get('job_id')}: {'; '.join(map(str, j.get('problems') or [])) or 'problem'}"
+                        for j in jobs if j.get("status") == "problem"]
+            await self._publish("preflight_complete", attempt=attempt + 1, revisions=attempt,
+                                ok=sum(j.get("status") == "ok" for j in jobs), problems=len(problems),
+                                untestable=sum(j.get("status") == "untestable" for j in jobs),
+                                summary=str(report.get("summary", ""))[:1000],
+                                jobs=[{k: j.get(k) for k in ("job_id", "status", "smoke_run", "estimate", "problems")}
+                                      for j in jobs])
+            if not problems or attempt == revisions:
+                break
+            await self._publish("preflight_revision", attempt=attempt + 1, problems=problems)
+            plan = await self._run_planning(proposal, (
+                "Pre-flight checks of your plan found problems. Revise the plan to fix them; keep what "
+                f"passed. The full report is at {self._preflight_report_path(attempt)}.\n\n"
+                + "\n".join(f"- {p}" for p in problems)))
+            await self._publish("phase_started", phase="preflight")
+        plan = self._attach_preflight(plan, report)
+        self._workspace.atomic_write_json(self._workspace.experiment_plan_path_for_round(self._current_round), plan)
+        return plan, problems
+
+    def _preflight_report_path(self, attempt: int) -> Path:
+        return self._workspace.phase_round_dir("preflight", self._current_round) / f"report_{attempt}.json"
+
+    async def _preflight_check(self, plan: ExperimentPlan, proposal: RoundtableProposal | None,
+                               attempt: int, guidance: str = "") -> dict[str, Any]:
+        """One pre-flight session over the whole plan; its report, with every job accounted for."""
+        report_path = self._preflight_report_path(attempt)
+        plan_path = self._workspace.experiment_plan_path_for_round(self._current_round)
+        sb = self._config.sandbox
+        limit = self._config.agent.preflight_timeout_minutes
+        user_msg = (
+            f"{self._campaign_brief(proposal)}\n\n"
+            + (f"## Guidance from the researcher\n\n{guidance}\n\n" if guidance else "")
+            + f"## The plan\n\nThe plan to check is {plan_path} ({len(plan.jobs)} jobs). The container has "
+            f"{sb.cpus:g} CPUs and {sb.memory_mb / 1024:g} GB of memory; each research job may run for "
+            f"{self._config.agent.research_timeout_minutes:g} minutes. You have about {limit:g} minutes for "
+            "all checks, so keep each smoke run short.\n\n"
+            f"## Report\n\nWrite the report as JSON to {report_path}, and update it after each job, so the "
+            "results so far are kept if time runs out:\n\n```json\n"
+            '{"jobs": [{"job_id": "...", "status": "ok | problem | untestable",\n'
+            '  "checks": ["what you checked, and the result"],\n'
+            '  "smoke_run": "what ran, on what input, how long, peak memory, and the outcome",\n'
+            '  "estimate": "expected time and memory of the full job",\n'
+            '  "problems": ["what would make the full job fail or go wrong"],\n'
+            '  "suggested_changes": ["changes to the plan that would fix them"],\n'
+            '  "notes_for_research": "what the research agent should know before it starts"}],\n'
+            ' "summary": "..."}\n```'
+        )
+        try:
+            await asyncio.wait_for(self._run_agent_session(
+                "preflight", self._config.prompts.preflight, user_msg,
+                max_turns=max(self._config.agent.phase_max_turns, 15 * len(plan.jobs)),
+                session_key=f"preflight:round{self._current_round}:attempt{attempt}"), timeout=limit * 60)
+        except TimeoutError:
+            logger.warning("Pre-flight checks ran out of time (%g min); using the report so far", limit)
+        try:
+            report = json.loads(report_path.read_text())
+            if not isinstance(report, dict) or not isinstance(report.get("jobs"), list):
+                raise ValueError("no jobs list")
+        except (OSError, ValueError) as exc:
+            logger.warning("No usable pre-flight report (%s)", exc)
+            report = {"jobs": [], "summary": f"no usable report: {exc}"}
+        seen = {str(j.get("job_id")) for j in report["jobs"] if isinstance(j, dict)}
+        report["jobs"] = [j for j in report["jobs"] if isinstance(j, dict)] + [
+            {"job_id": job.job_id, "status": "untestable", "problems": [],
+             "notes_for_research": "Not checked before the run (pre-flight ended first)."}
+            for job in plan.jobs if job.job_id not in seen]
+        return report
+
+    @staticmethod
+    def _attach_preflight(plan: ExperimentPlan, report: dict[str, Any]) -> ExperimentPlan:
+        """Put each job's pre-flight findings into its parameters, for its research agent."""
+        by_id = {str(j.get("job_id")): j for j in report.get("jobs", [])}
+        jobs = []
+        for job in plan.jobs:
+            found = by_id.get(job.job_id)
+            if found:
+                note = {k: found[k] for k in ("status", "smoke_run", "estimate", "problems", "notes_for_research")
+                        if found.get(k)}
+                job = job.model_copy(update={"parameters": {**job.parameters, "preflight": note}})
+            jobs.append(job)
+        return plan.model_copy(update={"jobs": jobs})
+
     async def _run_research_loop(
         self,
         plan: ExperimentPlan,
@@ -1811,11 +2053,12 @@ Be specific: cite file names and concrete observations.
 
         def new_runner() -> Any:
             if agents:
+                self._refresh_skills()
                 return TerminalIteration(
                     config=self._config,
                     backend=self._execution_backend,
                     event_bus=self._bus,
-                    system_prompt=self._terminal_system_prompt,
+                    system_prompt=self._terminal_system_prompt + self._skills_note(),
                     task_instruction="\n\n".join(x for x in [self._terminal_task_instruction, guidance] if x),
                     campaign_brief=self._campaign_brief(proposal),
                     artifact_store=self._store,
@@ -1891,6 +2134,12 @@ Be specific: cite file names and concrete observations.
                     results.append(result)
                     self.cost_usd += (result.job_result.metrics.get("cost_usd", 0.0) if result.job_result else 0.0)
                     self._record_iteration_result(job, result)
+                    if agents and transcript_dir:
+                        outcome = "succeeded" if result.job_result and result.job_result.success else \
+                            f"failed ({result.error or 'see the transcript'})"
+                        self._learn(self._learn_from_work(
+                            f"research job {job.job_id} ({job.skill_name}), which {outcome}",
+                            str(transcript_dir / "research_loop.jsonl"), job=job.job_id, source_phase="research"))
                     if result.job_result and result.job_result.success:
                         dag.mark_complete(job.job_id, result.job_result)
                     else:
@@ -2120,6 +2369,7 @@ Be specific: cite file names and concrete observations.
                                 "no research agent runs yet",
                     "screening": "the screening agent scores the proposal",
                     "planning": "the planning agent writes the plan of jobs",
+                    "preflight": "the pre-flight agent checks each job's prerequisites and smoke-runs it",
                     "research": "the research agent works on the jobs in the container",
                     "analysis": "the analysis agent checks the results",
                     "writing": "the writing agent writes the report",

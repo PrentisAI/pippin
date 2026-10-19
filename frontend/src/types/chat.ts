@@ -21,6 +21,8 @@ export type KnownEventType =
   | 'screening_complete'
   | 'planning_complete'
   | 'planning_fallback'
+  | 'preflight_complete'
+  | 'preflight_revision'
   | 'job_started'
   | 'iteration_complete'
   | 'experiment_started'
@@ -32,6 +34,7 @@ export type KnownEventType =
   | 'writing_complete'
   | 'report_missing'
   | 'skill_suggestion'
+  | 'skill_learned'
   // The research agent
   | 'loop_started'
   | 'reasoning'

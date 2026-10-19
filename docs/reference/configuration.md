@@ -15,10 +15,20 @@ Unknown keys are an error. Paths in the file are relative to the file.
 | `mock_mode` | bool | `false` | Run offline with scripted mock models and tools: no API key, no Claude Code, no Docker. The mock models replay a scripted materials-science study whatever the objective; use it to try the pipeline and in tests. |
 | `inputs` | list[str] | `[]` | Files or directories the agents should work with (data, code, papers). They are copied to inputs/ in the agents' working directory (/app/inputs in the container). |
 | `skills_dirs` | list[str] | `[]` | Directories of Claude Code skills (<name>/SKILL.md) written by you; every agent session can use them, next to the skills in the skill library. |
-| `skip_phases` | list[str] | `[]` | Phases to skip, any of ['ideation', 'screening', 'planning', 'research', 'analysis', 'writing']. |
+| `skip_phases` | list[str] | `[]` | Phases to skip, any of ['ideation', 'screening', 'planning', 'preflight', 'research', 'analysis', 'writing']. |
 | `api_base_url` | str | `"https://openrouter.ai/api/v1"` | OpenRouter-compatible endpoint used by all agents. |
 | `api_key` | str | `""` | API key for api_base_url. Empty: OPENROUTER_API_KEY from the environment or .env. |
 | `providers` | list[ProviderConfig] | `[]` | Extra providers for models outside OpenRouter (advanced). |
+
+## `skills`
+
+How the skill library grows (Section 3.1, Appendix B).
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `skills.distill` | bool | `true` | Self-distillation: after each phase and research job, propose new skills (or revisions) from procedures that worked and failures that were diagnosed. |
+| `skills.from_feedback` | bool | `true` | Turn the researcher's reusable corrections and conventions into skills on their first occurrence. |
+| `skills.auto_accept` | bool | `false` | Add proposed skills to the library at once. Off: each one waits for you in the web console (add to the library, to this project only, or dismiss). |
 
 ## `models`
 
@@ -29,6 +39,7 @@ Which model plays each role.
 | `models.agent` | str | `"anthropic/claude-sonnet-5.5"` | Model of the Claude Code sessions that run screening, planning, research, analysis and writing, unless a phase sets its own below. |
 | `models.screening` | str | `""` | Model of the screening agent. Empty: models.agent. |
 | `models.planning` | str | `""` | Model of the planning agent. Empty: models.agent. |
+| `models.preflight` | str | `""` | Model of the pre-flight agent. Empty: models.agent. |
 | `models.research` | str | `""` | Model of the research agent. Empty: models.agent. |
 | `models.analysis` | str | `""` | Model of the analysis agent. Empty: models.agent. |
 | `models.writing` | str | `""` | Model of the writing agent. Empty: models.agent. |
@@ -60,6 +71,8 @@ Limits of the Claude Code sessions that do the work.
 | `agent.research_max_turns` | int | `200` | Turn limit of one research session. |
 | `agent.research_timeout_minutes` | float | `60` | Time limit of one research job. |
 | `agent.phase_max_turns` | int | `30` | Turn limit of the screening, planning, analysis and writing sessions. |
+| `agent.preflight_timeout_minutes` | float | `20` | Time limit of the pre-flight checks of a plan (all its jobs). |
+| `agent.preflight_max_revisions` | int | `2` | How often planning revises the plan when pre-flight finds problems, before you decide. |
 | `agent.max_parallel_jobs` | int | `1` | Research jobs that may run at the same time, each with its own agent, when the plan's dependencies allow it. They share the container (CPUs, memory, /app). |
 | `agent.max_research_iterations` | int | `10` | Maximum research jobs executed in one research cycle. |
 | `agent.max_followup_cycles` | int | `2` | How often analysis may send the campaign back for more research. |
@@ -127,6 +140,7 @@ System prompts of the phase agents. Override one to change how a phase works.
 |---|---|---|---|
 | `prompts.screening` | str | *(long text, see `aurora init` or the source)* | Screening: scores the proposal for novelty, feasibility and significance. |
 | `prompts.planning` | str | *(long text, see `aurora init` or the source)* | Planning: turns the proposal into jobs. |
+| `prompts.preflight` | str | *(long text, see `aurora init` or the source)* | Pre-flight: checks prerequisites and smoke-runs each job before research. |
 | `prompts.research` | str | *(long text, see `aurora init` or the source)* | Research: executes the jobs. |
 | `prompts.analysis` | str | *(long text, see `aurora init` or the source)* | Analysis: checks the results and decides whether more research is needed. |
 | `prompts.writing` | str | *(long text, see `aurora init` or the source)* | Writing: produces the final report. |

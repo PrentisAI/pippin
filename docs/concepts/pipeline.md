@@ -1,8 +1,8 @@
 # How a campaign runs
 
 ```text
-ideation → screening → planning → research → analysis → writing
-                                     ↑___________|   analysis may ask for more research
+ideation → screening → planning → pre-flight → research → analysis → writing
+                                                   ↑___________|   analysis may ask for more research
 ```
 
 Every arrow is a **hand-off** that the milestone auditor reviews. During
@@ -16,9 +16,34 @@ other points, can open a **human gate**.
 | **Ideation** | several models (*seats*) and a chair, via direct API calls | a proposal: direction, hypothesis, method, how it could be falsified, alternatives considered |
 | **Screening** | Claude Code session | novelty / feasibility / significance scores; below 6/10 the proposal is rejected and ideation runs again (twice, then you decide) |
 | **Planning** | Claude Code session | a plan of jobs with dependencies |
+| **Pre-flight** | Claude Code session, in the container | for every job: prerequisite checks, a smoke run, an estimate of the full run, problems; problems send the plan back to planning |
 | **Research** | one Claude Code session per job, in the container | code, data, figures, a summary per job |
 | **Analysis** | Claude Code session | a verdict: sufficient, or which phase should run again (research, planning or ideation) |
 | **Writing** | Claude Code session | the report (Markdown with figures) |
+
+## Pre-flight
+
+Before any job runs at full scale, a pre-flight agent checks each one:
+
+- **prerequisites** — the inputs and data exist or can be obtained, the software
+  is installed or installable, the parameters agree with each other and with the
+  proposal (in a DFT study, say, slab geometry and pseudopotentials);
+- a **smoke run** — the job's critical steps on the smallest representative
+  input (a small sample, one iteration, a tiny system), under
+  `/app/preflight/<job>/`, with time and memory measured to estimate the full
+  run against the container's limits.
+
+It writes `phases/preflight/round_N/report_K.json`, one entry per job (*ok*,
+*problem* or *untestable*). If any job has a problem, planning revises the plan
+from the report and the checks run again (`agent.preflight_max_revisions`,
+default 2); problems that remain open a human gate (continue anyway, plan again
+with your instruction, or stop). The findings are attached to each job
+(`parameters.preflight`), so its research agent starts with them. The checks
+have their own time limit (`agent.preflight_timeout_minutes`, default 20); jobs
+not reached are marked untestable. Skip the phase with `skip_phases:
+[preflight]`.
+
+## Running the jobs
 
 Research runs the plan's jobs in the order of their dependencies. With
 `agent.max_parallel_jobs` above 1 (default 1; *Advanced settings* on the
