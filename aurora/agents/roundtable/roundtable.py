@@ -57,6 +57,8 @@ class Roundtable:
         self._contributions: list[SeatContribution] = []
         self.notes: list[ItemNotes] = []
         self.decision: Decision | None = None
+        # what the researcher said in a live meeting, waiting for the next turn: [(name, text)]
+        self.researcher_says: list[tuple[str, str]] = []
 
         ideation = config.ideation
         prompts = ([sc.prompt or ideation.seat_prompt for sc in ideation.seats]
@@ -71,6 +73,7 @@ class Roundtable:
             seat.literature = literature
             seat.max_queries = config.literature.queries_per_turn
             seat.results_per_query = config.literature.results_per_query
+            seat.live = config.ideation.live
         self._chair = RoundtableChair(router, custom_system_prompt=ideation.chair_prompt)
 
     @property
@@ -260,7 +263,7 @@ class Roundtable:
     def transcript(self, contributions: list[SeatContribution] | None = None) -> str:
         """Meeting transcript in order of speaking; nothing is truncated."""
         label = {"presentation": "Presentation", "remarks": "Remarks on {item}", "response": "Response",
-                 "open": "Open discussion"}
+                 "open": "Open discussion", "researcher": "The researcher speaks"}
         blocks = []
         for c in self._contributions if contributions is None else contributions:
             if c.kind == "remarks" and is_pass(c.content):
@@ -302,8 +305,16 @@ class Roundtable:
             logger.warning("Only %d of %d ideation seats prepared an idea", len(drafts), len(self._seats))
         return drafts
 
+    def give_floor(self) -> None:
+        """The researcher's remarks (live meetings) join the transcript before the next turn."""
+        while self.researcher_says:
+            name, text = self.researcher_says.pop(0)
+            self._contributions.append(SeatContribution(seat_id=f"Researcher ({name})", model_id="human",
+                                                        round_number=0, content=text, kind="researcher"))
+
     async def _parallel(self, coros: list, rnd: random.Random) -> list[SeatContribution]:
         """Run one round of turns in parallel; add them to the transcript in random order."""
+        self.give_floor()
         results = await asyncio.gather(*coros, return_exceptions=True)
         ok = []
         for res in results:

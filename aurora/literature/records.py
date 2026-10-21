@@ -20,6 +20,12 @@ def clean_doi(text: str | None) -> str:
     return m.group(0).rstrip(".,;)]").lower() if m else ""
 
 
+def arxiv_version(text: str | None) -> int:
+    """The version an arXiv ID or URL names (``1706.03762v2`` -> 2); 0 if none."""
+    m = re.search(r"\d{4}\.\d{4,5}v(\d+)", text or "")
+    return int(m.group(1)) if m else 0
+
+
 def clean_arxiv(text: str | None) -> str:
     """``1706.03762`` (no version) from an arXiv ID or URL; '' if there is none."""
     text = (text or "").strip()
@@ -120,6 +126,8 @@ class Paper:
     abstract: str = ""
     cited_by: int | None = None
     found_in: list[str] = field(default_factory=list)     # crossref | openalex | arxiv | semantic_scholar
+    arxiv_version: int = 0          # the latest version on arXiv (0: unknown)
+    arxiv_comment: str = ""         # the authors' comment on it (often what changed)
 
     @property
     def first_author(self) -> str:
@@ -159,6 +167,8 @@ class Paper:
             self.authors = list(other.authors)
         if self.year is None and other.year:
             self.year = other.year
+        if other.arxiv_version > self.arxiv_version:
+            self.arxiv_version, self.arxiv_comment = other.arxiv_version, other.arxiv_comment or self.arxiv_comment
         if other.cited_by is not None and (self.cited_by is None or other.cited_by > self.cited_by):
             self.cited_by = other.cited_by
         self.found_in = sorted(set(self.found_in) | set(other.found_in))

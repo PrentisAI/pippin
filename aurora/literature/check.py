@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from aurora.literature.indexes import INDEX_NAMES, Found, Indexes, indexes
-from aurora.literature.records import Paper, clean_arxiv, clean_doi, fold, same_person, title_similarity
+from aurora.literature.records import Paper, arxiv_version, clean_arxiv, clean_doi, fold, same_person, title_similarity
 
 TITLE_MATCH = 0.90          # a cited title and an indexed one agree
 ID_TITLE_MATCH = 0.70       # a cited title and the paper its DOI/arXiv ID names agree (looser: wording varies)
@@ -37,8 +37,10 @@ class Reference:
     arxiv_id: str = ""
     text: str = ""              # the citation as written, for showing it back
     truncated: bool = False     # the title may be cut off (a file name): a longer indexed title can still match
+    arxiv_version: int = 0      # the arXiv version cited (0: not said)
 
     def __post_init__(self) -> None:
+        self.arxiv_version = self.arxiv_version or arxiv_version(self.arxiv_id) or arxiv_version(self.text)
         self.doi = clean_doi(self.doi) or clean_doi(self.text)
         self.arxiv_id = clean_arxiv(self.arxiv_id) or (clean_arxiv(self.text) if "arxiv" in self.text.lower() else "")
         self.title = " ".join((self.title or "").split()).strip(" .\"'“”")

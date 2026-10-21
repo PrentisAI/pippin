@@ -20,7 +20,7 @@ export function ZoteroDialog({ onClose, onChanged }: { onClose: () => void; onCh
   const [cols, setCols] = useState<ZoteroCollection[] | null>(null)
   const [projects, setProjects] = useState<{ campaign_id: string; name: string }[]>([])
   const [suggested, setSuggested] = useState(false)
-  const [options, setOptions] = useState<ZoteroOptions>({ pdfs: true, notes: true, push: true, citekeys: true })
+  const [options, setOptions] = useState<ZoteroOptions>({ pdfs: true, notes: true, push: true, citekeys: true, idea_notes: false })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -83,7 +83,7 @@ export function ZoteroDialog({ onClose, onChanged }: { onClose: () => void; onCh
           <div>{status.syncing ? 'Syncing now…' : `Last sync ${ago(status.last_sync)}`}
             {report && !status.syncing && status.last_sync && (
               <span className="modal-hint"> · {report.seen ?? 0} items looked at, {report.added ?? 0} added, {report.pdfs ?? 0} PDFs,
-                {' '}{report.notes ?? 0} highlights and notes{report.pushed ? `, ${report.pushed} papers sent to Zotero` : ''}</span>
+                {' '}{report.notes ?? 0} highlights and notes{report.pushed ? `, ${report.pushed} papers sent to Zotero` : ''}{report.idea_notes ? `, ${report.idea_notes} idea notes` : ''}</span>
             )}</div>
           {status.last_error && <div className="modal-error">{status.last_error}</div>}
           {(report?.problems?.length ?? 0) > 0 && <details className="modal-hint"><summary>{report!.problems!.length} things to look at</summary>
@@ -172,6 +172,8 @@ export function ZoteroDialog({ onClose, onChanged }: { onClose: () => void; onCh
           <div className="share-section-title">To Zotero</div>
           {opt('push', <>Papers you save or the agents cite, once checked, into the project’s collection, tagged “aurora”
             {readOnly && <span className="modal-hint"> (needs your Zotero account with write access)</span>}</>, readOnly)}
+          {opt('idea_notes', <>Idea summaries as notes on the papers they cite
+            {readOnly && <span className="modal-hint"> (needs write access)</span>}</>, readOnly)}
           {opt('citekeys', 'Use Better BibTeX citation keys, if you have it, in exports and PDF names')}
           <div className="modal-hint">Never sent: references that were not found. Never done: deleting anything in your Zotero.
             Items no index has (a thesis, a report) come in as papers you vouch for.</div>

@@ -49,6 +49,10 @@ CREATE TABLE IF NOT EXISTS lit_items (
     added_at    REAL NOT NULL,
     PRIMARY KEY (campaign_id, owner, paper_id)
 );
+CREATE TABLE IF NOT EXISTS lit_settings (     -- a project's own literature settings
+    campaign_id TEXT PRIMARY KEY,
+    add_found   TEXT NOT NULL DEFAULT ''        -- '' : the console's default
+);
 CREATE TABLE IF NOT EXISTS lit_searches (
     search_id   TEXT PRIMARY KEY,
     campaign_id TEXT NOT NULL,
@@ -131,6 +135,9 @@ class LibraryStore:
         self._conn = sqlite3.connect(str(Path(data_dir) / "aurora.db"), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        cols = {r[1] for r in self._conn.execute("PRAGMA table_info(lit_items)")}
+        if "cited_version" not in cols:      # the arXiv version cited, when it is not the latest
+            self._conn.execute("ALTER TABLE lit_items ADD COLUMN cited_version INTEGER NOT NULL DEFAULT 0")
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.commit()
         self._lock = threading.RLock()
@@ -209,11 +216,23 @@ class LibraryStore:
     # ------------------------------------------------------------------ items
 
     def add_item(self, campaign_id: str, paper_id: str, *, source: str, added_by: str = "", search_id: str = "",
-                 owner: str = "") -> bool:
+                 owner: str = "", cited_version: int = 0) -> bool:
         """Put a paper in a project's literature (or a person's library); False if it was there."""
-        cur = self._x("INSERT OR IGNORE INTO lit_items (campaign_id, owner, paper_id, source, added_by, search_id, added_at) "
-                      "VALUES (?,?,?,?,?,?,?)", (campaign_id, owner, paper_id, source, added_by, search_id, time.time()))
+        cur = self._x("INSERT OR IGNORE INTO lit_items (campaign_id, owner, paper_id, source, added_by, search_id, added_at, "
+                      "cited_version) VALUES (?,?,?,?,?,?,?,?)",
+                      (campaign_id, owner, paper_id, source, added_by, search_id, time.time(), cited_version))
         return cur.rowcount > 0
+
+    def set_cited_version(self, campaign_id: str, paper_id: str, version: int, owner: str = "") -> None:
+        self._x("UPDATE lit_items SET cited_version=? WHERE campaign_id=? AND owner=? AND paper_id=?",
+                (version, campaign_id, owner, paper_id))
+
+    def project_rule(self, campaign_id: str) -> str:
+        rows = self._all("SELECT add_found FROM lit_settings WHERE campaign_id=?", (campaign_id,))
+        return rows[0]["add_found"] if rows else ""
+
+    def set_project_rule(self, campaign_id: str, rule: str) -> None:
+        self._x("INSERT OR REPLACE INTO lit_settings (campaign_id, add_found) VALUES (?,?)", (campaign_id, rule))
 
     def remove_item(self, campaign_id: str, paper_id: str, owner: str = "") -> bool:
         return self._x("DELETE FROM lit_items WHERE campaign_id=? AND owner=? AND paper_id=?",
@@ -360,7 +379,7 @@ class LibraryStore:
     def drop_project(self, campaign_id: str) -> None:
         """Forget a deleted project's literature (the papers stay: other projects may have them)."""
         with self._lock:
-            for table in ("lit_items", "lit_refs", "lit_uses", "lit_notes"):
+            for table in ("lit_items", "lit_refs", "lit_uses", "lit_notes", "lit_settings"):
                 self._x(f"DELETE FROM {table} WHERE campaign_id=?", (campaign_id,))
             sids = [r["search_id"] for r in self._all("SELECT search_id FROM lit_searches WHERE campaign_id=?",
                                                        (campaign_id,))]

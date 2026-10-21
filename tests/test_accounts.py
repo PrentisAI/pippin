@@ -46,11 +46,23 @@ def test_without_accounts_nothing_asks_for_a_login(app):
     assert c.get(f"/api/campaigns/{cid}/access").json()["my_rights"][-1] == "manage"
 
 
+def all_routes(routes):
+    """Every route, also inside included routers (FastAPI keeps those wrapped)."""
+    for r in routes:
+        inner = getattr(r, "original_router", None)
+        if inner is not None:
+            yield from all_routes(inner.routes)
+        else:
+            yield r
+
+
 def test_every_route_has_a_permission_rule(app):
     from fastapi.routing import APIRoute, APIWebSocketRoute
     open_routes = {"/api/health"}
     missing = []
-    for r in app.routes:
+    routes = list(all_routes(app.routes))
+    assert sum(isinstance(r, APIRoute) for r in routes) > 100          # the check really sees the routes
+    for r in routes:
         if isinstance(r, APIRoute) and r.path.startswith("/api/") and not r.path.startswith("/api/auth") and r.path not in open_routes:
             missing += [(m, r.path) for m in r.methods if (m, r.path) not in RULES and m != "HEAD"]
         if isinstance(r, APIWebSocketRoute) and ("WS", r.path) not in RULES:

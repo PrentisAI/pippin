@@ -1,4 +1,4 @@
-"""BibTeX out (a project's papers, the report's references) and in (an exported library)."""
+"""BibTeX out (a project's papers, the report's references) and in (an exported library), and RIS in."""
 
 from __future__ import annotations
 
@@ -83,3 +83,32 @@ def parse(text: str) -> list[tuple[str, Reference]]:
                         text=f"@{m.group(1)}{{{m.group(2)}}}")
         out.append((m.group(2), ref))
     return out
+
+
+def parse_ris(text: str) -> list[tuple[str, Reference]]:
+    """The records of a RIS file (EndNote, Mendeley, Zotero exports) as references to check."""
+    out: list[tuple[str, Reference]] = []
+    rec: dict[str, list[str]] = {}
+    for raw in (text or "").splitlines():
+        m = re.match(r"^([A-Z][A-Z0-9])  - ?(.*)$", raw.rstrip())
+        if not m:
+            continue
+        tag, value = m.group(1), m.group(2).strip()
+        if tag == "ER":
+            title = (rec.get("TI") or rec.get("T1") or [""])[0]
+            authors = rec.get("AU") or rec.get("A1") or []
+            year = re.search(r"(1[89]|20)\d{2}", " ".join(rec.get("PY", []) + rec.get("Y1", []) + rec.get("DA", [])))
+            url = " ".join(rec.get("UR", []))
+            ref = Reference(title=title, authors=authors[0] if authors else "", year=int(year.group(0)) if year else None,
+                            doi=(rec.get("DO") or [""])[0], arxiv_id=url if "arxiv.org" in url else "",
+                            text=f"RIS record {len(out) + 1}")
+            out.append(((rec.get("ID") or [f"ris{len(out) + 1}"])[0], ref))
+            rec = {}
+        else:
+            rec.setdefault(tag, []).append(value)
+    return out
+
+
+def parse_any(text: str) -> list[tuple[str, Reference]]:
+    """BibTeX or RIS, whichever the text is."""
+    return parse_ris(text) if re.search(r"^TY  -", text or "", re.M) else parse(text)

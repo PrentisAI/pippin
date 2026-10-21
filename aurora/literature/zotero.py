@@ -21,6 +21,7 @@ Nothing is ever deleted in Zotero, and a reference that was not verified is neve
 from __future__ import annotations
 
 import asyncio
+import copy
 import html
 import json
 import logging
@@ -35,7 +36,7 @@ from typing import Any
 import httpx
 
 from aurora.literature.check import Check, Reference, check
-from aurora.literature.indexes import Indexes, indexes
+from aurora.literature.indexes import indexes
 from aurora.literature.library import library
 from aurora.literature.records import Paper, clean_arxiv, clean_doi, fold
 
@@ -49,7 +50,7 @@ MAX_PDF_BYTES = 60 * 1024 * 1024
 MAX_PUSH_PER_SYNC = 100
 _SKIP_TYPES = {"attachment", "note", "annotation"}
 
-DEFAULT_OPTIONS = {"pdfs": True, "notes": True, "push": True, "citekeys": True}
+DEFAULT_OPTIONS = {"pdfs": True, "notes": True, "push": True, "citekeys": True, "idea_notes": False}
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS zotero_links (
@@ -72,6 +73,14 @@ CREATE TABLE IF NOT EXISTS zotero_maps (
     campaign_id    TEXT NOT NULL,          -- '' : the person's own Library
     version        INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, library, collection_key)
+);
+CREATE TABLE IF NOT EXISTS zotero_notes (       -- idea summaries written as notes on Zotero items
+    user_id  TEXT NOT NULL,
+    library  TEXT NOT NULL,
+    card_id  TEXT NOT NULL,
+    paper_id TEXT NOT NULL,
+    note_key TEXT NOT NULL,
+    PRIMARY KEY (user_id, library, card_id, paper_id)
 );
 CREATE TABLE IF NOT EXISTS zotero_items (
     user_id   TEXT NOT NULL,
@@ -118,8 +127,10 @@ def item_reference(data: dict[str, Any]) -> Reference:
     arxiv = clean_arxiv(data.get("archiveID") or "") or clean_arxiv(_extra(data, "arXiv"))
     if not arxiv and "arxiv.org" in (data.get("url") or ""):
         arxiv = clean_arxiv(data["url"])
+    from aurora.literature.records import arxiv_version
+    version = arxiv_version(data.get("archiveID")) or arxiv_version(data.get("url")) or arxiv_version(_extra(data, "arXiv"))
     return Reference(title=data.get("title") or "", authors=author, year=_year(data.get("date", "")),
-                     doi=clean_doi(data.get("DOI") or _extra(data, "DOI")), arxiv_id=arxiv,
+                     doi=clean_doi(data.get("DOI") or _extra(data, "DOI")), arxiv_id=arxiv, arxiv_version=version,
                      text=f"Zotero item {data.get('key', '')}")
 
 
@@ -344,7 +355,7 @@ class ZoteroStore:
                 (time.time(), error, json.dumps(report or {}), user_id))
 
     def forget(self, user_id: str) -> None:
-        for table in ("zotero_links", "zotero_maps", "zotero_items"):
+        for table in ("zotero_links", "zotero_maps", "zotero_items", "zotero_notes"):
             self._x(f"DELETE FROM {table} WHERE user_id=?", (user_id,))
 
     def maps(self, user_id: str) -> list[dict[str, Any]]:
@@ -378,6 +389,18 @@ class ZoteroStore:
                 "pdf, synced_at) VALUES (?,?,?,?,?,?,?,?,?)",
                 (user_id, library, item_key, row["paper_id"], row["ref_id"], row["version"], row["citekey"],
                  row["pdf"], time.time()))
+
+    def item_key(self, user_id: str, library: str, paper_id: str) -> str:
+        rows = self._all("SELECT item_key FROM zotero_items WHERE user_id=? AND library=? AND paper_id=?",
+                         (user_id, library, paper_id))
+        return rows[0]["item_key"] if rows else ""
+
+    def noted(self, user_id: str, library: str, card_id: str, paper_id: str) -> bool:
+        return bool(self._all("SELECT 1 FROM zotero_notes WHERE user_id=? AND library=? AND card_id=? AND paper_id=?",
+                              (user_id, library, card_id, paper_id)))
+
+    def note_written(self, user_id: str, library: str, card_id: str, paper_id: str, note_key: str) -> None:
+        self._x("INSERT OR REPLACE INTO zotero_notes VALUES (?,?,?,?,?)", (user_id, library, card_id, paper_id, note_key))
 
     def papers_in(self, user_id: str, library: str | None = None) -> set[str]:
         sql = "SELECT paper_id FROM zotero_items WHERE user_id=? AND paper_id!=''" + (" AND library=?" if library else "")
@@ -424,6 +447,7 @@ class SyncReport:
     linked_pdfs: int = 0            # PDFs that are files on the person's computer (not in Zotero's storage)
     notes: int = 0
     pushed: int = 0                 # papers sent to Zotero
+    idea_notes: int = 0             # idea summaries written as notes on Zotero items
     problems: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -464,7 +488,8 @@ async def _check(ref: Reference) -> Check:
     if ref.doi or ref.arxiv_id:
         return await check(ref, indexes())
     shared = indexes()
-    fast = Indexes(use=tuple(i for i in shared.use if i in ("crossref", "openalex")), client=shared._client)
+    fast = copy.copy(shared)             # the same indexes (and settings), minus the slow ones
+    fast.use = tuple(i for i in shared.use if i in ("crossref", "openalex"))
     result = await check(ref, fast)
     return result if result.status != "not_found" else await check(ref, shared)
 
@@ -566,7 +591,9 @@ async def _pull_item(user_id: str, who: str, m: dict[str, Any], item: dict[str, 
             ref_id = library.record_ref(cid or f"user:{user_id}", result, by=whose)
             library.resolve_ref(ref_id, "have", decided_by=f"{who} (in Zotero)")
             report.vouched += 1
-    if paper_id and library.add_item(cid, paper_id, source="zotero", added_by=whose, owner=owner):
+    cited_version = (pdf_reference(data) if standalone else item_reference(data)).arxiv_version
+    if paper_id and library.add_item(cid, paper_id, source="zotero", added_by=whose, owner=owner,
+                                     cited_version=cited_version):
         report.added += 1
     zotero_store.put_item(user_id, lib, data["key"], paper_id=paper_id, ref_id=ref_id,
                           version=int(item.get("version") or 0),
@@ -670,12 +697,46 @@ async def sync(user_id: str, who: str, *, campaign_id: str | None = None,
                     await push(user_id, m, client, report)
                 except ZoteroError as exc:
                     report.problems.append(f"Sending papers to “{m['name']}”: {exc}")
+            if options.get("idea_notes") and can_write:
+                try:
+                    await idea_notes(user_id, m, client, report)
+                except ZoteroError as exc:
+                    report.problems.append(f"Writing idea notes in “{m['name']}”: {exc}")
     except ZoteroError as exc:
         error = str(exc)
         raise
     finally:
         zotero_store.note_sync(user_id, error, report.to_dict())
     return report
+
+
+async def idea_notes(user_id: str, m: dict[str, Any], client: ZoteroClient, report: SyncReport) -> None:
+    """Each idea a paper is evidence for, as a note on the paper's Zotero item (written once; never removed)."""
+    from aurora.brainstorm.store import bs_store
+    lib, cid = m["library"], m["campaign_id"]
+    space = cid or f"user:{user_id}"
+    cards = {c["card_id"]: c for c in bs_store.cards(space) if c["owner"] == user_id or c["vis"] == "project"}
+    notes: list[tuple[str, str, dict[str, Any]]] = []
+    for lk in bs_store.links(set(cards)):
+        ev, idea = cards.get(lk["from_card"]), cards.get(lk["to_card"])
+        if not ev or not idea or not ev["paper_id"] or idea["type"] != "idea" or lk["rel"] not in ("supports", "challenges"):
+            continue
+        parent = zotero_store.item_key(user_id, lib, ev["paper_id"])
+        if not parent or zotero_store.noted(user_id, lib, idea["card_id"], ev["paper_id"]):
+            continue
+        how = "supports" if lk["rel"] == "supports" else "challenges"
+        body = (f"<h2>AURORA idea</h2><p><b>{html.escape(idea['text'])}</b></p>"
+                f"<p>This paper {how} it: {html.escape(ev['text'])}</p>"
+                + (f"<p>Where it stands: {html.escape(idea['stand'])}</p>" if idea["stand"] else ""))
+        notes.append((idea["card_id"], ev["paper_id"], {"itemType": "note", "parentItem": parent, "note": body,
+                                                         "tags": [{"tag": TAG}]}))
+    for start in range(0, len(notes), 50):
+        batch = notes[start:start + 50]
+        created = await client.create(lib, [n for *_, n in batch])
+        for idx, key in created.items():
+            card_id, paper_id, _ = batch[int(idx)]
+            zotero_store.note_written(user_id, lib, card_id, paper_id, key)
+            report.idea_notes += 1
 
 
 def _may_write(access: dict[str, Any], library: str) -> bool:

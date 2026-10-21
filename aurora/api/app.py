@@ -55,6 +55,7 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
         )
 
     from aurora.api.routes.accounts import access_router, auth_router, me_router, team_router
+    from aurora.api.routes.brainstorm import router as brainstorm_router
     from aurora.api.routes.campaigns import campaign_router, settings_router, store
     from aurora.api.routes.files import router as files_router
     from aurora.api.routes.insights import router as insights_router
@@ -68,7 +69,7 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
     app.include_router(auth_router)
     for router in (campaign_router, settings_router, skills_router, insights_router, files_router,
                    me_router, team_router, access_router, project_router, library_router,
-                   zotero_router):
+                   zotero_router, brainstorm_router):
         app.include_router(router, dependencies=[Depends(guard)])
 
     @app.on_event("startup")
@@ -87,12 +88,16 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
         # everyone's Zotero collections, every few minutes
         from aurora.literature.zotero import sync_loop
         app.state.zotero_sync = asyncio.create_task(sync_loop())
+        # the brainstorm agents' own work (by each person's "How active")
+        from aurora.brainstorm.background import loop as brainstorm_loop
+        app.state.brainstorm_work = asyncio.create_task(brainstorm_loop())
 
     @app.on_event("shutdown")
     async def shutdown() -> None:
-        task = getattr(app.state, "zotero_sync", None)
-        if task is not None:
-            task.cancel()
+        for name in ("zotero_sync", "brainstorm_work"):
+            task = getattr(app.state, name, None)
+            if task is not None:
+                task.cancel()
 
     @app.get("/api/health")
     async def health_check() -> dict[str, Any]:

@@ -1,4 +1,4 @@
-import type { ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -263,6 +263,51 @@ export const api = {
       request<{ entries: { cite_key: string; status: string; reason: string; key: string; title: string }[]; added: number; literature: ProjectLiterature }>(
         `/campaigns/${cid}/literature/import`, post({ bibtex })),
     exportUrl: (cid: string) => `${BASE_URL}/campaigns/${cid}/literature/export.bib`,
+    exportText: async (cid: string) => (await fetch(`${BASE_URL}/campaigns/${cid}/literature/export.bib`)).text(),
+    addMany: (cid: string, text: string) =>
+      request<{ entries: { cite_key: string; status: string; reason: string; key: string; title: string }[]; added: number; literature: ProjectLiterature }>(
+        `/campaigns/${cid}/literature/papers/many`, post({ text })),
+    upload: async (cid: string, file: File) => {
+      const res = await fetch(`${BASE_URL}/campaigns/${cid}/literature/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file })
+      if (!res.ok) throw new ApiError(res.status, errorMessage(res.status, res.statusText, await res.text().catch(() => '')))
+      return res.json() as Promise<{ added: boolean; key: string; file: string; check: LitCheck; literature: ProjectLiterature }>
+    },
+    setRule: (cid: string, add_found: AddFound | '') => request<ProjectLiterature>(`/campaigns/${cid}/literature/rule`, put({ add_found })),
+    citeVersion: (cid: string, pid: string, version = 0) => request<ProjectLiterature>(`/campaigns/${cid}/literature/papers/${pid}/version`, put({ version })),
+    fileUrl: (cid: string, path: string) => `${BASE_URL}/campaigns/${cid}/files/raw?path=${encodeURIComponent(path)}`,
+  },
+  brainstorm: {
+    spaces: () => request<{ space: string; name: string; project: boolean; can_write: boolean }[]>('/brainstorm/spaces'),
+    space: (space: string) => request<BsSpace>(`/brainstorm/spaces/${encodeURIComponent(space)}`),
+    newChat: (space: string, title = '') => request<BsChat>(`/brainstorm/spaces/${encodeURIComponent(space)}/chats`, post({ title })),
+    chat: (chatId: string) => request<{ chat: BsChat; messages: BsMessage[]; pending: boolean; here: { user_id: string; name: string }[] }>(`/brainstorm/chats/${chatId}`),
+    renameChat: (chatId: string, title: string) => request<BsChat>(`/brainstorm/chats/${chatId}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+    deleteChat: (chatId: string) => request<{ ok: boolean }>(`/brainstorm/chats/${chatId}`, del),
+    say: (chatId: string, text: string, focus = '', attachments: BsAttachment[] = []) =>
+      request<{ message: BsMessage; agents: string[] }>(`/brainstorm/chats/${chatId}/messages`, post({ text, focus, attachments })),
+    deep: (chatId: string, text: string, focus = '') =>
+      request<{ message: BsMessage; agents: string[] }>(`/brainstorm/chats/${chatId}/deep`, post({ text, focus })),
+    thread: (cardId: string) => request<{ card: BsCard; messages: BsMessage[]; pending: boolean; links: BsLink[] }>(`/brainstorm/cards/${cardId}/thread`),
+    reply: (cardId: string, text: string) => request<{ message: BsMessage; agents: string[] }>(`/brainstorm/cards/${cardId}/thread`, post({ text })),
+    link: (cardId: string, to: string, rel: Relation) => request<{ ok: boolean }>(`/brainstorm/cards/${cardId}/links`, post({ to, rel })),
+    unlink: (cardId: string, to: string, rel = '') => request<{ ok: boolean }>(`/brainstorm/cards/${cardId}/links/${to}?rel=${encodeURIComponent(rel)}`, del),
+    move: (cardId: string, body: { campaign_id?: string; new_project?: string }) =>
+      request<{ campaign_id: string; moved: number }>(`/brainstorm/cards/${cardId}/move`, post(body)),
+    doSuggestion: (id: string) => request<{ kind: string; cards: string[]; added: string }>(`/brainstorm/suggestions/${id}/do`, post()),
+    dismissSuggestion: (id: string) => request<{ ok: boolean }>(`/brainstorm/suggestions/${id}/dismiss`, post()),
+    ask: (chatId: string, agent: string, card_id: string) =>
+      request<{ message: BsMessage; agents: string[] }>(`/brainstorm/chats/${chatId}/ask`, post({ agent, card_id })),
+    share: (chatId: string, what: 'all' | 'ideas', card_ids: string[]) =>
+      request<{ chat: BsChat; shared_cards: number }>(`/brainstorm/chats/${chatId}/share`, post({ what, card_ids })),
+    consent: (msgId: string, share: boolean) => request<{ ok: boolean }>(`/brainstorm/messages/${msgId}/consent`, post({ share })),
+    addCard: (space: string, body: { type?: CardType; text: string; paper_id?: string; links?: { to: string; rel: Relation }[]; vis?: string; chat_id?: string; ask_skeptic?: boolean }) =>
+      request<{ card: BsCard; chat_id?: string }>(`/brainstorm/spaces/${encodeURIComponent(space)}/cards`, post(body)),
+    changeCard: (cardId: string, body: { text?: string; answer?: string; vis?: 'private' | 'project' }) =>
+      request<BsCard>(`/brainstorm/cards/${cardId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    deleteCard: (cardId: string) => request<{ ok: boolean }>(`/brainstorm/cards/${cardId}`, del),
+    promote: (cardId: string, body: { ideation: 'start' | 'roundtable' | 'brainstorm'; add_found?: string; campaign_id?: string }) =>
+      request<{ proposal_id: string; campaign_id: string }>(`/brainstorm/cards/${cardId}/promote`, post(body)),
+    setActivity: (activity: Activity) => request<{ activity: Activity }>('/brainstorm/settings', put({ activity })),
   },
   zotero: {
     get: () => request<ZoteroStatus>('/zotero'),
@@ -286,6 +331,7 @@ export const api = {
   proposals: {
     confirm: (campaignId: string, proposalId: string, body: {
       add_found?: AddFound
+      ideation_live?: boolean
       skip_phases?: string[]
       model?: string
       max_cost_usd?: number | null

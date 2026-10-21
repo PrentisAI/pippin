@@ -33,11 +33,12 @@ only to a project you can edit.
 | PDFs | Copied into the project's files under `papers/`, named by the paper's key (or its Better BibTeX key), so the agents can read them. Needs the account to have file access; files over 60 MB are skipped. |
 | Highlights and notes | Your PDF highlights and comments, and your notes on the item, are shown with the paper on the Literature page. The agents see them too, so they know what you found important. |
 | **To Zotero** | Papers in the project's literature that the collection lacks go into it, tagged `aurora`. That covers papers someone added and papers an agent cited and that were verified. A paper already in your library, in another collection, is put into this collection rather than copied. **Send them to Zotero** on the Literature page does this at once; **+ Zotero** sends a single paper. |
+| Idea summaries | Optional (off by default): each idea a paper is evidence for, written once as a note on the paper's Zotero item (with whether the paper supports or challenges it, and where the idea stands). Needs write access. |
 | Better BibTeX | If you use Better BibTeX, its citation keys name the PDFs and are used in **Export .bib**. |
 
 Never sent: a reference that could not be verified. Never done: deleting or
-changing anything in your Zotero other than adding papers to the collection and
-the `aurora` tag.
+changing anything in your Zotero other than adding papers to the collection, the
+`aurora` tag and, if you turned them on, idea notes.
 
 ## When it syncs
 

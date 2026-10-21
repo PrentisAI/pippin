@@ -46,7 +46,8 @@ export function PaperLinks({ p }: { p: LitPaper }) {
 /** A project's literature: its papers, the references that could not be verified, and every search. */
 export function LiteratureView({ campaignId }: { campaignId: string }) {
   const [lit, setLit] = useState<ProjectLiterature | null>(null)
-  const [filter, setFilter] = useState<'all' | 'checked' | 'flagged' | 'searches'>('all')
+  const [filter, setFilter] = useState<'all' | 'checked' | 'flagged' | 'pdfs' | 'searches'>('all')
+  const pdfInput = useRef<HTMLInputElement>(null)
   const [openPaper, setOpenPaper] = useState<string | null>(null)
   const [openSearch, setOpenSearch] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -81,20 +82,40 @@ export function LiteratureView({ campaignId }: { campaignId: string }) {
   if (!lit) return <div className="lit-page"><div className="panel-empty">{message ? message.text : 'Loading the literature…'}</div></div>
   const openFlags = lit.refs.filter((r) => !r.resolution)
   const decided = lit.refs.filter((r) => r.resolution)
-  const shownPapers = filter === 'checked' ? lit.papers.filter((p) => p.found_in.length) : lit.papers
+  const shownPapers = filter === 'checked' ? lit.papers.filter((p) => p.found_in.length)
+    : filter === 'pdfs' ? lit.papers.filter((p) => p.source === 'upload' || p.pdf_file) : lit.papers
+  const uploadPdfs = async (files: FileList | null) => {
+    if (!files?.length) return
+    setBusy('upload')
+    setMessage(null)
+    const added: string[] = []
+    const own: string[] = []
+    try {
+      for (const f of Array.from(files)) {
+        const r = await api.literature.upload(campaignId, f)
+        setLit(r.literature)
+        if (r.added) added.push(r.key); else own.push(f.name)
+      }
+      setMessage({ tone: 'ok', text: [added.length ? `Recognised and checked: ${added.join(', ')}.` : '',
+        own.length ? `Not in any index, kept as your own papers: ${own.join(', ')}.` : ''].filter(Boolean).join(' ') })
+    } catch (e) { setMessage({ tone: 'error', text: describeError(e) }) } finally { setBusy(null) }
+  }
 
   return (
     <div className="lit-page">
       <div className="lit-toolbar">
         <div className="lit-chips" role="group" aria-label="Show">
           {([['all', `All ${lit.papers.length + openFlags.length + decided.filter((r) => r.resolution === 'have').length}`], ['checked', `Checked ${lit.counts.checked}`],
-            ['flagged', `Not found ${openFlags.length}`], ['searches', `Searches ${lit.searches.length}`]] as const).map(([k, l]) => (
+            ['flagged', `Not found ${openFlags.length}`], ['pdfs', `Your PDFs ${lit.papers.filter((p) => p.source === 'upload' || p.pdf_file).length}`],
+            ['searches', `Searches ${lit.searches.length}`]] as const).map(([k, l]) => (
             <button key={k} className={`lit-chip${filter === k ? ' on' : ''}${k === 'flagged' && openFlags.length ? ' warn' : ''}`}
               aria-pressed={filter === k} onClick={() => { setFilter(k); setOpenSearch(null) }}>{l}</button>
           ))}
         </div>
         <div className="lit-actions">
           <button className="btn-sm btn-modify" onClick={() => setDialog('add')}>Search and add</button>
+          <button className="btn-sm lit-btn" disabled={busy === 'upload'} onClick={() => pdfInput.current?.click()}>{busy === 'upload' ? 'Reading the PDFs…' : 'Upload PDFs'}</button>
+          <input ref={pdfInput} type="file" accept="application/pdf,.pdf" multiple hidden onChange={(e) => { uploadPdfs(e.target.files); e.target.value = '' }} />
           <button className="btn-sm lit-btn" onClick={() => setDialog('import')}>Import BibTeX</button>
           <button className="btn-sm lit-btn" onClick={() => setDialog('zotero')}
             title={lit.zotero ? (lit.zotero.collections.length ? `Synced with ${lit.zotero.collections.join(', ')}` : 'Connected; no collection goes with this project yet') : 'Connect your Zotero'}>
@@ -102,8 +123,11 @@ export function LiteratureView({ campaignId }: { campaignId: string }) {
           <a className="btn-sm lit-btn" href={api.literature.exportUrl(campaignId)} download>Export .bib</a>
         </div>
       </div>
-      <div className="lit-rule">Papers the agents find: <b>{RULE_LABELS[lit.rule]}</b>. {RULE_HINTS[lit.rule]} The default is in
-        Settings → Literature; each run’s proposal can change it.</div>
+      <div className="lit-rule">Papers the agents find:{' '}
+        <select aria-label="Papers the agents find" value={lit.rule_own ? lit.rule : ''} onChange={(e) => act('rule', () => api.literature.setRule(campaignId, e.target.value as AddFound | ''))}>
+          <option value="">{RULE_LABELS[lit.default_rule ?? 'cited']} (the console’s default)</option>
+          {(Object.keys(RULE_LABELS) as AddFound[]).map((k) => <option key={k} value={k}>{RULE_LABELS[k]}</option>)}
+        </select>{' '}{RULE_HINTS[lit.rule]} Each run’s proposal can change it.</div>
       {message && <div className={`panel-message ${message.tone}`} style={{ margin: '6px 0' }}>{message.text}</div>}
       {lit.zotero?.last_error && <div className="panel-message error" style={{ margin: '6px 0' }}>Zotero: {lit.zotero.last_error}</div>}
       {(() => {
@@ -138,7 +162,8 @@ export function LiteratureView({ campaignId }: { campaignId: string }) {
                   onRecheck={() => act(r.ref_id, () => api.literature.recheck(campaignId, r.ref_id))} />
               ))}
               {filter !== 'flagged' && shownPapers.map((p) => (
-                <PaperRow key={p.paper_id} p={p} open={openPaper === p.paper_id}
+                <PaperRow key={p.paper_id} p={p} open={openPaper === p.paper_id} pdfHref={p.pdf_file ? api.literature.fileUrl(campaignId, p.pdf_file) : ''}
+                  onCiteNewer={() => act(p.paper_id, () => api.literature.citeVersion(campaignId, p.paper_id), `${p.key}: citing v${p.arxiv_version} now.`)}
                   onZotero={lit.zotero?.can_send && !p.in_zotero ? () => act(p.paper_id, async () => { await api.zotero.push(campaignId, [p.paper_id]); return api.literature.get(campaignId) },
                     `${p.key} is in your Zotero collection now, tagged “aurora”.`) : undefined}
                   onToggle={() => setOpenPaper(openPaper === p.paper_id ? null : p.paper_id)}
@@ -190,7 +215,7 @@ export function LiteratureView({ campaignId }: { campaignId: string }) {
   )
 }
 
-function PaperRow({ p, open, onToggle, onStar, onRemove, onZotero }: { p: LitItem; open: boolean; onToggle: () => void; onStar: () => void; onRemove: () => void; onZotero?: () => void }) {
+function PaperRow({ p, open, onToggle, onStar, onRemove, onZotero, pdfHref, onCiteNewer }: { p: LitItem; open: boolean; onToggle: () => void; onStar: () => void; onRemove: () => void; onZotero?: () => void; pdfHref: string; onCiteNewer: () => void }) {
   return (
     <>
       <tr className={open ? 'lit-open' : ''}>
@@ -200,6 +225,10 @@ function PaperRow({ p, open, onToggle, onStar, onRemove, onZotero }: { p: LitIte
           <div className="lit-sub">{p.byline}{p.cites_per_year != null && ` · ${p.cites_per_year} cit/yr`} · <span className="lit-key">{p.key}</span>
             {p.in_zotero && <span className="lit-zot" title="In your Zotero">Z ✓</span>}
             {(p.notes?.length ?? 0) > 0 && <span className="lit-tag" style={{ marginLeft: 6 }}>{p.notes!.length} highlight{p.notes!.length === 1 ? '' : 's'} and notes</span>}</div>
+          {p.newer_version && (
+            <div className="lit-sub"><span style={{ color: 'var(--accent)' }}>A newer version (v{p.arxiv_version}) exists{p.arxiv_comment ? `: ${p.arxiv_comment}` : ''}.</span>{' '}
+              You cite v{p.cited_version}. <button className="link-btn" style={{ marginLeft: 0 }} onClick={onCiteNewer}>Cite v{p.arxiv_version}</button></div>
+          )}
         </td>
         <td><span className="lit-ok">✓ {p.found_in.join(', ') || 'checked'}</span>{idLabel(p) && <div className="lit-sub mono">{idLabel(p)}</div>}</td>
         <td className="lit-sub">{p.used_in.length ? p.used_in.map((u) => <div key={u}>{u}</div>) : 'not used yet'}</td>
@@ -220,7 +249,7 @@ function PaperRow({ p, open, onToggle, onStar, onRemove, onZotero }: { p: LitIte
               <div className="lit-sub">From Zotero. The agents see these with the paper.</div>
             </div>
           )}
-          {p.pdf_file && <p className="lit-sub">PDF in the project’s files: <span className="mono">{p.pdf_file}</span></p>}
+          {p.pdf_file && <p className="lit-sub">PDF in the project’s files: <a href={pdfHref} target="_blank" rel="noreferrer" className="mono">{p.pdf_file}</a></p>}
           <div className="lit-detail-actions"><PaperLinks p={p} />
             {onZotero && <button className="link-btn" onClick={onZotero}>+ Zotero</button>}
             <button className="link-btn" onClick={onStar}>{p.starred ? 'Unstar' : 'Star'}</button>
@@ -278,7 +307,7 @@ function SearchList({ searches, onOpen }: { searches: LitSearch[]; onOpen: (id: 
   )
 }
 
-function SearchPane({ campaignId, searchId, rule, onBack, onChanged }: { campaignId: string; searchId: string; rule: AddFound; onBack: () => void; onChanged: (l: ProjectLiterature) => void }) {
+export function SearchPane({ campaignId, searchId, rule, onBack, onChanged }: { campaignId: string; searchId: string; rule: AddFound; onBack: () => void; onChanged: (l: ProjectLiterature) => void }) {
   const [s, setS] = useState<LitSearch | null>(null)
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [error, setError] = useState<string | null>(null)
@@ -336,7 +365,7 @@ function SearchPane({ campaignId, searchId, rule, onBack, onChanged }: { campaig
 const LOOKS_LIKE_ID = /(10\.\d{4,9}\/\S+)|(\d{4}\.\d{4,5})|arxiv\.org|doi\.org/i
 
 /** Search the indexes, or add one paper by DOI, arXiv ID or exact title. */
-function AddPaperDialog({ campaignId, onClose, onChanged }: { campaignId: string; onClose: () => void; onChanged: (l: ProjectLiterature) => void }) {
+export function AddPaperDialog({ campaignId, onClose, onChanged }: { campaignId: string; onClose: () => void; onChanged: (l: ProjectLiterature) => void }) {
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(false)
   const [results, setResults] = useState<LitSearch | null>(null)
@@ -406,7 +435,7 @@ function AddPaperDialog({ campaignId, onClose, onChanged }: { campaignId: string
   )
 }
 
-function ImportDialog({ campaignId, onClose, onChanged }: { campaignId: string; onClose: () => void; onChanged: (l: ProjectLiterature) => void }) {
+export function ImportDialog({ campaignId, onClose, onChanged }: { campaignId: string; onClose: () => void; onChanged: (l: ProjectLiterature) => void }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [report, setReport] = useState<{ cite_key: string; status: string; reason: string; key: string; title: string }[] | null>(null)

@@ -217,6 +217,10 @@ class ModelConfig(_Section):
         default="anthropic/claude-haiku-5.5",
         description="Model of the front desk agent that talks with the human.",
     )
+    brainstorm: str = Field(
+        default="",
+        description="Model of the brainstorm agents (Skeptic, Methods, Librarian). Empty: models.frontdesk.",
+    )
 
     def for_phase(self, phase: str) -> str:
         """Model of the agent that runs *phase* (screening, planning, research, analysis, writing)."""
@@ -277,6 +281,12 @@ class IdeationConfig(_Section):
                     "(OpenRouter web plugin, a small extra cost per call; seat models must be OpenRouter "
                     "models). Turn it off when evaluating ideation on known problems, so ideas cannot "
                     "simply be looked up.",
+    )
+    live: bool = Field(
+        default=False,
+        description="Brainstorm with the researcher: the round table runs live in the project's brainstorm space, "
+                    "its seats' ideas and questions become cards there, and the researcher can speak in the "
+                    "meeting (the chair gives them the floor before the next turn). Web console only.",
     )
     chair_prompt: str = Field(default="", description="System prompt of the chair. Empty: built-in.")
     seat_prompt: str = Field(

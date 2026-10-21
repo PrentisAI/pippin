@@ -58,6 +58,7 @@ Which model plays each role.
 | `models.skills` | str | `""` | Model that decides what to keep as skills: it drafts skills from the agents' runs and from your corrections. Empty: models.auditor. |
 | `models.supervisor` | str | `"anthropic/claude-sonnet-5.5"` | Model of the live auditor (supervisor) that watches the research agent. |
 | `models.frontdesk` | str | `"anthropic/claude-haiku-5.5"` | Model of the front desk agent that talks with the human. |
+| `models.brainstorm` | str | `""` | Model of the brainstorm agents (Skeptic, Methods, Librarian). Empty: models.frontdesk. |
 
 ## `ideation`
 
@@ -69,6 +70,7 @@ Multi-agent ideation: several models propose directions and a chair decides.
 | `ideation.seats` | list[SeatConfig] | `[]` | Named seats with their own prompts. Empty: one seat per models.ideation_seats. |
 | `ideation.rounds_per_item` | int | `2` | Roundtable mode: remark/response exchanges per presentation. |
 | `ideation.web_search` | bool | `true` | Let seats search the literature and the web while preparing and answering (OpenRouter web plugin, a small extra cost per call; seat models must be OpenRouter models). Turn it off when evaluating ideation on known problems, so ideas cannot simply be looked up. |
+| `ideation.live` | bool | `false` | Brainstorm with the researcher: the round table runs live in the project's brainstorm space, its seats' ideas and questions become cards there, and the researcher can speak in the meeting (the chair gives them the floor before the next turn). Web console only. |
 | `ideation.chair_prompt` | str | `""` | System prompt of the chair. Empty: built-in. |
 | `ideation.seat_prompt` | str | `""` | System prompt of the seats. Empty: built-in. '{seat_id}' is replaced by the seat ID. |
 

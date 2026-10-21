@@ -28,6 +28,7 @@ nav:
       - Auditors: concepts/auditors.md
       - Working with the human: concepts/human-in-the-loop.md
       - Literature: concepts/literature.md
+      - Brainstorm: concepts/brainstorm.md
       - Skills: concepts/skills.md
   - Guides:
       - Command line: guide/cli.md

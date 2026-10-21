@@ -87,14 +87,24 @@ Open a project and choose **Literature** in its tab bar.
   results were cited and which are already in the literature. Add papers from
   a search one by one, a selection at a time, or all at once.
 - **Search and add**: search the indexes, or paste a DOI, an arXiv ID or a link.
-- **Import BibTeX**: every entry is checked. The entries that are found go in,
-  and the others are listed with the reason.
+- **Upload PDFs**: each PDF is recognised (from its DOI or arXiv ID if it shows
+  one, otherwise from its title) and checked, then kept in the project's files
+  under `papers/`. A PDF no index has is kept as a paper you vouch for. **Your
+  PDFs** lists them.
+- **Import BibTeX** (or RIS, from EndNote, Mendeley and others): every entry is
+  checked. The entries that are found go in, and the others are listed with the
+  reason. You can also paste a list of DOIs or arXiv IDs (in the brainstorm's
+  Papers tab).
+- **A newer version**: when you cite an arXiv paper at an older version, the
+  row says so, with the authors' comment on the new one; **Cite vN** switches
+  to it.
 - **Export .bib**: the project's papers, for your own manuscript.
 
 ## Which papers go in by themselves
 
-`literature.add_found`, in Settings → Literature, sets the default. Each run's
-proposal card can override it.
+`literature.add_found`, in Settings → Literature, sets the default. A project
+can set its own default (on its Literature page, or *Papers they find* in its
+brainstorm), and each run's proposal card can override it for that run.
 
 | Setting | Papers the agents find |
 |---|---|

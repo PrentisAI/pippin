@@ -15,6 +15,7 @@ import { ShareDialog } from '../components/ShareDialog'
 import { TeamView } from '../components/TeamView'
 import { LiteratureView, RULE_HINTS, RULE_LABELS, RuleSelect } from '../components/LiteratureView'
 import { LibraryView } from '../components/LibraryView'
+import { BrainstormView } from '../components/brainstorm/BrainstormView'
 import { AccountButton } from '../components/AccountMenu'
 import { useAuth } from '../auth'
 import { ClusterJobsPanel } from '../components/ClusterJobsPanel'
@@ -138,6 +139,9 @@ const ExplorerIcon = () => (
 const TeamIcon = () => (
   <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0111 0"/><path d="M16 5.2a3 3 0 010 5.6M17.5 14a5 5 0 013.5 5"/></svg>
 )
+const BulbIcon = () => (
+  <svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 00-3.6 10.8c.7.5 1.1 1.3 1.1 2.2h5c0-.9.4-1.7 1.1-2.2A6 6 0 0012 3z"/></svg>
+)
 const BooksIcon = () => (
   <svg viewBox="0 0 24 24"><path d="M4 4h4v16H4zM10 4h4v16h-4z"/><path d="M16.5 4.6l3.8-1 3.7 15.5-3.8.9z" transform="translate(-2 1)"/></svg>
 )
@@ -179,7 +183,7 @@ const FileIcon = () => svgIcon(<><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2
 const ClipIcon = () => svgIcon(<path d="M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9" />)
 
 /** A page that takes the main area instead of a project. */
-type MainPage = 'team' | 'library' | null
+type MainPage = 'team' | 'library' | 'brainstorm' | null
 
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).map((x) => x[0]).join('').slice(0, 2).toUpperCase() || '?'
@@ -217,6 +221,7 @@ function ActivityBar({
   return (
     <div className="activity-bar">
       <button className={`ab-btn${activePanel === 'projects' ? ' active' : ''}`} title="Projects" onClick={() => onTogglePanel('projects')}><FolderIcon /></button>
+      <button className={`ab-btn${page === 'brainstorm' ? ' active' : ''}`} title="Brainstorm" onClick={() => onOpenPage(page === 'brainstorm' ? null : 'brainstorm')}><BulbIcon /></button>
       <button className={`ab-btn${page === 'library' ? ' active' : ''}`} title="Library" onClick={() => onOpenPage(page === 'library' ? null : 'library')}><BooksIcon /></button>
       <button className={`ab-btn${activePanel === 'search' ? ' active' : ''}`} title="Search" onClick={() => onTogglePanel('search')}><SearchIcon /></button>
       <button className={`ab-btn${activePanel === 'analytics' ? ' active' : ''}`} title="Analytics" onClick={() => onTogglePanel('analytics')}><ChartIcon /></button>
@@ -665,6 +670,10 @@ function ChatArea({
             </div>
           )
         })}
+        <div className="context-tab" onClick={() => window.dispatchEvent(new CustomEvent('aurora:open-brainstorm', { detail: campaignId }))}>
+          <span className="tab-dot" style={{ background: 'var(--amber)' }} />
+          Brainstorm
+        </div>
         <div className={`context-tab lit-tab${activeTab === 'literature' ? ' active' : ''}`} onClick={() => setActiveTab('literature')}>
           <span className="tab-dot" style={{ background: activeTab === 'literature' ? 'var(--accent)' : 'var(--green)' }} />
           Literature
@@ -1545,6 +1554,7 @@ function ProposalCard({
   const [skipPhases, setSkipPhases] = useState<Phase[]>(proposal.skip_phases)
   const [budget, setBudget] = useState<string>(proposal.max_cost_usd != null ? String(proposal.max_cost_usd) : '')
   const [ideationMode, setIdeationMode] = useState<IdeationMode>(proposal.params.ideation_mode ?? 'roundtable')
+  const [live, setLive] = useState<boolean>(!!(proposal.params as { ideation_live?: boolean }).ideation_live)
   // papers the agents find: the console's default until the researcher picks
   const consoleSettings = useConsoleSettings()
   const [addFound, setAddFound] = useState<AddFound | null>(null)
@@ -1588,6 +1598,7 @@ function ProposalCard({
         skip_phases: skipPhases,
         max_cost_usd: maxCost,
         ideation_mode: ideationMode,
+        ideation_live: live,
         ...(addFound ? { add_found: addFound } : {}),
         ...(advanced.autonomy ? { autonomy_mode: advanced.autonomy } : {}),
         ...(Object.keys(advanced.models).length ? { models: advanced.models } : {}),
@@ -1600,6 +1611,7 @@ function ProposalCard({
         experiment_id: result.experiment_id,
         skip_phases: skipPhases,
         ideation_mode: ideationMode,
+        ideation_live: live,
         add_found: rule,
         max_cost_usd: maxCost,
         autonomy_mode: advanced.autonomy,
@@ -1686,14 +1698,19 @@ function ProposalCard({
         <div className="proposal-meta proposal-ideation">
           <span>Ideation:</span>
           <label>
-            <input type="radio" name={`ideation-${proposal.proposal_id}`} checked={ideationMode === 'roundtable'}
-              onChange={() => setIdeationMode('roundtable')} />
+            <input type="radio" name={`ideation-${proposal.proposal_id}`} checked={ideationMode === 'roundtable' && !live}
+              onChange={() => { setIdeationMode('roundtable'); setLive(false) }} />
             Round table <span className="proposal-hint">the models discuss their ideas, then the chair decides</span>
           </label>
           <label>
-            <input type="radio" name={`ideation-${proposal.proposal_id}`} checked={ideationMode === 'independent'}
-              onChange={() => setIdeationMode('independent')} />
+            <input type="radio" name={`ideation-${proposal.proposal_id}`} checked={ideationMode === 'independent' && !live}
+              onChange={() => { setIdeationMode('independent'); setLive(false) }} />
             Independent <span className="proposal-hint">the chair picks one of the ideas; about 4× cheaper</span>
+          </label>
+          <label>
+            <input type="radio" name={`ideation-${proposal.proposal_id}`} checked={live}
+              onChange={() => { setIdeationMode('roundtable'); setLive(true) }} />
+            Brainstorm with me <span className="proposal-hint">the round table meets live in the project’s brainstorm; you can speak in it</span>
           </label>
         </div>
       )}
@@ -1806,6 +1823,13 @@ export default function Home() {
   const [activePanel, setActivePanel] = useState<string>('projects')
   const [rightPanel, setRightPanel] = useState<string>('stream')
   const [page, setPage] = useState<MainPage>(null)
+  // the space the brainstorm page opens on (a project's, from its tab bar; else your own)
+  const [bsSpace, setBsSpace] = useState<string | null>(null)
+  useEffect(() => {
+    const open = (e: Event) => { setBsSpace((e as CustomEvent<string>).detail); setPage('brainstorm') }
+    window.addEventListener('aurora:open-brainstorm', open)
+    return () => window.removeEventListener('aurora:open-brainstorm', open)
+  }, [])
   const [sharing, setSharing] = useState<CampaignSummary | null>(null)
 
   const sidebarRef = useRef<HTMLDivElement>(null)
@@ -1817,7 +1841,8 @@ export default function Home() {
   const streamRef = useRef<HTMLDivElement>(null)
 
   const sidePanels = ['skills', 'search', 'analytics', 'settings']
-  const sidebarCollapsed = activePanel === '' || sidePanels.includes(activePanel)
+  // the brainstorm page has its own list of spaces and conversations
+  const sidebarCollapsed = activePanel === '' || sidePanels.includes(activePanel) || page === 'brainstorm'
   const showSkills = activePanel === 'skills'
 
   // Sync URL → state on URL change
@@ -2058,6 +2083,8 @@ export default function Home() {
       <div className="main" style={{ position: 'relative' }}>
         <ErrorBanner message={notice} onDismiss={() => setNotice(null)} />
         {view === 'team' && <TeamView />}
+        {view === 'brainstorm' && <BrainstormView initialSpace={bsSpace ?? activeCampaignId} onOpenProject={(cid) => { setPage(null); selectCampaign(cid) }}
+          onOpenLibrary={() => setPage('library')} />}
         {view === 'library' && <LibraryView onOpenProject={(cid) => { setPage(null); selectCampaign(cid) }} />}
         {view === 'welcome' && (
           <WelcomeView onSend={handleNewProject} />
@@ -2440,7 +2467,7 @@ function StartedProposal({
       <dl className="proposal-settings">
         <dt>Phases</dt><dd>{active.join(' → ')}</dd>
         {!skip.includes('ideation') && started?.ideation_mode && (
-          <><dt>Ideation</dt><dd>{started.ideation_mode === 'independent' ? 'Independent' : 'Round table'}</dd></>
+          <><dt>Ideation</dt><dd>{started.ideation_live ? 'Round table, live in the brainstorm' : started.ideation_mode === 'independent' ? 'Independent' : 'Round table'}</dd></>
         )}
         {started?.add_found && (
           <><dt>Papers found</dt><dd>{RULE_LABELS[started.add_found]}</dd></>

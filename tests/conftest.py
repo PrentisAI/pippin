@@ -13,9 +13,11 @@ def isolated_home(tmp_path, monkeypatch):
     monkeypatch.setattr(requirements, "available_models", lambda *a, **k: None)
     from aurora.api.routes import campaigns, skills
     from aurora.auth.store import auth_store
+    from aurora.brainstorm.store import bs_store
     from aurora.literature import indexes
     from aurora.literature.library import library
     from aurora.literature.zotero import zotero_store
+    bs_store.reset()
     auth_store.reset()
     library.reset()
     zotero_store.reset()
@@ -26,6 +28,7 @@ def isolated_home(tmp_path, monkeypatch):
     campaigns._campaigns.clear()
     skills._store = None
     yield tmp_path
+    bs_store.reset()
     auth_store.reset()
     library.reset()
     zotero_store.reset()

@@ -269,6 +269,8 @@ class ResearchEngine:
         self.compute: Any = None
         # the project's literature (aurora.literature.service.ProjectLiterature); made on first use
         self._literature: Any = None
+        # the round table while it meets (a live meeting takes the researcher's remarks)
+        self._roundtable: Any = None
         self._stopped_by_user = False
         self._budget_warned = False
 
@@ -1714,6 +1716,13 @@ Be specific: cite file names and concrete observations.
             "path": str(path),
         })
 
+    def meeting_say(self, name: str, text: str) -> bool:
+        """The researcher speaks in a live round table: heard before the next turn. False: no meeting now."""
+        if self._roundtable is None or not self._config.ideation.live:
+            return False
+        self._roundtable.researcher_says.append((name, text))
+        return True
+
     @property
     def literature(self) -> Any:
         """The project's literature, or None when searching and checking papers is off."""
@@ -1776,7 +1785,11 @@ Be specific: cite file names and concrete observations.
         rt = Roundtable(config=self._config, router=self._router, progress=self._publish,
                         state_path=self._workspace.phase_round_dir("ideation", self._current_round)
                         / "meeting_state.json", literature=self.literature)
-        proposal = await rt.run(ctx, topic=topic)
+        self._roundtable = rt
+        try:
+            proposal = await rt.run(ctx, topic=topic)
+        finally:
+            self._roundtable = None
         cites = await self._cite("\n".join([proposal.description, proposal.hypothesis, *proposal.proposed_methods,
                                             *proposal.alternatives_considered, proposal.falsification_check or ""]),
                                  by="Ideation", place="Proposal")

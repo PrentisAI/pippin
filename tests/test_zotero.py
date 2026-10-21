@@ -83,7 +83,7 @@ class FakeZotero:
         m = re.fullmatch(r"/users/42/collections/(\w+)/items/top", path)
         if m:
             since = int(q.get("since", 0))
-            rows = [i for i in self.items.values() if m.group(1) in i["data"]["collections"] and i["version"] > since]
+            rows = [i for i in self.items.values() if m.group(1) in i["data"].get("collections", []) and i["version"] > since]
             return httpx.Response(200, json=rows, headers={**hdr, "Total-Results": str(len(rows))})
         m = re.fullmatch(r"/users/42/items/(\w+)/children", path)
         if m:
@@ -239,3 +239,20 @@ def test_sending_needs_write_access_and_a_collection(client, zot):
     client.post(f"/api/campaigns/{cid}/literature/papers", json={"doi": KULD.doi})
     r = client.post(f"/api/zotero/push/{cid}", json={})
     assert r.status_code == 400 and "write" in r.json()["detail"]
+
+
+async def test_idea_summaries_go_to_zotero_as_notes_when_asked(client, zot):
+    from aurora.brainstorm.store import bs_store
+    cid = client.post("/api/campaigns/quick", json={"prompt": "Methanol"}).json()["campaign_id"]
+    client.post("/api/zotero/connect", json={"method": "web", "api_key": "secret-zotero-key-123"})
+    zotero_store.set_maps("local", [{"library": "user", "collection_key": "COLA", "name": "Methanol", "campaign_id": cid}])
+    await z.sync("local", "You")                                           # Behrens12 is item I1
+    idea = bs_store.add_card(cid, "local", "idea", "Zn at Cu steps is the active site.", stand="Plausible.")
+    ev = bs_store.add_card(cid, "local", "material", "Behrens shows Zn at steps.", paper_id=library.paper("Behrens12")["paper_id"])
+    bs_store.link(ev["card_id"], idea["card_id"], "supports")
+    assert (await z.sync("local", "You")).idea_notes == 0                  # off unless asked
+    zotero_store.set_options("local", {"idea_notes": True})
+    assert (await z.sync("local", "You")).idea_notes == 1
+    note = next(c for c in zot.created if c["itemType"] == "note")
+    assert note["parentItem"] == "I1" and "Zn at Cu steps is the active site." in note["note"] and "supports" in note["note"]
+    assert (await z.sync("local", "You")).idea_notes == 0                  # once

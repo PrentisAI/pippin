@@ -1,0 +1,155 @@
+# Brainstorm
+
+A brainstorm is where you think out loud with three agents before you commit to
+an experiment:
+
+| Agent | What it does | What it records on the board |
+|---|---|---|
+| **Skeptic** | finds the weakest assumption: a confounder, an alternative explanation, a measurement problem | a question on the idea; evidence against it from what is already known |
+| **Methods** | turns an idea into a test: data, comparison, the result that would refute it | a next step that builds on the idea; questions the design must answer |
+| **Librarian** | searches the literature (the real indexes, see [Literature](literature.md)) and the project's runs | papers and results as evidence for or against the idea |
+
+Open it with the lightbulb in the activity bar, or with **Brainstorm** in a
+project's tab bar.
+
+## Spaces and conversations
+
+Every project has a brainstorm space, and you have one of your own for ideas
+that belong to no project yet. A space holds conversations (brainstorms) and the
+ideas on its board. A new brainstorm is **private**: only you see it, and project
+owners and admins cannot open it either. **Share…** shares the whole
+conversation with the project, or only the ideas you pick, together with the
+evidence and questions on them.
+
+## The page
+
+| Column | What is there |
+|---|---|
+| **Left** | The space; the project's members and its **Share** button; your private brainstorms and **+ New brainstorm**; the brainstorms shared with the project (a live round table shows a green dot); the project's **Library** by source (all papers, starred, your uploads, from the feed, found by the agents, from Zotero); **Searches by the agents**, each with how many of its papers are in the literature, and *Papers they find* for this project; **Zotero**; and **Agents**, how active they are. |
+| **Middle** | The conversation. In a shared brainstorm, the people **here now**. The knowledge bar counts what the agents can use (ideas, open questions, papers, runs, other brainstorms; in a shared brainstorm only what is shared, and "private material left out"). |
+| **Right** | **Ideas**: *What's new* from the agents, the ideas as arguments, and material not filed under an idea yet. **Papers**: the project's literature, as on its Literature page: filter, search, add (search, upload PDFs, BibTeX or RIS, pasted DOIs or arXiv IDs, Zotero), star, remove, send to Zotero, open the PDF, export .bib; and each agent search's results. |
+
+## Talking to the agents
+
+Write as you think. Name an agent (`@Skeptic`, `@Methods`, `@Librarian`) to
+ask it, or pick an idea on the right (**Discuss**) and use the buttons under the
+conversation: *What could be wrong?*, *Find evidence*, *How to test it?* While
+an agent works you see its steps, for example "Searching the literature: …" and
+"Reading [Behrens12]". Each answer ends with what it added to the board.
+
+**How active** (left column) sets whether the agents answer messages that name
+nobody:
+
+| Setting | Behaviour |
+|---|---|
+| Only when asked | Agents answer only when you name them or press a button. |
+| Moderately (default) | A cheap check on each message decides whether one agent should answer. Thinking out loud gets no reply. |
+| Very | Up to two agents answer most messages. |
+
+**Deep search** asks the Librarian for a thorough search: many searches from
+different angles (the claim, its mechanism, competing explanations, methods,
+the closest prior work), then an overview of the most relevant papers and of
+what the literature does not answer yet.
+
+**+** in the message box attaches a paper from the Library or a file from the
+project's files: the agent reads it (its abstract and your highlights, or the
+file's text) with your message.
+
+The agents' model calls use your API key (the server's key in single-user mode).
+The model is `models.brainstorm` (default: the front desk's).
+
+## What the agents do on their own
+
+| How active | On their own |
+|---|---|
+| Only when asked | nothing |
+| Moderately | A few times a day, in the spaces you used this week, they bring things up in *What's new*: a recent paper that bears on an idea (one click adds it as evidence), two ideas that could be one, a question that has waited days for an answer. A few model calls a day. |
+| Very | The same, every hour, and they keep working: the Librarian looks for evidence on ideas that have none, the Skeptic questions ideas nobody has questioned. Their work goes into each idea's discussion, and *What's new* says so. At most 40 model calls a day. |
+
+Dismissing a suggestion (×) tells the agents to bring fewer things like it.
+
+## An idea up close
+
+**Start a discussion** (or *See the discussion*) on an idea opens it on the
+right. It holds the idea's own discussion with people and agents; your messages
+there can name agents too. It also lists the idea's links (*supports*,
+*challenges*, *builds on*, *asks about*, *related*), and you can add or remove
+links there. From there you can turn it into a proposal or delete it. An idea in
+your own space can **move to a project**, or start a new project. Its questions
+and evidence go along, and its papers join the project's literature.
+
+**+ Add** on the Ideas tab adds an idea, a question, a note, or a paper from the
+Library. A paper you bring lands under *Not attached to an idea* until you file
+it as supporting or challenging one.
+
+## The board: ideas as arguments
+
+Each idea on the right reads as an argument:
+
+- **its status**: *Waiting on 2 questions*, *Ready to test* or *Early: no
+  evidence yet*;
+- **one sentence on where it stands**, which an agent updates as evidence comes in;
+- **a tally**: so many for, so many against, open questions, next steps;
+- **details**, in three parts: *why we think so* (papers with their key, run
+  results), *what could be wrong* (evidence against, and the questions, each of
+  which you can answer), and *next steps* (designs that build on the idea).
+
+The main button on each idea is the next thing to do: answer its open question,
+ask the Librarian for evidence, or turn it into a proposal.
+
+## Privacy in shared brainstorms
+
+In a private brainstorm the agents use your private ideas and everything shared
+with the project. In a shared brainstorm they use only what is shared. If one of
+your private ideas bears on the question, the agent does not use it. It asks
+you first, in a message only you see, with **Share the idea** and **Keep it
+private** buttons.
+
+Who may do what follows the project's sharing:
+
+- Seeing a project's space needs view rights; writing in it needs comment
+  rights.
+- Only the author edits or deletes a card, or shares a private one.
+
+## From an idea to an experiment
+
+**Turn into a proposal** (on an idea, or under the conversation) puts an
+experiment proposal into the project's chat. It contains:
+
+- the idea, and the sentence on where it stands;
+- the evidence for and against it, with the papers' keys;
+- the questions the plan must answer (and their answers);
+- the next steps from the brainstorm.
+
+Choose how the run starts:
+
+- **Start from this idea**: no ideation and no screening; planning works on the
+  idea directly.
+- **Brainstorm with me**: the round table meets live in the brainstorm (below).
+- **Round table, agents only**: the seats develop the idea and compare it with
+  alternatives; you choose at screening.
+
+You also choose, for this run, which of the papers the agents find go into the
+project's literature. Check the proposal in the project's chat and start it
+there. An idea in your own space goes to a project you choose.
+
+## Brainstorm with me: a run's round table, live
+
+Choose **Brainstorm with me** when you turn an idea into a proposal, or on any
+proposal card. The run's round table then meets in the project's brainstorm
+space, in a brainstorm shared with the project (a green dot while it meets):
+
+- the chair's steps and every seat's turn appear as they are written, with the
+  seat's model;
+- a presentation becomes an idea (*live · from the round table*). A seat's
+  question or concern becomes a question on it, and a suggestion becomes an idea
+  that builds on it. The chosen direction is marked;
+- **you can speak**. Whatever you write is heard before the next turn ("the
+  chair gives you the floor"). The seats are told a researcher is in the room
+  and answer your points.
+
+Speaking in a run's meeting steers the run, so it needs the right to start runs
+in the project. When the meeting ends, the run goes on as usual, and its ideas
+and questions stay on the board.
+
+In the configuration this is `ideation.live: true` (web console only).

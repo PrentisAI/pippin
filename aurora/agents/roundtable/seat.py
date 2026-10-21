@@ -74,6 +74,12 @@ other paper as [ref: title; first author; year; DOI or arXiv ID if you know it].
 checked against the indexes; one that is not found is marked unsupported for everyone at the meeting, \
 so cite only papers you have reason to think exist and say what they show."""
 
+LIVE_NOTE = """
+
+## The researcher is in the room
+The researcher follows this meeting and may speak; their remarks appear in the transcript as "The researcher \
+speaks". Take them seriously: answer their points in your next turn, and say when they change your plan."""
+
 QUERIES = """You are about to write your {what}. Which published work do you need to look at first: what is already \
 known, the closest prior work, methods or data you would use, evidence for or against a claim? Reply \
 with up to {n} search queries for a scholarly search engine, one per line, each starting with \
@@ -315,6 +321,8 @@ class RoundtableSeat(Agent):
         # the project's literature (aurora.literature.service.ProjectLiterature): with it the seat
         # searches the indexes before it presents or answers, and its references are checked
         self.literature: Any = None
+        # a live meeting: the researcher may speak in it
+        self.live = False
         self.max_queries = 3
         self.results_per_query = 6
         # Called as ``on_progress(event, **data)``: ``ideation_stream`` while a turn is being written
@@ -343,7 +351,8 @@ class RoundtableSeat(Agent):
         return (base.replace("{seat_id}", self._agent_id)
                 .replace("{search_note}", SEARCH_NOTE if self._web_search and "/" in self.model_id else "")
                 .replace("{cite_how}", "cite papers by their key, see Papers below" if papers else "give the URL or DOI")
-                .replace("{papers_note}", PAPERS_NOTE if papers else ""))
+                .replace("{papers_note}", PAPERS_NOTE if papers else "")
+                + (LIVE_NOTE if self.live else ""))
 
     async def _papers_for(self, parts: list[str], kind: str, round_number: int) -> str:
         """Ask the seat what to search for, search, and return the papers as a briefing section."""

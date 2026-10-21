@@ -207,6 +207,7 @@ export interface ConfirmedSettings {
   experiment_id: string
   skip_phases: Phase[]
   ideation_mode?: IdeationMode
+  ideation_live?: boolean
   add_found?: AddFound
   max_cost_usd?: number | null
   autonomy_mode?: AutonomyMode | string | null
@@ -579,6 +580,11 @@ export interface LitItem extends LitPaper {
   notes?: { kind: 'highlight' | 'note'; text: string; comment: string; page: string; by: string }[]
   /** Its PDF in the project's files, e.g. papers/behrens2012active.pdf. */
   pdf_file?: string
+  /** arXiv: the version cited, the latest one, and the authors' comment on it. */
+  cited_version?: number
+  arxiv_version?: number
+  arxiv_comment?: string
+  newer_version?: boolean
 }
 
 export interface LitReference {
@@ -624,6 +630,9 @@ export interface LitSearch {
 
 export interface ProjectLiterature {
   rule: AddFound
+  /** The project has its own rule (else the console's default, default_rule). */
+  rule_own?: boolean
+  default_rule?: AddFound
   /** The asking person's Zotero, for this project (null: not connected). */
   zotero: { connected: boolean; collections: string[]; can_send: boolean; last_sync: number | null; last_error: string } | null
   papers: LitItem[]
@@ -659,7 +668,7 @@ export interface LibraryView {
 // Zotero
 // ---------------------------------------------------------------------------
 
-export interface ZoteroOptions { pdfs: boolean; notes: boolean; push: boolean; citekeys: boolean }
+export interface ZoteroOptions { pdfs: boolean; notes: boolean; push: boolean; citekeys: boolean; idea_notes: boolean }
 
 export interface ZoteroMapping { library: string; collection_key: string; name: string; campaign_id: string; project?: string }
 
@@ -672,10 +681,108 @@ export interface ZoteroStatus {
   options?: ZoteroOptions
   last_sync?: number | null
   last_error?: string
-  last_report?: { collections?: number; seen?: number; added?: number; vouched?: number; pdfs?: number; notes?: number; pushed?: number; problems?: string[] }
+  last_report?: { collections?: number; seen?: number; added?: number; vouched?: number; pdfs?: number; notes?: number; pushed?: number; idea_notes?: number; problems?: string[] }
   syncing?: boolean
   key_hint?: string
   mappings?: ZoteroMapping[]
 }
 
 export interface ZoteroCollection { library: string; collection_key: string; name: string; items: number; campaign_id: string | null }
+
+// ---------------------------------------------------------------------------
+// Brainstorm
+// ---------------------------------------------------------------------------
+
+export type CardType = 'idea' | 'question' | 'material' | 'note'
+export type Relation = 'supports' | 'challenges' | 'builds on' | 'asks about' | 'related'
+export type Activity = 'off' | 'moderate' | 'high'
+
+export interface BsCard {
+  card_id: string
+  space: string
+  owner: string
+  owner_name: string
+  type: CardType
+  text: string
+  stand: string
+  by: string
+  by_name: string
+  vis: 'private' | 'project'
+  answer: string
+  answered_by: string
+  answered_by_name?: string
+  paper_id: string
+  run_id: string
+  chat_id: string
+  live: boolean
+  mine: boolean
+  created_at: number
+  paper?: { key: string; title: string; byline: string; doi: string; arxiv_id: string; url: string; found_in: string[] }
+}
+
+export interface BsLink { from_card: string; to_card: string; rel: Relation }
+
+export interface BsChat {
+  chat_id: string
+  space: string
+  owner: string
+  owner_name: string
+  title: string
+  vis: 'private' | 'project'
+  run_id: string
+  focus: string
+  mine: boolean
+  updated_at: number
+  /** A live round table's state: preparing, item 2 of 3, decided, finished. */
+  status?: string
+}
+
+export interface BsMessage {
+  msg_id: string
+  chat_id: string
+  who: string
+  who_name: string
+  agent: boolean
+  mine: boolean
+  kind: 'text' | 'consent' | 'system'
+  text: string
+  steps: string[]
+  effects: [string, string][]
+  only_for: string
+  consent: string
+  decided: string
+  pending: boolean
+  created_at: number
+  attachments?: BsAttachment[]
+}
+
+export type BsAttachment = { kind: 'paper'; paper_id: string; label?: string } | { kind: 'file'; path: string; label?: string }
+
+export interface BsSuggestion {
+  sug_id: string
+  by: string
+  kind: 'open' | 'evidence' | 'combine' | 'caveat' | 'worked'
+  short: string
+  act: string
+  cards: string[]
+  paper_id: string
+  created_at: number
+}
+
+export interface BsSpace {
+  space: string
+  key: string
+  name: string
+  project: boolean
+  can_write: boolean
+  chats: BsChat[]
+  cards: BsCard[]
+  links: BsLink[]
+  activity: Activity
+  members: { user_id: string; name: string }[]
+  agents: Record<string, { initials: string; role: string }>
+  runs: number
+  papers: number
+  threads: Record<string, number>
+  suggestions: BsSuggestion[]
+}

@@ -9,20 +9,20 @@ Papers enter only once they are verified; a flagged reference stays a flag until
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from aurora.auth.guard import current_user, require, visible
-from aurora.literature.bibtex import parse as parse_bibtex
-from aurora.literature.bibtex import to_bibtex
+from aurora.literature.bibtex import parse_any, to_bibtex
 from aurora.literature.check import Reference
 from aurora.literature.indexes import INDEX_NAMES
 from aurora.literature.library import IMPORT_RULES, library
-from aurora.literature.records import Paper, clean_text
+from aurora.literature.records import Paper, clean_arxiv, clean_doi, clean_text
 from aurora.literature.service import ProjectLiterature
 
 project_router = APIRouter(prefix="/api/campaigns", tags=["literature"])
@@ -42,10 +42,14 @@ def _owner() -> str:
     return current_user().user_id
 
 
-def _rule() -> str:
+def _rule(campaign_id: str = "") -> str:
+    """Papers the agents find: the project's own setting, else the console's default."""
+    own = library.project_rule(campaign_id) if campaign_id else ""
+    if own:
+        return own
     from aurora.api.routes.campaigns import base_config
     try:
-        return base_config().literature.add_found
+        return (base_config().get("literature") or {}).get("add_found") or "cited"
     except Exception:
         return "cited"
 
@@ -113,7 +117,11 @@ def _literature(campaign_id: str) -> dict[str, Any]:
                "used_in": uses.get(i["paper_id"], []), "in_zotero": i["paper_id"] in in_zotero,
                "notes": [{"kind": n["kind"], "text": n["text"], "comment": n["comment"], "page": n["page"],
                           "by": _person(n["owner"])} for n in notes.get(i["paper_id"], [])],
-               "pdf_file": pdfs.get(stored[i["paper_id"]]["key"], "")}
+               "pdf_file": pdfs.get(stored[i["paper_id"]]["key"], ""),
+               "cited_version": i.get("cited_version") or 0,
+               "newer_version": bool(i.get("cited_version") and stored[i["paper_id"]]["paper"].arxiv_version > i["cited_version"]),
+               "arxiv_version": stored[i["paper_id"]]["paper"].arxiv_version,
+               "arxiv_comment": stored[i["paper_id"]]["paper"].arxiv_comment}
               for i in items if i["paper_id"] in stored]
     refs = []
     for r in library.refs(campaign_id):
@@ -129,7 +137,8 @@ def _literature(campaign_id: str) -> dict[str, Any]:
     for s in searches:      # the list shows the searches; their papers come with GET .../searches/{id}
         s.pop("papers")
     open_refs = [r for r in refs if not r["resolution"]]
-    return {"rule": _rule(), "papers": papers, "refs": refs, "searches": searches, "zotero": zotero,
+    return {"rule": _rule(campaign_id), "rule_own": bool(library.project_rule(campaign_id)), "default_rule": _rule(),
+            "papers": papers, "refs": refs, "searches": searches, "zotero": zotero,
             "counts": {"papers": len(papers), "flagged": len(open_refs),
                        "checked": sum(1 for p in papers if p["found_in"]), "searches": len(searches)}}
 
@@ -308,16 +317,16 @@ async def recheck_ref(campaign_id: str, ref_id: str) -> dict[str, Any]:
 
 
 class BibImport(BaseModel):
-    bibtex: str
+    bibtex: str           # BibTeX or RIS
 
 
 @project_router.post(L + "/import")
 async def import_bibtex(campaign_id: str, body: BibImport) -> dict[str, Any]:
-    """Import a .bib file: every entry is checked; the ones found go in, the others are listed."""
+    """Import a .bib or .ris file: every entry is checked; the ones found go in, the others are listed."""
     _project(campaign_id)
-    entries = parse_bibtex(body.bibtex)
+    entries = parse_any(body.bibtex)
     if not entries:
-        raise HTTPException(400, "No BibTeX entries found")
+        raise HTTPException(400, "No BibTeX or RIS entries found")
     if len(entries) > 500:
         raise HTTPException(400, "At most 500 entries at a time")
     lit = ProjectLiterature(campaign_id)
@@ -329,6 +338,86 @@ async def import_bibtex(campaign_id: str, body: BibImport) -> dict[str, Any]:
                        "title": result.paper.title if result.paper else ref.title})
     return {"entries": report, "added": sum(r["status"] == "verified" for r in report),
             "literature": _literature(campaign_id)}
+
+
+class Many(BaseModel):
+    text: str             # DOIs, arXiv IDs or links, one per line (or separated by spaces or commas)
+
+
+@project_router.post(L + "/papers/many")
+async def add_many(campaign_id: str, body: Many) -> dict[str, Any]:
+    """Add papers by pasting their DOIs or arXiv IDs; each is checked."""
+    _project(campaign_id)
+    items = [x.strip().strip(".,;") for x in re.split(r"[\s,;]+", body.text) if x.strip()]
+    items = [x for x in items if clean_doi(x) or clean_arxiv(x) or "arxiv.org" in x][:200]
+    if not items:
+        raise HTTPException(400, "No DOI or arXiv ID found")
+    lit = ProjectLiterature(campaign_id)
+    report = []
+    for x in items:
+        result = await lit.add(Reference(text=x), by=_who())
+        report.append({"cite_key": x, "status": result.status, "reason": result.reason,
+                       "key": library.upsert_paper(result.paper)["key"] if result.paper else "",
+                       "title": result.paper.title if result.paper else ""})
+    return {"entries": report, "added": sum(r["status"] == "verified" for r in report), "literature": _literature(campaign_id)}
+
+
+@project_router.post(L + "/upload")
+async def upload_pdf(campaign_id: str, request: Request, name: str = "paper.pdf") -> dict[str, Any]:
+    """Upload a PDF: it is recognised (DOI, arXiv ID or title), checked, and kept in the project's papers/."""
+    _project(campaign_id)
+    data = await request.body()
+    if not data.startswith(b"%PDF"):
+        raise HTTPException(400, "That is not a PDF")
+    if len(data) > 80 * 1024 * 1024:
+        raise HTTPException(400, "The PDF is larger than 80 MB")
+    from aurora.api.routes.files import project_files_dir
+    from aurora.literature.pdfs import identify
+    ref = identify(data, name)
+    lit = ProjectLiterature(campaign_id)
+    result = await lit.add(ref, by=_who(), source="upload")
+    folder = project_files_dir(campaign_id) / "papers"
+    folder.mkdir(parents=True, exist_ok=True)
+    if result.verified and result.paper is not None:
+        key = library.upsert_paper(result.paper)["key"]
+        target = folder / f"{key}.pdf"
+    else:
+        # kept as the person's own paper (vouched for), under its file name
+        stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", re.sub(r"\.pdf$", "", name, flags=re.I))[:80] or "paper"
+        target = folder / f"{stem}.pdf"
+        rid = library.record_ref(campaign_id, result, by=_who())
+        library.resolve_ref(rid, "have", decided_by=f"{_who()} (uploaded the PDF)")
+        key = ""
+    target.write_bytes(data)
+    return {"check": result.to_dict(), "added": result.verified, "key": key, "file": f"papers/{target.name}",
+            "recognised_as": ref.to_dict(), "literature": _literature(campaign_id)}
+
+
+class Rule(BaseModel):
+    add_found: str        # all | cited | none | '' (the console's default)
+
+
+@project_router.put(L + "/rule")
+async def set_rule(campaign_id: str, body: Rule) -> dict[str, Any]:
+    """The project's own rule for the papers agents find (runs can still choose their own)."""
+    _project(campaign_id)
+    if body.add_found not in ("", *IMPORT_RULES):
+        raise HTTPException(400, "add_found must be all, cited, none or empty")
+    library.set_project_rule(campaign_id, body.add_found)
+    return _literature(campaign_id)
+
+
+class Version(BaseModel):
+    version: int          # the arXiv version to cite (0: the latest)
+
+
+@project_router.put(L + "/papers/{paper_id}/version")
+async def cite_version(campaign_id: str, paper_id: str, body: Version) -> dict[str, Any]:
+    entry = library.paper(paper_id)
+    if entry is None or not library.has_item(campaign_id, paper_id):
+        raise HTTPException(404, "The paper is not in this project's literature")
+    library.set_cited_version(campaign_id, paper_id, body.version or entry["paper"].arxiv_version)
+    return _literature(campaign_id)
 
 
 @project_router.get(L + "/export.bib", response_class=PlainTextResponse)

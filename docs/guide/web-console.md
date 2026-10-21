@@ -118,6 +118,13 @@ search the agents ran. The **Library** (the book icon) holds your own papers and
 the literature of the projects you can see, and searches the scholarly indexes.
 See [Literature](../concepts/literature.md).
 
+## Brainstorm
+
+The lightbulb opens the brainstorm space: think out loud with the Skeptic,
+Methods and the Librarian, keep ideas as arguments (evidence for, against, open
+questions, next steps), and turn one into an experiment proposal. See
+[Brainstorm](../concepts/brainstorm.md).
+
 ## Search, Analytics and Settings
 
 The bar on the left also opens:

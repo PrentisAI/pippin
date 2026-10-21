@@ -187,7 +187,8 @@ class ProjectLiterature:
         result = await check(ref, self.idx)
         if result.verified and result.paper is not None:
             stored = library.upsert_paper(result.paper)
-            library.add_item(self.campaign_id, stored["paper_id"], source=source, added_by=by, owner=owner)
+            library.add_item(self.campaign_id, stored["paper_id"], source=source, added_by=by, owner=owner,
+                             cited_version=ref.arxiv_version)
         return result
 
     # ------------------------------------------------------------------ what a run cited

@@ -21,7 +21,16 @@ from typing import Any
 
 import httpx
 
-from aurora.literature.records import Paper, clean_arxiv, clean_doi, clean_text, clean_title, fold, merge_all
+from aurora.literature.records import (
+    Paper,
+    arxiv_version,
+    clean_arxiv,
+    clean_doi,
+    clean_text,
+    clean_title,
+    fold,
+    merge_all,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +155,8 @@ def _arxiv_papers(xml: str) -> list[Paper]:
         raise Unreachable(f"arXiv answered with something that is not a feed: {exc}") from exc
     out = []
     for e in root.findall("a:entry", _ATOM):
-        aid = clean_arxiv(e.findtext("a:id", "", _ATOM))
+        raw_id = e.findtext("a:id", "", _ATOM)
+        aid = clean_arxiv(raw_id)
         title = clean_title(e.findtext("a:title", "", _ATOM))
         if not aid or not title or title.lower() == "error":
             continue
@@ -160,6 +170,7 @@ def _arxiv_papers(xml: str) -> list[Paper]:
             venue=e.findtext("arxiv:journal_ref", "", _ATOM) or "arXiv",
             doi=doi, arxiv_id=aid, url=f"https://arxiv.org/abs/{aid}", pdf_url=pdf,
             abstract=" ".join(e.findtext("a:summary", "", _ATOM).split()), found_in=["arxiv"],
+            arxiv_version=arxiv_version(raw_id), arxiv_comment=" ".join(e.findtext("arxiv:comment", "", _ATOM).split()),
         ))
     return out
 

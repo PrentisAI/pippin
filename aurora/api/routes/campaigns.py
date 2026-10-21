@@ -569,6 +569,8 @@ async def delete_campaign(campaign_id: str, delete_files: bool = False) -> dict[
     auth_store.drop_project(campaign_id)
     from aurora.literature.library import library
     library.drop_project(campaign_id)
+    from aurora.brainstorm.store import bs_store
+    bs_store.drop_space(campaign_id)
     auth_store.log(current_user().user_id, "deleted a project", campaign_id)
     return {"ok": True, "campaign_id": campaign_id, "files_deleted": delete_files}
 
@@ -590,6 +592,7 @@ class StartExperimentRequest(BaseModel):
     data_paths: list[str] = []         # older name of inputs
     autonomy_mode: str = ""            # supervised | autonomous
     ideation_mode: str = ""            # roundtable | independent
+    ideation_live: bool = False        # the round table runs live in the project's brainstorm space
     add_found: str = ""                # literature.add_found: all | cited | none
     max_cost_usd: float | None = None
     mock_mode: bool | None = None
@@ -640,8 +643,12 @@ def _experiment_config(campaign: CampaignState, run_id: str, req: StartExperimen
         raw.setdefault("human", {})["autonomy"] = req.autonomy_mode
     if req.ideation_mode:
         raw.setdefault("ideation", {})["mode"] = req.ideation_mode
-    if req.add_found:
-        raw.setdefault("literature", {})["add_found"] = req.add_found
+    if req.ideation_live:
+        raw.setdefault("ideation", {}).update({"live": True, "mode": "roundtable"})
+    from aurora.literature.library import library
+    add_found = req.add_found or library.project_rule(campaign.campaign_id)
+    if add_found:
+        raw.setdefault("literature", {})["add_found"] = add_found
     # an explicit null in the request means no cost limit
     max_cost = req.max_cost_usd if "max_cost_usd" in req.model_fields_set else default_max_cost()
     raw.setdefault("budget", {})["max_cost_usd"] = max_cost
@@ -691,9 +698,16 @@ async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any,
     engine.extra_frontdesk_tools = _run_tools(campaign) + _run_control_tools(run)
     run.engine = engine
     run.finished_desks = {}
+    # brainstorm with me: the meeting, live in the project's brainstorm space
+    meeting = None
+    if getattr(config.ideation, "live", False):
+        from aurora.brainstorm.live import LiveMeeting
+        meeting = LiveMeeting(campaign.campaign_id, run.run_id, run.task_name, run.started_by)
 
     async def mirror(event: Any) -> None:
         name, data = event.name, event.data
+        if meeting is not None:
+            await meeting.on_event(name, data)
         if name == "phase_started":
             run.phase = data.get("phase", run.phase)
             store.update_experiment(run.run_id, status="running", phase=run.phase)
@@ -1583,6 +1597,7 @@ class ConfirmProposalBody(BaseModel):
     models: dict[str, Any] | None = None   # per-role model overrides from the card's advanced settings
     autonomy_mode: str = ""
     ideation_mode: str = ""             # roundtable | independent; empty: the proposal's
+    ideation_live: bool | None = None   # brainstorm with me; None: the proposal's
     add_found: str = ""                 # papers the agents find: all | cited | none; empty: the default
     max_cost_usd: float | None = None   # null: no limit; omitted: the proposal's default
     cpus: float | None = None           # container limits; empty: the base config's
@@ -1608,7 +1623,8 @@ async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProp
         model=body.model or p.get("model", ""),
         skip_phases=body.skip_phases if body.skip_phases is not None else proposal.suggested_skip,
         ideation_mode=body.ideation_mode or p.get("ideation_mode", ""),
-        add_found=body.add_found,
+        ideation_live=body.ideation_live if body.ideation_live is not None else bool(p.get("ideation_live")),
+        add_found=body.add_found or p.get("add_found", ""),
         # what the card says, over what the front desk proposed
         models={**(p.get("models") or {}), **(body.models or {})} or None,
         autonomy_mode=body.autonomy_mode or p.get("autonomy_mode", ""),
@@ -1623,6 +1639,7 @@ async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProp
         "experiment_id": result["experiment_id"],
         "skip_phases": result["skip_phases"],
         "ideation_mode": cfg.ideation.mode if cfg else req.ideation_mode,
+        "ideation_live": cfg.ideation.live if cfg else req.ideation_live,
         "add_found": cfg.literature.add_found if cfg else req.add_found,
         "max_cost_usd": cfg.budget.max_cost_usd if cfg else req.max_cost_usd,
         "autonomy_mode": cfg.human.autonomy.value if cfg else req.autonomy_mode,

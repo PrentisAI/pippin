@@ -185,6 +185,17 @@ async def delete_project_file(campaign_id: str, path: str) -> dict[str, Any]:
     return {"ok": True, "path": path}
 
 
+@router.get("/{campaign_id}/files/raw")
+async def raw_project_file(campaign_id: str, path: str) -> Any:
+    """A project file as it is (to open a PDF, say)."""
+    from fastapi.responses import FileResponse
+    c._ensure_campaign(campaign_id)
+    target = _inside(project_files_dir(campaign_id), clean_rel(path))
+    if not target.is_file():
+        raise HTTPException(404, "No such file")
+    return FileResponse(target, filename=target.name, content_disposition_type="inline")
+
+
 def read_preview(path: Path, limit: int = 20000) -> dict[str, Any]:
     """The start of a text file (for the front desk and the console), or a note for a binary one."""
     with open(path, "rb") as fh:
