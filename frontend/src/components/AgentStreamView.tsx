@@ -310,6 +310,25 @@ function describeEvent(event: StreamEvent): Described {
     case 'agent_reply_to_human':
       return system('info', `Agent replied: ${str(d.text)}`)
 
+    // -- literature ------------------------------------------------------------------
+    case 'literature_search': {
+      const failed = Array.isArray(d.failed) && d.failed.length ? ` (${(d.failed as string[]).join(', ')} did not answer)` : ''
+      return system('muted', `${str(d.by)} searched the literature: “${clip(str(d.query), 120)}” · ${String(d.found ?? 0)} papers${failed}`,
+        str(d.context) || undefined)
+    }
+    case 'references_checked': {
+      const verified = Array.isArray(d.verified) ? (d.verified as string[]) : []
+      if (!d.flagged && !(Array.isArray(d.unknown) && d.unknown.length)) {
+        return system('muted', `${str(d.by)}: ${verified.length} reference${verified.length === 1 ? '' : 's'} checked, all found`, verified.join(', ') || undefined)
+      }
+      return { lane: 'hidden', tone: 'muted', text: '' }
+    }
+    case 'reference_flagged': {
+      const what = d.status === 'mismatch' ? 'its identifier names another paper' : d.status === 'unchecked' ? 'could not be checked yet' : 'not found in any index'
+      return system('warning', `${str(d.by)} cited “${clip(str(d.label), 120)}”: ${what}`,
+        [str(d.reason), d.closest_key ? `Closest real paper: [${str(d.closest_key)}]` : '', 'Decide on the project’s Literature page.'].filter(Boolean).join('\n'))
+    }
+
     default:
       return system('muted', event.event_type.replace(/_/g, ' '))
   }

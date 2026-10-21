@@ -72,6 +72,18 @@ Multi-agent ideation: several models propose directions and a chair decides.
 | `ideation.chair_prompt` | str | `""` | System prompt of the chair. Empty: built-in. |
 | `ideation.seat_prompt` | str | `""` | System prompt of the seats. Empty: built-in. '{seat_id}' is replaced by the seat ID. |
 
+## `literature`
+
+Real literature: agents search the scholarly indexes and every reference they cite is checked.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `literature.enabled` | bool | `true` | Search OpenAlex, arXiv, Crossref and Semantic Scholar for the agents (ideation seats choose their own queries; screening looks for the closest prior work), check every reference they cite, and keep the papers in the project's literature. Free; needs network access from the server. Turn it off when evaluating ideation on known problems. |
+| `literature.add_found` | `all` \| `cited` \| `none` | `"cited"` | Papers the agents find: 'all' puts every paper a search finds into the project's literature; 'cited' only the papers an agent cites (the rest wait in their search); 'none' nothing by itself, you add papers from the searches. A paper that cannot be found in any index is never added. |
+| `literature.queries_per_turn` | int | `3` | Ideation: searches a seat may run before it presents or answers remarks (0: none). |
+| `literature.results_per_query` | int | `6` | Papers shown to the agent per search. |
+| `literature.screening_search` | bool | `true` | Screening judges novelty against the closest prior work found in the indexes. |
+
 ## `agent`
 
 Limits of the Claude Code sessions that do the work.

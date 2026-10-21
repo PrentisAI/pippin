@@ -57,6 +57,7 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
     from aurora.api.routes.campaigns import campaign_router, settings_router, store
     from aurora.api.routes.files import router as files_router
     from aurora.api.routes.insights import router as insights_router
+    from aurora.api.routes.literature import library_router, project_router
     from aurora.api.routes.skills import router as skills_router
     from aurora.auth.guard import guard
 
@@ -64,7 +65,7 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
     # only signing in and invitations are open
     app.include_router(auth_router)
     for router in (campaign_router, settings_router, skills_router, insights_router, files_router,
-                   me_router, team_router, access_router):
+                   me_router, team_router, access_router, project_router, library_router):
         app.include_router(router, dependencies=[Depends(guard)])
 
     @app.on_event("startup")

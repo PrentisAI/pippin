@@ -68,13 +68,15 @@ class IdeaScreener:
     # Single proposal
     # ------------------------------------------------------------------
 
-    async def screen(self, proposal: RoundtableProposal) -> IdeaScore:
+    async def screen(self, proposal: RoundtableProposal, prior_work: str = "") -> IdeaScore:
         """Score a single proposal.
 
         Parameters
         ----------
         proposal:
             The roundtable proposal to evaluate.
+        prior_work:
+            The closest prior work found in the scholarly indexes (a Markdown section), if any.
 
         Returns
         -------
@@ -83,7 +85,7 @@ class IdeaScreener:
             explanation.  The ``composite`` field is recalculated
             server-side to guarantee the canonical weighting.
         """
-        user_content = _format_proposal(proposal)
+        user_content = _format_proposal(proposal) + (f"\n\n{prior_work}" if prior_work else "")
         messages = [Message.user(user_content)]
 
         logger.debug(

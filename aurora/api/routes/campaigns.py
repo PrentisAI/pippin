@@ -567,6 +567,8 @@ async def delete_campaign(campaign_id: str, delete_files: bool = False) -> dict[
     from aurora.auth.guard import current_user
     from aurora.auth.store import auth_store
     auth_store.drop_project(campaign_id)
+    from aurora.literature.library import library
+    library.drop_project(campaign_id)
     auth_store.log(current_user().user_id, "deleted a project", campaign_id)
     return {"ok": True, "campaign_id": campaign_id, "files_deleted": delete_files}
 
@@ -588,6 +590,7 @@ class StartExperimentRequest(BaseModel):
     data_paths: list[str] = []         # older name of inputs
     autonomy_mode: str = ""            # supervised | autonomous
     ideation_mode: str = ""            # roundtable | independent
+    add_found: str = ""                # literature.add_found: all | cited | none
     max_cost_usd: float | None = None
     mock_mode: bool | None = None
     cpus: float | None = None          # sandbox.cpus
@@ -637,6 +640,8 @@ def _experiment_config(campaign: CampaignState, run_id: str, req: StartExperimen
         raw.setdefault("human", {})["autonomy"] = req.autonomy_mode
     if req.ideation_mode:
         raw.setdefault("ideation", {})["mode"] = req.ideation_mode
+    if req.add_found:
+        raw.setdefault("literature", {})["add_found"] = req.add_found
     # an explicit null in the request means no cost limit
     max_cost = req.max_cost_usd if "max_cost_usd" in req.model_fields_set else default_max_cost()
     raw.setdefault("budget", {})["max_cost_usd"] = max_cost
@@ -1578,6 +1583,7 @@ class ConfirmProposalBody(BaseModel):
     models: dict[str, Any] | None = None   # per-role model overrides from the card's advanced settings
     autonomy_mode: str = ""
     ideation_mode: str = ""             # roundtable | independent; empty: the proposal's
+    add_found: str = ""                 # papers the agents find: all | cited | none; empty: the default
     max_cost_usd: float | None = None   # null: no limit; omitted: the proposal's default
     cpus: float | None = None           # container limits; empty: the base config's
     memory_mb: int | None = None
@@ -1602,6 +1608,7 @@ async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProp
         model=body.model or p.get("model", ""),
         skip_phases=body.skip_phases if body.skip_phases is not None else proposal.suggested_skip,
         ideation_mode=body.ideation_mode or p.get("ideation_mode", ""),
+        add_found=body.add_found,
         # what the card says, over what the front desk proposed
         models={**(p.get("models") or {}), **(body.models or {})} or None,
         autonomy_mode=body.autonomy_mode or p.get("autonomy_mode", ""),
@@ -1616,6 +1623,7 @@ async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProp
         "experiment_id": result["experiment_id"],
         "skip_phases": result["skip_phases"],
         "ideation_mode": cfg.ideation.mode if cfg else req.ideation_mode,
+        "add_found": cfg.literature.add_found if cfg else req.add_found,
         "max_cost_usd": cfg.budget.max_cost_usd if cfg else req.max_cost_usd,
         "autonomy_mode": cfg.human.autonomy.value if cfg else req.autonomy_mode,
         "models": cfg.models.model_dump() if cfg else (req.models or {}),
@@ -1823,6 +1831,7 @@ async def get_settings() -> dict[str, Any]:
         "models": cfg.models.model_dump(),
         "autonomy_mode": cfg.human.autonomy.value,
         "ideation_mode": cfg.ideation.mode,
+        "literature": {"enabled": cfg.literature.enabled, "add_found": cfg.literature.add_found},
         "max_cost_usd": default_max_cost(),
         "max_parallel_jobs": cfg.agent.max_parallel_jobs,
         "sandbox": {"docker": cfg.sandbox.docker, "cpus": cfg.sandbox.cpus, "memory_mb": cfg.sandbox.memory_mb,

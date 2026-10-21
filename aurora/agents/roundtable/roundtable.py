@@ -48,7 +48,7 @@ class Roundtable:
     """Runs the group meeting and returns the proposal for the chosen direction."""
 
     def __init__(self, config: AuroraConfig, router: LLMRouter, progress: Progress | None = None,
-                 state_path: Path | None = None) -> None:
+                 state_path: Path | None = None, literature=None) -> None:
         self._progress = progress
         self._state_path = Path(state_path) if state_path else None
         self._state: dict = {}
@@ -67,6 +67,10 @@ class Roundtable:
         ]
         for seat in self._seats:
             seat.on_progress = self._seat_progress if progress is not None else None
+            # the project's literature: seats search the indexes and their references are checked
+            seat.literature = literature
+            seat.max_queries = config.literature.queries_per_turn
+            seat.results_per_query = config.literature.results_per_query
         self._chair = RoundtableChair(router, custom_system_prompt=ideation.chair_prompt)
 
     @property

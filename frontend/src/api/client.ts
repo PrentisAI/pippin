@@ -1,4 +1,4 @@
-import type { ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -245,8 +245,36 @@ export const api = {
       request<{ ok: boolean }>(`/campaigns/${campaignId}/files/uploaded`, post({ names })),
   },
 
+  literature: {
+    get: (cid: string) => request<ProjectLiterature>(`/campaigns/${cid}/literature`),
+    searchDetail: (cid: string, sid: string) => request<LitSearch>(`/campaigns/${cid}/literature/searches/${sid}`),
+    search: (cid: string, query: string) => request<LitSearch>(`/campaigns/${cid}/literature/search`, post({ query })),
+    add: (cid: string, body: { text?: string; title?: string; authors?: string; year?: number; doi?: string; arxiv_id?: string }) =>
+      request<{ check: LitCheck; added: boolean; key: string; literature: ProjectLiterature }>(`/campaigns/${cid}/literature/papers`, post(body)),
+    addKnown: (cid: string, paper_ids: string[], search_id = '') =>
+      request<{ added: number; literature: ProjectLiterature }>(`/campaigns/${cid}/literature/papers/add`, post({ paper_ids, search_id })),
+    star: (cid: string, pid: string, starred: boolean) => request<ProjectLiterature>(`/campaigns/${cid}/literature/papers/${pid}`, put({ starred })),
+    remove: (cid: string, pid: string) => request<ProjectLiterature>(`/campaigns/${cid}/literature/papers/${pid}`, del),
+    decide: (cid: string, refId: string, action: 'replace' | 'remove' | 'have' | 'reopen', paper_id = '') =>
+      request<ProjectLiterature>(`/campaigns/${cid}/literature/refs/${refId}`, post({ action, paper_id })),
+    recheck: (cid: string, refId: string) =>
+      request<{ status: string; literature: ProjectLiterature }>(`/campaigns/${cid}/literature/refs/${refId}/recheck`, post()),
+    importBib: (cid: string, bibtex: string) =>
+      request<{ entries: { cite_key: string; status: string; reason: string; key: string; title: string }[]; added: number; literature: ProjectLiterature }>(
+        `/campaigns/${cid}/literature/import`, post({ bibtex })),
+    exportUrl: (cid: string) => `${BASE_URL}/campaigns/${cid}/literature/export.bib`,
+  },
+  library: {
+    get: () => request<LibraryView>('/library'),
+    search: (query: string) => request<LitSearch>('/library/search', post({ query })),
+    add: (body: { text?: string; title?: string; doi?: string; arxiv_id?: string }) =>
+      request<{ check: LitCheck; added: boolean; key: string }>('/library/papers', post(body)),
+    save: (paper_id: string, campaign_id = '') => request<{ added: boolean }>('/library/save', post({ paper_id, campaign_id })),
+    remove: (paper_id: string) => request<{ ok: boolean }>(`/library/papers/${paper_id}`, del),
+  },
   proposals: {
     confirm: (campaignId: string, proposalId: string, body: {
+      add_found?: AddFound
       skip_phases?: string[]
       model?: string
       max_cost_usd?: number | null

@@ -49,10 +49,14 @@ ideation:
   web_search: true        # seats search the literature (OpenRouter web plugin); the default
 ```
 
-Seats search the literature while they prepare and answer (OpenRouter's web
-plugin, a small extra cost per call). Turn `web_search` off when evaluating
-ideation on known problems, so ideas cannot simply be looked up; the paper's
-evaluation scripts do so.
+Before a seat presents, and before it answers remarks on its idea, it chooses
+search queries. AURORA runs them on the scholarly indexes and gives the seat the
+papers found. Every reference a seat cites is checked, and one that cannot be
+found is marked unsupported for everyone at the meeting (see
+[Literature](literature.md)). With `web_search`, seats can also search the web
+through OpenRouter's web plugin, for data sources and documentation; this costs a
+little extra per call. Turn both off when evaluating ideation on known problems,
+so ideas cannot simply be looked up; the paper's evaluation scripts do so.
 
 ## Choosing the mode
 

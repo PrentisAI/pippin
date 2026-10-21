@@ -207,6 +207,7 @@ export interface ConfirmedSettings {
   experiment_id: string
   skip_phases: Phase[]
   ideation_mode?: IdeationMode
+  add_found?: AddFound
   max_cost_usd?: number | null
   autonomy_mode?: AutonomyMode | string | null
   models?: Partial<Record<string, string | string[]>>
@@ -293,6 +294,8 @@ export interface ConsoleSettings {
   models: ModelSettings
   autonomy_mode: AutonomyMode
   ideation_mode: IdeationMode
+  /** Searching and checking papers, and the default rule for papers the agents find. */
+  literature?: { enabled: boolean; add_found: AddFound }
   max_cost_usd: number | null
   max_parallel_jobs: number
   sandbox: { docker: boolean; cpus: number; memory_mb: number; host_cpus: number; host_memory_mb: number }
@@ -532,4 +535,113 @@ export interface ProjectAccess {
   perm_labels: Record<Perm, string>
   team_access_options: string[]
   team: string
+}
+
+// ---------------------------------------------------------------------------
+// Literature
+// ---------------------------------------------------------------------------
+
+/** How papers the agents find enter a project's literature. */
+export type AddFound = 'all' | 'cited' | 'none'
+
+/** A real paper (it was found in a scholarly index). */
+export interface LitPaper {
+  paper_id: string
+  key: string
+  title: string
+  authors: string[]
+  year: number | null
+  venue: string
+  doi: string
+  arxiv_id: string
+  url: string
+  pdf_url: string
+  abstract: string
+  cited_by: number | null
+  cites_per_year: number | null
+  /** The indexes it was found in. */
+  found_in: string[]
+  byline: string
+}
+
+/** A paper in a project's literature. */
+export interface LitItem extends LitPaper {
+  source: string
+  source_label: string
+  added_by: string
+  search_id: string
+  starred: boolean
+  added_at: number
+  used_in: string[]
+}
+
+export interface LitReference {
+  title: string
+  authors: string
+  year: number | null
+  doi: string
+  arxiv_id: string
+  text: string
+}
+
+/** A reference that could not be verified. */
+export interface LitFlag {
+  ref_id: string
+  status: 'not_found' | 'mismatch' | 'unchecked'
+  reference: LitReference
+  reason: string
+  searched: string[]
+  by: string
+  run_id: string
+  resolution: '' | 'replaced' | 'removed' | 'have'
+  decided_by: string
+  created_at: number
+  closest: LitPaper | null
+  replaced_by: string
+  used_in: string[]
+}
+
+export interface LitSearch {
+  search_id: string
+  run_id: string
+  by: string
+  context: string
+  query: string
+  created_at: number
+  reached: string[]
+  failed: string[]
+  found: number
+  cited: number
+  in_library: number
+  papers?: (LitPaper & { cited: boolean; in_library: boolean; projects?: string[] })[]
+}
+
+export interface ProjectLiterature {
+  rule: AddFound
+  papers: LitItem[]
+  refs: LitFlag[]
+  searches: LitSearch[]
+  counts: { papers: number; flagged: number; checked: number; searches: number }
+}
+
+export interface LitCheck {
+  status: 'verified' | 'not_found' | 'mismatch' | 'unchecked'
+  reference: LitReference
+  paper: Omit<LitPaper, 'paper_id' | 'key' | 'cites_per_year' | 'byline'> | null
+  closest: Omit<LitPaper, 'paper_id' | 'key' | 'cites_per_year' | 'byline'> | null
+  searched: string[]
+  failed: string[]
+  reason: string
+}
+
+export interface LibraryPaper extends LitPaper {
+  projects: { campaign_id: string; name: string }[]
+  mine: boolean
+  added_at: number
+}
+
+export interface LibraryView {
+  papers: LibraryPaper[]
+  projects: { campaign_id: string; name: string }[]
+  rule: AddFound
 }

@@ -285,6 +285,34 @@ class IdeationConfig(_Section):
     )
 
 
+class LiteratureConfig(_Section):
+    """Real literature: agents search the scholarly indexes and every reference they cite is checked."""
+
+    enabled: bool = Field(
+        default=True,
+        description="Search OpenAlex, arXiv, Crossref and Semantic Scholar for the agents (ideation seats "
+                    "choose their own queries; screening looks for the closest prior work), check every "
+                    "reference they cite, and keep the papers in the project's literature. Free; needs "
+                    "network access from the server. Turn it off when evaluating ideation on known problems.",
+    )
+    add_found: Literal["all", "cited", "none"] = Field(
+        default="cited",
+        description="Papers the agents find: 'all' puts every paper a search finds into the project's "
+                    "literature; 'cited' only the papers an agent cites (the rest wait in their search); "
+                    "'none' nothing by itself, you add papers from the searches. A paper that cannot be "
+                    "found in any index is never added.",
+    )
+    queries_per_turn: int = Field(
+        default=3, ge=0, le=6,
+        description="Ideation: searches a seat may run before it presents or answers remarks (0: none).",
+    )
+    results_per_query: int = Field(default=6, ge=1, le=20, description="Papers shown to the agent per search.")
+    screening_search: bool = Field(
+        default=True,
+        description="Screening judges novelty against the closest prior work found in the indexes.",
+    )
+
+
 class AgentConfig(_Section):
     """Limits of the Claude Code sessions that do the work."""
 
@@ -620,6 +648,7 @@ class AuroraConfig(_Section):
 
     models: ModelConfig = Field(default_factory=ModelConfig)
     ideation: IdeationConfig = Field(default_factory=IdeationConfig)
+    literature: LiteratureConfig = Field(default_factory=LiteratureConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)
@@ -659,6 +688,7 @@ class AuroraConfig(_Section):
         )
         self.ideation.seats = [sc.model_copy(update={"model": ""}) for sc in self.ideation.seats]
         self.ideation.web_search = False
+        self.literature.enabled = False
         self.sandbox.docker = False
         self.audit.live = False
         self.human.frontdesk = False

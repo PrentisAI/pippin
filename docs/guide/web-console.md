@@ -110,6 +110,14 @@ would land outside it are skipped). A file may be up to 20 GB and a project's
 files 200 GB (`uploads.max_file_gb`, `uploads.max_project_gb`, also in
 *Settings*); uploads also stop when the disk is nearly full.
 
+## Literature and the Library
+
+A project's **Literature** tab lists the papers the agents cited, the references
+that could not be found in any index (with what to do about each), and every
+search the agents ran. The **Library** (the book icon) holds your own papers and
+the literature of the projects you can see, and searches the scholarly indexes.
+See [Literature](../concepts/literature.md).
+
 ## Search, Analytics and Settings
 
 The bar on the left also opens:

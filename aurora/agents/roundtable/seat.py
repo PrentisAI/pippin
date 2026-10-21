@@ -16,6 +16,7 @@ import logging
 import re
 import time
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -53,8 +54,8 @@ discussion on the science.
 ## Evidence discipline
 Ground claims in: (1) experiment results in the briefing (cite the idea_id and the finding); \
 (2) mental-model beliefs in the briefing (cite the belief); (3) published literature or data you \
-actually found (give the URL or DOI). Anything beyond these must be flagged '(my claim, unverified)'. \
-Keep what sources say separate from your own reasoning.{search_note}
+actually found ({cite_how}). Anything beyond these must be flagged '(my claim, unverified)'. \
+Keep what sources say separate from your own reasoning.{search_note}{papers_note}
 
 You're welcome to bring relevant knowledge, methods and ideas from adjacent fields---or even distant \
 but structurally related ones---to bear on this question."""
@@ -62,6 +63,24 @@ but structurally related ones---to bear on this question."""
 SEARCH_NOTE = (" When preparing and when answering remarks on your own work you can search the web; use it to "
                "check what is already known and to verify claims.")
 SEARCH_TURNS = {"presentation", "response"}
+
+PAPERS_NOTE = """
+
+## Papers
+Before you write a presentation or answer remarks on it, AURORA searches the scholarly indexes (OpenAlex, \
+arXiv, Crossref, Semantic Scholar) with queries you choose and gives you what it found. Cite a paper from \
+those results or from the project's literature by its key in square brackets, e.g. [Behrens12]. Cite any \
+other paper as [ref: title; first author; year; DOI or arXiv ID if you know it]. Every reference is \
+checked against the indexes; one that is not found is marked unsupported for everyone at the meeting, \
+so cite only papers you have reason to think exist and say what they show."""
+
+QUERIES = """You are about to write your {what}. Which published work do you need to look at first: what is already \
+known, the closest prior work, methods or data you would use, evidence for or against a claim? Reply \
+with up to {n} search queries for a scholarly search engine, one per line, each starting with \
+'SEARCH: ' (a few specific words, as you would type them into Google Scholar). Reply NONE if you need \
+nothing new."""
+
+_QUERY = re.compile(r"^\s*SEARCH:\s*(.+?)\s*$", re.I | re.M)
 
 PREPARE = """\
 BEFORE THE MEETING. Look into what is already known about the topic, then prepare a short presentation:
@@ -293,6 +312,11 @@ class RoundtableSeat(Agent):
         self._web_search = web_search
         self._max_tokens = max_tokens
         self.cost = 0.0
+        # the project's literature (aurora.literature.service.ProjectLiterature): with it the seat
+        # searches the indexes before it presents or answers, and its references are checked
+        self.literature: Any = None
+        self.max_queries = 3
+        self.results_per_query = 6
         # Called as ``on_progress(event, **data)``: ``ideation_stream`` while a turn is being written
         # (the text so far, every STREAM_INTERVAL s) and ``ideation_turn`` when it is done.
         self.on_progress: Callable[..., Awaitable[None]] | None = None
@@ -313,9 +337,65 @@ class RoundtableSeat(Agent):
 
     def system_prompt(self) -> str:
         base = self._custom_system_prompt or SEAT_SYSTEM_PROMPT
-        return base.replace("{seat_id}", self._agent_id).replace(
-            "{search_note}", SEARCH_NOTE if self._web_search and "/" in self.model_id else ""
-        )
+        papers = self.literature is not None
+        if papers and "{papers_note}" not in base:
+            base += "{papers_note}"
+        return (base.replace("{seat_id}", self._agent_id)
+                .replace("{search_note}", SEARCH_NOTE if self._web_search and "/" in self.model_id else "")
+                .replace("{cite_how}", "cite papers by their key, see Papers below" if papers else "give the URL or DOI")
+                .replace("{papers_note}", PAPERS_NOTE if papers else ""))
+
+    async def _papers_for(self, parts: list[str], kind: str, round_number: int) -> str:
+        """Ask the seat what to search for, search, and return the papers as a briefing section."""
+        lit = self.literature
+        what = "presentation" if kind == "presentation" else "answers to the remarks on your presentation"
+        try:
+            response = await self._router.generate(
+                PipelineStage.ROUNDTABLE_SEAT,
+                [Message.system(self.system_prompt()),
+                 Message.user("\n\n".join(parts) + "\n\n## Before you write\n\n"
+                              + QUERIES.format(what=what, n=self.max_queries))],
+                seat_index=self._seat_index, temperature=0.3, max_tokens=2000,
+            )
+        except Exception:
+            logger.warning("%s: choosing search queries failed", self._agent_id, exc_info=True)
+            return ""
+        self.cost += response_cost(response)
+        queries = [q.strip(" \"'") for q in _QUERY.findall(response.content or "")][: self.max_queries]
+        if not queries:
+            return ""
+        context = (f"Ideation · {self._agent_id}'s presentation" if kind == "presentation"
+                   else f"Ideation · {self._agent_id}'s answers (round {round_number})")
+        cards: list[str] = []
+        seen: set[str] = set()
+        for q in queries:
+            try:
+                found = await lit.search(q, by=self._agent_id, context=context, limit=self.results_per_query)
+            except Exception:
+                logger.warning("%s: literature search failed", self._agent_id, exc_info=True)
+                continue
+            fresh = [e for e in found if e["paper_id"] not in seen]
+            seen.update(e["paper_id"] for e in fresh)
+            if fresh:
+                from aurora.literature.service import paper_card
+                cards.append(f"Search: “{q}”\n" + "\n".join(paper_card(e) for e in fresh))
+            else:
+                cards.append(f"Search: “{q}”\n(nothing found)")
+        return ("## Papers found for your searches\n\nCite them by key, e.g. [" +
+                next((c.split("[", 1)[1].split("]", 1)[0] for c in cards if "[" in c), "Key00") + "]. "
+                "These are real papers from the indexes; abstracts are shortened.\n\n" + "\n\n".join(cards))
+
+    async def _check_references(self, content: str, kind: str, round_number: int, agenda_item: str) -> str:
+        """Check the references in a turn; the note (if any) is added to the turn for everyone to see."""
+        place = {"presentation": "presentation", "response": f"answers, round {round_number}",
+                 "remarks": f"remarks on {agenda_item or 'an item'}", "open": "open discussion"}.get(kind, kind)
+        try:
+            cites = await self.literature.check_text(content, by=self._agent_id,
+                                                     place=f"Ideation ({self._agent_id}, {place})")
+        except Exception:
+            logger.warning("%s: checking references failed", self._agent_id, exc_info=True)
+            return ""
+        return cites.note() if not cites.clean else ""
 
     def briefing(self, context: AgentContext, topic: str) -> str:
         return f"## Briefing\n\n{self._format_context(context)}\n\n## Topic\n\n{topic}"
@@ -325,6 +405,10 @@ class RoundtableSeat(Agent):
         parts = [self.briefing(context, topic)]
         if transcript:
             parts.append(f"## Meeting transcript so far\n\n{transcript}")
+        if self.literature is not None and kind in SEARCH_TURNS:
+            papers = await self._papers_for(parts, kind, round_number)
+            if papers:
+                parts.append(papers)
         parts.append(f"## Your turn (you are {self._agent_id})\n\n{instructions}")
         # the web plugin is OpenRouter's (vendor/model IDs); other providers search nothing
         searchable = "/" in self.model_id
@@ -351,6 +435,10 @@ class RoundtableSeat(Agent):
             raise
         self.cost += response_cost(response)
         content = response.content.strip()
+        if self.literature is not None and content and not is_pass(content):
+            note = await self._check_references(content, kind, round_number, agenda_item)
+            if note:
+                content = f"{content}\n\n{note}"
         if self.on_progress:
             try:
                 await self.on_progress("ideation_turn", **turn, content=content,

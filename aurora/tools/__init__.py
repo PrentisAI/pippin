@@ -33,8 +33,7 @@ def create_tool_registry(config: AuroraConfig) -> ToolRegistry:
     from aurora.tools.visualization import VisualizationTool
     registry.register(AnalysisTool())
     registry.register(VisualizationTool())
-    for register in (_register_mock_ase, _register_mock_dft, _register_mock_mlip,
-                     _register_mock_hpc, _register_mock_literature):
+    for register in (_register_mock_ase, _register_mock_dft, _register_mock_mlip, _register_mock_hpc):
         register(registry)
     return registry
 
@@ -74,10 +73,3 @@ def _register_mock_hpc(registry: ToolRegistry) -> None:
     except Exception as exc:
         logger.debug("Could not register MockHPCTool: %s", exc)
 
-
-def _register_mock_literature(registry: ToolRegistry) -> None:
-    try:
-        from aurora.tools.literature import MockLiteratureTool
-        registry.register(MockLiteratureTool())
-    except Exception as exc:
-        logger.debug("Could not register MockLiteratureTool: %s", exc)

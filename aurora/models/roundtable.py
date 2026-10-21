@@ -75,6 +75,8 @@ class RoundtableProposal(BaseModel):
     falsification_check: str = ""
     unresolved_disagreements: list[str] = Field(default_factory=list)
     meeting_notes: list[dict] = Field(default_factory=list)
+    # library keys of the real papers the proposal cites (aurora.literature)
+    references: list[str] = Field(default_factory=list)
     decision: dict = Field(default_factory=dict)
     contributions: list[SeatContribution] = Field(
         default_factory=list,

@@ -13,11 +13,18 @@ def isolated_home(tmp_path, monkeypatch):
     monkeypatch.setattr(requirements, "available_models", lambda *a, **k: None)
     from aurora.api.routes import campaigns, skills
     from aurora.auth.store import auth_store
+    from aurora.literature import indexes
+    from aurora.literature.library import library
     auth_store.reset()
+    library.reset()
+    indexes.clear_cache()
+    # no network: the scholarly indexes are asked only by tests that bring their own
+    monkeypatch.setattr(indexes, "_shared", indexes.Indexes(use=()))
     campaigns.store.reset()
     campaigns._campaigns.clear()
     skills._store = None
     yield tmp_path
     auth_store.reset()
+    library.reset()
     campaigns.store.reset()
     skills._store = None

@@ -267,6 +267,8 @@ class ResearchEngine:
         self.notifier: Any = None
         # cluster jobs of the research agents (aurora.compute.slurm.SlurmCompute), when enabled
         self.compute: Any = None
+        # the project's literature (aurora.literature.service.ProjectLiterature); made on first use
+        self._literature: Any = None
         self._stopped_by_user = False
         self._budget_warned = False
 
@@ -1712,6 +1714,53 @@ Be specific: cite file names and concrete observations.
             "path": str(path),
         })
 
+    @property
+    def literature(self) -> Any:
+        """The project's literature, or None when searching and checking papers is off."""
+        lit = self._config.literature
+        if not lit.enabled or self._config.mock_mode:
+            return None
+        if self._literature is None:
+            from aurora.literature.service import ProjectLiterature
+            # without the web console a run is its own project
+            self._literature = ProjectLiterature(
+                self.project_id or f"run:{self._config.campaign_id}", run_id=self._config.campaign_id,
+                rule=lit.add_found, publish=self._publish)
+        return self._literature
+
+    async def _cite(self, text: str, by: str, place: str) -> Any:
+        """Check the references in a text an agent wrote (None when literature is off)."""
+        if self.literature is None or not text.strip():
+            return None
+        try:
+            return await self.literature.check_text(text, by=by, place=place)
+        except Exception:
+            logger.warning("Checking the references of %s failed", place, exc_info=True)
+            return None
+
+    async def _prior_work(self, proposal: RoundtableProposal) -> str:
+        """The closest prior work in the indexes, for judging novelty (empty when off or nothing found)."""
+        if self.literature is None or not self._config.literature.screening_search:
+            return ""
+        from aurora.literature.service import paper_card
+        queries = [proposal.title, " ".join((proposal.hypothesis or proposal.description).split()[:25])]
+        seen: dict[str, dict] = {}
+        for q in [q for q in queries if q.strip()]:
+            try:
+                for e in await self.literature.search(q, by="Screening", context="Screening · closest prior work",
+                                                      limit=self._config.literature.results_per_query):
+                    seen.setdefault(e["paper_id"], e)
+            except Exception:
+                logger.warning("Searching prior work failed", exc_info=True)
+        cited = [k for k in proposal.references]
+        if not seen and not cited:
+            return ""
+        cards = "\n".join(paper_card(e, abstract_words=80) for e in list(seen.values())[:10])
+        return ("## Closest prior work (from OpenAlex, arXiv, Crossref and Semantic Scholar)\n\n"
+                "Judge novelty against these real papers: say which one comes closest and what the proposal "
+                "adds beyond it. Cite them by key, e.g. [Key21]." + (f" The proposal itself cites: {', '.join(cited)}."
+                                                                      if cited else "") + f"\n\n{cards}")
+
     async def _run_roundtable(self, guidance: str = "") -> RoundtableProposal:
         """Multi-agent ideation (roundtable or independent selection, see ``ideation.mode``)."""
         assert self._router is not None
@@ -1721,13 +1770,18 @@ Be specific: cite file names and concrete observations.
         await self._publish("phase_started", phase="ideation", mode=self._config.ideation.mode,
                             seats=self._config.models.ideation_seats)
         ctx = self._build_agent_context(artifacts)
-        topic = artifacts.current_goal if artifacts else self._config.objective
+        topic = (artifacts.current_goal if artifacts else "") or self._config.objective
         if guidance:
             topic = f"{topic}\n\nGuidance for this round: {guidance}"
         rt = Roundtable(config=self._config, router=self._router, progress=self._publish,
                         state_path=self._workspace.phase_round_dir("ideation", self._current_round)
-                        / "meeting_state.json")
+                        / "meeting_state.json", literature=self.literature)
         proposal = await rt.run(ctx, topic=topic)
+        cites = await self._cite("\n".join([proposal.description, proposal.hypothesis, *proposal.proposed_methods,
+                                            *proposal.alternatives_considered, proposal.falsification_check or ""]),
+                                 by="Ideation", place="Proposal")
+        if cites is not None:
+            proposal = proposal.model_copy(update={"references": cites.verified})
 
         self._workspace.atomic_write_json(
             self._workspace.proposal_path(proposal.proposal_id, self._current_round),
@@ -1748,15 +1802,17 @@ Be specific: cite file names and concrete observations.
         """Screen the proposal for novelty, feasibility, and significance."""
         await self._publish("phase_started", phase="screening")
 
+        prior = await self._prior_work(proposal)
         if self._should_use_agent_session():
-            score = await self._run_screening_agent(proposal)
+            score = await self._run_screening_agent(proposal, prior)
         else:
             assert self._router is not None
             screener = IdeaScreener(
                 self._router,
                 system_prompt=self._config.prompts.screening,
             )
-            score = await screener.screen(proposal)
+            score = await screener.screen(proposal, prior_work=prior)
+        await self._cite(score.explanation, by="Screening", place="Screening")
 
         proposal = proposal.model_copy(
             update={
@@ -1774,7 +1830,7 @@ Be specific: cite file names and concrete observations.
         return proposal
 
     async def _run_screening_agent(
-        self, proposal: RoundtableProposal
+        self, proposal: RoundtableProposal, prior_work: str = ""
     ) -> IdeaScore:
         """Run screening via Claude Code agent session."""
         assert self._workspace is not None
@@ -1789,7 +1845,8 @@ Be specific: cite file names and concrete observations.
             f"**Research Questions**: {proposal.research_questions}\n"
             f"**Proposed Methods**: {proposal.proposed_methods}\n"
             f"**Expected Outcomes**: {proposal.expected_outcomes}\n\n"
-            f"Evaluate this proposal and write your screening verdict as JSON to:\n"
+            + (f"{prior_work}\n\n" if prior_work else "")
+            + f"Evaluate this proposal and write your screening verdict as JSON to:\n"
             f"  {score_path}\n\n"
             f"The JSON must have this structure:\n"
             f'{{"novelty": 0-10, "feasibility": 0-10, "significance": 0-10, '
@@ -2798,6 +2855,8 @@ Be specific: cite file names and concrete observations.
         version = max(versions, default=0) + 1
         if ms_path is None:
             ms_path = str(self._workspace.manuscript_path(version))
+        elif Path(ms_path).exists():
+            await self._reference_list(Path(ms_path))
 
         await self._publish(
             "writing_complete",
@@ -2805,6 +2864,37 @@ Be specific: cite file names and concrete observations.
             path=ms_path,
         )
         return ms_path
+
+    def _papers_brief(self) -> str:
+        """The real papers this run cited so far, for the writer (empty when literature is off)."""
+        if self.literature is None:
+            return ""
+        entries = self.literature.bibliography(self._config.campaign_id)
+        if not entries:
+            return ""
+        from aurora.literature.service import paper_card
+        return ("## Literature\n\nThese papers were cited in this run and are verified (found in the scholarly "
+                "indexes). Cite them as [Key]. Do not cite other papers unless you are sure they exist: every "
+                "reference in the report is checked, and the reference list is added for you from the keys you "
+                "cite (do not write your own).\n\n" + "\n".join(paper_card(e, abstract_words=40) for e in entries))
+
+    async def _reference_list(self, ms_path: Path) -> None:
+        """Check the report's references and append its reference list (and references.bib)."""
+        text = ms_path.read_text(errors="replace")
+        cites = await self._cite(text, by="Writing", place="Report")
+        if cites is None or not cites.verified:
+            return
+        from aurora.literature.bibtex import to_bibtex
+        from aurora.literature.library import library
+        entries = [e for e in (library.paper(k) for k in cites.verified) if e]
+        lines = [f"- **[{e['key']}]** {e['paper'].byline()}. {e['paper'].title.rstrip('.')}."
+                 + (f" https://doi.org/{e['paper'].doi}" if e["paper"].doi
+                    else f" arXiv:{e['paper'].arxiv_id}" if e["paper"].arxiv_id else "") for e in entries]
+        if cites.flagged or cites.unknown_keys:
+            lines.append("\n*References that could not be found in any index are not listed; see the project's "
+                         "Literature page.*")
+        self._workspace.atomic_write_text(ms_path, text.rstrip() + "\n\n## References\n\n" + "\n".join(lines) + "\n")
+        self._workspace.atomic_write_text(ms_path.parent / "references.bib", to_bibtex(entries))
 
     async def _run_writing_api(self) -> str | None:
         """Run writing via single-shot API call (fallback)."""
@@ -2847,7 +2937,8 @@ Be specific: cite file names and concrete observations.
             f"## Research objective\n{self._config.objective}\n\n"
             f"{self._results_summary()}\n\n"
             f"{self._understanding_text()}\n\n"
-            "## Instructions\n"
+            + (f"{self._papers_brief()}\n\n" if self._papers_brief() else "")
+            + "## Instructions\n"
             "Write the report of this campaign. Read the results, figures and data (in the container "
             "under /app, and in the campaign directory) and the analysis verdicts. Report what was found "
             "with its evidence and uncertainty; include refuted hypotheses and open questions; do not "

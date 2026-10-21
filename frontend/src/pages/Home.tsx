@@ -13,6 +13,8 @@ import { ScopePicker, type ScopeValue } from '../components/SkillScope'
 import { WorkspacePanel } from '../components/WorkspacePanel'
 import { ShareDialog } from '../components/ShareDialog'
 import { TeamView } from '../components/TeamView'
+import { LiteratureView, RULE_HINTS, RULE_LABELS, RuleSelect } from '../components/LiteratureView'
+import { LibraryView } from '../components/LibraryView'
 import { AccountButton } from '../components/AccountMenu'
 import { useAuth } from '../auth'
 import { ClusterJobsPanel } from '../components/ClusterJobsPanel'
@@ -28,6 +30,7 @@ import {
   type ExperimentDetail,
   type ExperimentEventRecord,
   type ExperimentSummary,
+  type AddFound,
   type AutonomyMode,
   type ConfirmedSettings,
   type ConsoleSettings,
@@ -135,6 +138,9 @@ const ExplorerIcon = () => (
 const TeamIcon = () => (
   <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0111 0"/><path d="M16 5.2a3 3 0 010 5.6M17.5 14a5 5 0 013.5 5"/></svg>
 )
+const BooksIcon = () => (
+  <svg viewBox="0 0 24 24"><path d="M4 4h4v16H4zM10 4h4v16h-4z"/><path d="M16.5 4.6l3.8-1 3.7 15.5-3.8.9z" transform="translate(-2 1)"/></svg>
+)
 const ShareIcon = () => svgIcon(<><circle cx="18" cy="5" r="2.5" /><circle cx="6" cy="12" r="2.5" /><circle cx="18" cy="19" r="2.5" /><path d="M8.2 10.9l7.6-4.4M8.2 13.1l7.6 4.4" /></>)
 const SkillsIcon = () => (
   <svg viewBox="0 0 24 24"><path d="M20 16V8a2 2 0 00-2-2h-3a3 3 0 00-6 0H6a2 2 0 00-2 2v3a3 3 0 000 6v3a2 2 0 002 2h3a3 3 0 006 0h3a2 2 0 002-2v-3a3 3 0 000-6z"/></svg>
@@ -172,6 +178,9 @@ const PlusIcon = () => svgIcon(<><path d="M12 5v14" /><path d="M5 12h14" /></>, 
 const FileIcon = () => svgIcon(<><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></>)
 const ClipIcon = () => svgIcon(<path d="M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9" />)
 
+/** A page that takes the main area instead of a project. */
+type MainPage = 'team' | 'library' | null
+
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).map((x) => x[0]).join('').slice(0, 2).toUpperCase() || '?'
 }
@@ -195,27 +204,28 @@ function sharedMark(c: CampaignSummary) {
 function ActivityBar({
   activePanel,
   explorerActive,
-  teamActive,
+  page,
   onTogglePanel,
-  onOpenTeam,
+  onOpenPage,
 }: {
   activePanel: string
   explorerActive: boolean
-  teamActive: boolean
+  page: MainPage
   onTogglePanel: (panel: string) => void
-  onOpenTeam: () => void
+  onOpenPage: (page: MainPage) => void
 }) {
   return (
     <div className="activity-bar">
       <button className={`ab-btn${activePanel === 'projects' ? ' active' : ''}`} title="Projects" onClick={() => onTogglePanel('projects')}><FolderIcon /></button>
+      <button className={`ab-btn${page === 'library' ? ' active' : ''}`} title="Library" onClick={() => onOpenPage(page === 'library' ? null : 'library')}><BooksIcon /></button>
       <button className={`ab-btn${activePanel === 'search' ? ' active' : ''}`} title="Search" onClick={() => onTogglePanel('search')}><SearchIcon /></button>
       <button className={`ab-btn${activePanel === 'analytics' ? ' active' : ''}`} title="Analytics" onClick={() => onTogglePanel('analytics')}><ChartIcon /></button>
       <button className={`ab-btn${explorerActive ? ' active' : ''}`} title="Explorer" onClick={() => onTogglePanel('explorer')}><ExplorerIcon /></button>
       <button className={`ab-btn${activePanel === 'skills' ? ' active' : ''}`} title="Skills" onClick={() => onTogglePanel('skills')}><SkillsIcon /></button>
       <button className={`ab-btn${activePanel === 'settings' ? ' active' : ''}`} title="Settings" onClick={() => onTogglePanel('settings')}><SettingsIcon /></button>
       <div className="ab-spacer" />
-      <button className={`ab-btn${teamActive ? ' active' : ''}`} title="Team" onClick={onOpenTeam}><TeamIcon /></button>
-      <AccountButton onOpenTeam={onOpenTeam} />
+      <button className={`ab-btn${page === 'team' ? ' active' : ''}`} title="Team" onClick={() => onOpenPage(page === 'team' ? null : 'team')}><TeamIcon /></button>
+      <AccountButton onOpenTeam={() => onOpenPage('team')} />
     </div>
   )
 }
@@ -498,6 +508,7 @@ function ChatArea({
 
   const fetchHistory = useCallback(async () => {
     try {
+      if (activeTab === 'literature') return
       if (!isProjectTab) {
         const history = await api.expChat.history(campaignId, activeTab)
         setMessages(history)
@@ -654,8 +665,13 @@ function ChatArea({
             </div>
           )
         })}
+        <div className={`context-tab lit-tab${activeTab === 'literature' ? ' active' : ''}`} onClick={() => setActiveTab('literature')}>
+          <span className="tab-dot" style={{ background: activeTab === 'literature' ? 'var(--accent)' : 'var(--green)' }} />
+          Literature
+        </div>
       </div>
 
+      {activeTab === 'literature' ? <LiteratureView campaignId={campaignId} /> : <>
       {/* Chat messages (files can be dropped here) */}
       {chatPickers.inputs}
       {showFiles && (
@@ -801,6 +817,7 @@ function ChatArea({
           </span>
         </div>
       </div>
+      </>}
     </div>
   )
 }
@@ -1528,6 +1545,11 @@ function ProposalCard({
   const [skipPhases, setSkipPhases] = useState<Phase[]>(proposal.skip_phases)
   const [budget, setBudget] = useState<string>(proposal.max_cost_usd != null ? String(proposal.max_cost_usd) : '')
   const [ideationMode, setIdeationMode] = useState<IdeationMode>(proposal.params.ideation_mode ?? 'roundtable')
+  // papers the agents find: the console's default until the researcher picks
+  const consoleSettings = useConsoleSettings()
+  const [addFound, setAddFound] = useState<AddFound | null>(null)
+  const litOn = consoleSettings?.literature?.enabled ?? true
+  const rule: AddFound = addFound ?? consoleSettings?.literature?.add_found ?? 'cited'
   // the card starts from what the front desk put in from the conversation
   const [advanced, setAdvanced] = useState<AdvancedChoices>(() => ({
     autonomy: proposal.params.autonomy_mode ?? null,
@@ -1566,6 +1588,7 @@ function ProposalCard({
         skip_phases: skipPhases,
         max_cost_usd: maxCost,
         ideation_mode: ideationMode,
+        ...(addFound ? { add_found: addFound } : {}),
         ...(advanced.autonomy ? { autonomy_mode: advanced.autonomy } : {}),
         ...(Object.keys(advanced.models).length ? { models: advanced.models } : {}),
         ...(cpus !== null ? { cpus } : {}),
@@ -1577,6 +1600,7 @@ function ProposalCard({
         experiment_id: result.experiment_id,
         skip_phases: skipPhases,
         ideation_mode: ideationMode,
+        add_found: rule,
         max_cost_usd: maxCost,
         autonomy_mode: advanced.autonomy,
         models: advanced.models,
@@ -1672,6 +1696,14 @@ function ProposalCard({
             Independent <span className="proposal-hint">the chair picks one of the ideas; about 4× cheaper</span>
           </label>
         </div>
+      )}
+
+      {litOn && !(skipPhases.includes('ideation') && skipPhases.includes('screening')) && (
+        <label className="proposal-meta proposal-ideation">
+          <span>Papers the agents find:</span>
+          <RuleSelect value={rule} onChange={setAddFound} />
+          <span className="proposal-hint">{RULE_HINTS[rule]} Papers that cannot be found in any index are never added.</span>
+        </label>
       )}
 
       <AdvancedSettings
@@ -1773,7 +1805,7 @@ export default function Home() {
   const [notice, setNotice] = useState<string | null>(null)
   const [activePanel, setActivePanel] = useState<string>('projects')
   const [rightPanel, setRightPanel] = useState<string>('stream')
-  const [teamOpen, setTeamOpen] = useState(false)
+  const [page, setPage] = useState<MainPage>(null)
   const [sharing, setSharing] = useState<CampaignSummary | null>(null)
 
   const sidebarRef = useRef<HTMLDivElement>(null)
@@ -1800,7 +1832,7 @@ export default function Home() {
 
   // Sync state → URL
   const selectCampaign = useCallback((id: string) => {
-    setTeamOpen(false)
+    setPage(null)
     setActiveCampaignId(id)
     setActiveExperimentId(null)
     navigate(`/campaigns/${id}`, { replace: true })
@@ -1959,12 +1991,12 @@ export default function Home() {
   const activeCampaign = campaigns.find((c) => c.campaign_id === activeCampaignId) || null
 
   // Determine view
-  const view = teamOpen ? 'team' : !activeCampaignId ? 'welcome' : activeExperimentId ? 'experiment' : 'campaign'
+  const view = page ?? (!activeCampaignId ? 'welcome' : activeExperimentId ? 'experiment' : 'campaign')
 
   return (
     <div className="shell">
       <ActivityBar activePanel={activePanel} explorerActive={rightPanel === 'files'} onTogglePanel={handleTogglePanel}
-        teamActive={teamOpen} onOpenTeam={() => setTeamOpen(!teamOpen)} />
+        page={page} onOpenPage={setPage} />
 
       <SidebarPanel
         campaigns={campaigns}
@@ -1975,7 +2007,7 @@ export default function Home() {
         sidebarRef={sidebarRef}
         onSelectCampaign={selectCampaign}
         onNewProject={() => {
-          setTeamOpen(false)
+          setPage(null)
           setActiveCampaignId(null)
           setActiveExperimentId(null)
           navigate('/', { replace: true })
@@ -2026,6 +2058,7 @@ export default function Home() {
       <div className="main" style={{ position: 'relative' }}>
         <ErrorBanner message={notice} onDismiss={() => setNotice(null)} />
         {view === 'team' && <TeamView />}
+        {view === 'library' && <LibraryView onOpenProject={(cid) => { setPage(null); selectCampaign(cid) }} />}
         {view === 'welcome' && (
           <WelcomeView onSend={handleNewProject} />
         )}
@@ -2408,6 +2441,9 @@ function StartedProposal({
         <dt>Phases</dt><dd>{active.join(' → ')}</dd>
         {!skip.includes('ideation') && started?.ideation_mode && (
           <><dt>Ideation</dt><dd>{started.ideation_mode === 'independent' ? 'Independent' : 'Round table'}</dd></>
+        )}
+        {started?.add_found && (
+          <><dt>Papers found</dt><dd>{RULE_LABELS[started.add_found]}</dd></>
         )}
         {budget && <><dt>Budget</dt><dd>{budget}</dd></>}
         {started?.autonomy_mode && (

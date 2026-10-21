@@ -34,6 +34,9 @@ result = await engine.run_campaign()
 | `ideation_stream` | `seat`, `model`, `kind`, `item`, `round`, `text` (so far), `thinking` (end of the reasoning); about once a second while a seat writes a turn. Web console only, not stored |
 | `ideation_turn` | `seat`, `model`, `kind` (presentation, remarks, response, open), `item`, `round`, `content`, `citations`, `headline`; `error` if the turn failed |
 | `ideation_complete` | `proposal_id`, `title`, `hypothesis` |
+| `literature_search` | `search_id`, `by` (a seat, `Screening`), `query`, `context`, `found`, `reached` and `failed` (indexes that answered and did not) |
+| `references_checked` | `by`, `place`, `verified` (keys), `flagged` (count), `unknown` (keys that name no paper) |
+| `reference_flagged` | `by`, `place`, `ref_id`, `label`, `status` (not_found, mismatch, unchecked), `reason`, `closest_key` |
 | `resources_updated` | `cpus`, `memory_mb`, `old_cpus`, `old_memory_mb`, `live` |
 | `proposal_from_researcher` | `proposal_id`, `title`, `text` (the researcher's message at the screening gate), `basis` (the proposal they meant, or `new`), `basis_title`, `interpretation`, `changes`, `rerun` (phases it goes through first) |
 | `screening_skipped` | `proposal_id`, `reason` (the researcher's direction, developed by ideation, is not screened) |
