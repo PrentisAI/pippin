@@ -96,6 +96,14 @@ RULES: dict[tuple[str, str], str] = {
     ("POST", "/api/library/papers"): "any",
     ("POST", "/api/library/save"): "any",
     ("DELETE", "/api/library/papers/{paper_id}"): "any",
+    # each person's Zotero connection (mapping a collection to a project checks edit rights there)
+    ("GET", "/api/zotero"): "any",
+    ("PUT", "/api/zotero"): "any",
+    ("DELETE", "/api/zotero"): "any",
+    ("POST", "/api/zotero/connect"): "any",
+    ("GET", "/api/zotero/collections"): "any",
+    ("POST", "/api/zotero/sync"): "any",
+    ("POST", "/api/zotero/push/{campaign_id}"): "any",
     # console settings (the server's defaults); notification channels are each person's own
     ("GET", "/api/settings"): "any",
     ("PUT", "/api/settings"): "admin",

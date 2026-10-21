@@ -85,6 +85,19 @@ CREATE TABLE IF NOT EXISTS lit_refs (
     created_at  REAL NOT NULL,
     UNIQUE (campaign_id, sig)
 );
+CREATE TABLE IF NOT EXISTS lit_notes (     -- a person's highlights and notes on a paper (from Zotero)
+    campaign_id TEXT NOT NULL,              -- the project they reach ('' : the person's own library)
+    owner       TEXT NOT NULL,
+    paper_id    TEXT NOT NULL,
+    note_id     TEXT NOT NULL,              -- the source's ID (a Zotero item or annotation key)
+    kind        TEXT NOT NULL,              -- highlight | note
+    text        TEXT NOT NULL,
+    comment     TEXT NOT NULL DEFAULT '',
+    page        TEXT NOT NULL DEFAULT '',
+    source      TEXT NOT NULL DEFAULT 'zotero',
+    updated_at  REAL NOT NULL,
+    PRIMARY KEY (campaign_id, owner, paper_id, note_id)
+);
 CREATE TABLE IF NOT EXISTS lit_uses (
     campaign_id TEXT NOT NULL,
     run_id      TEXT NOT NULL DEFAULT '',
@@ -308,6 +321,30 @@ class LibraryStore:
         sig = ref_signature(ref)
         return next((r for r in self.refs(campaign_id) if r["sig"] == sig), None)
 
+    # ------------------------------------------------------------------ highlights and notes
+
+    def set_notes(self, campaign_id: str, owner: str, paper_id: str, notes: list[dict[str, Any]],
+                  source: str = "zotero") -> None:
+        """Replace a person's notes on a paper (as their source now has them)."""
+        with self._lock:
+            self._x("DELETE FROM lit_notes WHERE campaign_id=? AND owner=? AND paper_id=? AND source=?",
+                    (campaign_id, owner, paper_id, source))
+            now = time.time()
+            for n in notes:
+                self._x("INSERT OR REPLACE INTO lit_notes (campaign_id, owner, paper_id, note_id, kind, text, comment, "
+                        "page, source, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (campaign_id, owner, paper_id, n["note_id"], n["kind"], n["text"], n.get("comment", ""),
+                         n.get("page", ""), source, now))
+
+    def notes(self, campaign_id: str, paper_ids: list[str] | None = None) -> dict[str, list[dict[str, Any]]]:
+        """Highlights and notes that reach a project, by paper."""
+        rows = self._all("SELECT * FROM lit_notes WHERE campaign_id=? ORDER BY paper_id, page, updated_at", (campaign_id,))
+        out: dict[str, list[dict[str, Any]]] = {}
+        for r in rows:
+            if paper_ids is None or r["paper_id"] in paper_ids:
+                out.setdefault(r["paper_id"], []).append(r)
+        return out
+
     # ------------------------------------------------------------------ uses
 
     def record_use(self, campaign_id: str, place: str, *, paper_id: str = "", ref_id: str = "", run_id: str = "",
@@ -323,7 +360,7 @@ class LibraryStore:
     def drop_project(self, campaign_id: str) -> None:
         """Forget a deleted project's literature (the papers stay: other projects may have them)."""
         with self._lock:
-            for table in ("lit_items", "lit_refs", "lit_uses"):
+            for table in ("lit_items", "lit_refs", "lit_uses", "lit_notes"):
                 self._x(f"DELETE FROM {table} WHERE campaign_id=?", (campaign_id,))
             sids = [r["search_id"] for r in self._all("SELECT search_id FROM lit_searches WHERE campaign_id=?",
                                                        (campaign_id,))]

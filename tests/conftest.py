@@ -15,8 +15,10 @@ def isolated_home(tmp_path, monkeypatch):
     from aurora.auth.store import auth_store
     from aurora.literature import indexes
     from aurora.literature.library import library
+    from aurora.literature.zotero import zotero_store
     auth_store.reset()
     library.reset()
+    zotero_store.reset()
     indexes.clear_cache()
     # no network: the scholarly indexes are asked only by tests that bring their own
     monkeypatch.setattr(indexes, "_shared", indexes.Indexes(use=()))
@@ -26,5 +28,6 @@ def isolated_home(tmp_path, monkeypatch):
     yield tmp_path
     auth_store.reset()
     library.reset()
+    zotero_store.reset()
     campaigns.store.reset()
     skills._store = None

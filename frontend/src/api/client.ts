@@ -1,4 +1,4 @@
-import type { AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -263,6 +263,17 @@ export const api = {
       request<{ entries: { cite_key: string; status: string; reason: string; key: string; title: string }[]; added: number; literature: ProjectLiterature }>(
         `/campaigns/${cid}/literature/import`, post({ bibtex })),
     exportUrl: (cid: string) => `${BASE_URL}/campaigns/${cid}/literature/export.bib`,
+  },
+  zotero: {
+    get: () => request<ZoteroStatus>('/zotero'),
+    connect: (method: 'web' | 'local', api_key = '') => request<ZoteroStatus>('/zotero/connect', post({ method, api_key })),
+    collections: () => request<{ collections: ZoteroCollection[]; projects: { campaign_id: string; name: string }[]; suggested: boolean }>('/zotero/collections'),
+    save: (body: { mappings?: ZoteroMapping[]; options?: Partial<ZoteroOptions> }) => request<ZoteroStatus>('/zotero', put(body)),
+    sync: (campaignId = '', soon = false) =>
+      request<ZoteroStatus>(`/zotero/sync?campaign_id=${encodeURIComponent(campaignId)}${soon ? '&soon=true' : ''}`, post()),
+    disconnect: () => request<ZoteroStatus>('/zotero', del),
+    push: (campaignId: string, paper_ids: string[] = []) =>
+      request<{ pushed: number; problems: string[]; zotero: ZoteroStatus }>(`/zotero/push/${campaignId || 'library'}`, post({ paper_ids })),
   },
   library: {
     get: () => request<LibraryView>('/library'),

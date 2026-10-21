@@ -21,7 +21,7 @@ from typing import Any
 
 import httpx
 
-from aurora.literature.records import Paper, clean_arxiv, clean_doi, clean_title, fold, merge_all
+from aurora.literature.records import Paper, clean_arxiv, clean_doi, clean_text, clean_title, fold, merge_all
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ def _crossref_paper(m: dict[str, Any]) -> Paper:
         authors=authors, year=year,
         venue=(m.get("container-title") or [""])[0],
         doi=doi, url=f"https://doi.org/{doi}" if doi else m.get("URL", ""),
-        abstract=" ".join((m.get("abstract") or "").replace("<jats:p>", " ").replace("</jats:p>", " ").split()),
+        abstract=clean_text(m.get("abstract") or ""),
         cited_by=m.get("is-referenced-by-count"), found_in=["crossref"],
     )
 

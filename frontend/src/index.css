@@ -2853,3 +2853,12 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 .lib-proj { cursor: pointer; }
 .lib-save { display: inline-flex; gap: 6px; align-items: center; margin-left: auto; }
 .lib-save select, .proposal-ideation select { font: inherit; font-size: 11.5px; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); }
+.lit-zot { margin-left: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--green); }
+.lit-zot-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border: 1px dashed var(--accent-border); border-radius: 8px; font-size: 12px; color: var(--fg-muted); background: var(--bg-raised); }
+.lit-notes-list { display: flex; flex-direction: column; gap: 6px; margin: 0 0 8px; padding: 8px 10px; border-left: 3px solid var(--amber-border); background: var(--bg-raised); border-radius: 0 7px 7px 0; max-width: 90ch; }
+.lit-note { font-size: 12.5px; line-height: 1.55; }
+.lit-note.highlight q { background: var(--amber-dim); color: var(--fg-bright); quotes: '“' '”'; }
+.zot-map { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--border-subtle); font-size: 12px; color: var(--fg); }
+.zot-map select { font: inherit; font-size: 11.5px; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); max-width: 100%; }
+.zot-cols { max-height: 45vh; overflow-y: auto; }
+.lib-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }

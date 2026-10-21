@@ -6,6 +6,7 @@ available, the single-page console at ``/``.  Start it with ``aurora serve``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -59,13 +60,15 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
     from aurora.api.routes.insights import router as insights_router
     from aurora.api.routes.literature import library_router, project_router
     from aurora.api.routes.skills import router as skills_router
+    from aurora.api.routes.zotero import router as zotero_router
     from aurora.auth.guard import guard
 
     # every route checks who is asking and whether they may (aurora.auth.guard.RULES);
     # only signing in and invitations are open
     app.include_router(auth_router)
     for router in (campaign_router, settings_router, skills_router, insights_router, files_router,
-                   me_router, team_router, access_router, project_router, library_router):
+                   me_router, team_router, access_router, project_router, library_router,
+                   zotero_router):
         app.include_router(router, dependencies=[Depends(guard)])
 
     @app.on_event("startup")
@@ -81,6 +84,15 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
                 logger.info("Removed %d containers left behind by interrupted experiments", orphans)
         logger.info("AURORA API started; %d projects in %s",
                     len(store.list_campaigns()), store.data_dir)
+        # everyone's Zotero collections, every few minutes
+        from aurora.literature.zotero import sync_loop
+        app.state.zotero_sync = asyncio.create_task(sync_loop())
+
+    @app.on_event("shutdown")
+    async def shutdown() -> None:
+        task = getattr(app.state, "zotero_sync", None)
+        if task is not None:
+            task.cancel()
 
     @app.get("/api/health")
     async def health_check() -> dict[str, Any]:

@@ -22,7 +22,7 @@ from aurora.literature.bibtex import to_bibtex
 from aurora.literature.check import Reference
 from aurora.literature.indexes import INDEX_NAMES
 from aurora.literature.library import IMPORT_RULES, library
-from aurora.literature.records import Paper
+from aurora.literature.records import Paper, clean_text
 from aurora.literature.service import ProjectLiterature
 
 project_router = APIRouter(prefix="/api/campaigns", tags=["literature"])
@@ -59,7 +59,7 @@ def paper_view(entry: dict[str, Any]) -> dict[str, Any]:
     p: Paper = entry["paper"]
     return {"paper_id": entry["paper_id"], "key": entry["key"], "title": p.title, "authors": p.authors,
             "year": p.year, "venue": p.venue, "doi": p.doi, "arxiv_id": p.arxiv_id, "url": p.url,
-            "pdf_url": p.pdf_url, "abstract": p.abstract, "cited_by": p.cited_by,
+            "pdf_url": p.pdf_url, "abstract": clean_text(p.abstract), "cited_by": p.cited_by,
             "cites_per_year": p.cites_per_year(), "found_in": [INDEX_NAMES.get(i, i) for i in p.found_in],
             "byline": p.byline()}
 
@@ -86,15 +86,34 @@ def _search_view(s: dict[str, Any], in_library: set[str]) -> dict[str, Any]:
             "papers": rows}
 
 
+def _zotero(campaign_id: str) -> tuple[set[str], dict[str, Any] | None]:
+    """The papers in the asking person's Zotero, and their collection for this project (if any)."""
+    from aurora.literature.zotero import zotero_store
+    me = current_user().user_id
+    link = zotero_store.link(me)
+    if link is None:
+        return set(), None
+    maps = [m for m in zotero_store.maps(me) if m["campaign_id"] == campaign_id]
+    return zotero_store.papers_in(me), {
+        "connected": True, "collections": [m["name"] for m in maps], "can_send": link["method"] == "web" and bool(maps),
+        "last_sync": link["last_sync"], "last_error": link["last_error"]}
+
+
 def _literature(campaign_id: str) -> dict[str, Any]:
     uses, ref_uses = _uses_by(campaign_id)
     items = library.items(campaign_id)
     stored = library.papers([i["paper_id"] for i in items])
     in_library = {i["paper_id"] for i in items}
+    in_zotero, zotero = _zotero(campaign_id)
+    notes = library.notes(campaign_id)
+    pdfs = _pdfs(campaign_id)
     papers = [{**paper_view(stored[i["paper_id"]]), "source": i["source"],
                "source_label": SOURCE_LABELS.get(i["source"], i["source"]), "added_by": i["added_by"],
                "search_id": i["search_id"], "starred": bool(i["starred"]), "added_at": i["added_at"],
-               "used_in": uses.get(i["paper_id"], [])}
+               "used_in": uses.get(i["paper_id"], []), "in_zotero": i["paper_id"] in in_zotero,
+               "notes": [{"kind": n["kind"], "text": n["text"], "comment": n["comment"], "page": n["page"],
+                          "by": _person(n["owner"])} for n in notes.get(i["paper_id"], [])],
+               "pdf_file": pdfs.get(stored[i["paper_id"]]["key"], "")}
               for i in items if i["paper_id"] in stored]
     refs = []
     for r in library.refs(campaign_id):
@@ -110,9 +129,35 @@ def _literature(campaign_id: str) -> dict[str, Any]:
     for s in searches:      # the list shows the searches; their papers come with GET .../searches/{id}
         s.pop("papers")
     open_refs = [r for r in refs if not r["resolution"]]
-    return {"rule": _rule(), "papers": papers, "refs": refs, "searches": searches,
+    return {"rule": _rule(), "papers": papers, "refs": refs, "searches": searches, "zotero": zotero,
             "counts": {"papers": len(papers), "flagged": len(open_refs),
                        "checked": sum(1 for p in papers if p["found_in"]), "searches": len(searches)}}
+
+
+def _person(user_id: str) -> str:
+    if user_id in ("", "local"):
+        return "You"
+    from aurora.auth.store import auth_store
+    row = auth_store.get_user(user_id)
+    return row["name"] if row else "someone"
+
+
+def _pdfs(campaign_id: str) -> dict[str, str]:
+    """PDFs in the project's files under papers/, by the file's stem (a key or citation key)."""
+    from aurora.api.routes.files import project_files_dir
+    from aurora.literature.zotero import zotero_store
+    folder = project_files_dir(campaign_id) / "papers"
+    if not folder.is_dir():
+        return {}
+    files = {f.stem: f"papers/{f.name}" for f in folder.glob("*.pdf")}
+    # a PDF named by its Better BibTeX key belongs to the paper with that key
+    by_key: dict[str, str] = {}
+    keys = zotero_store.citekeys([i["paper_id"] for i in library.items(campaign_id)])
+    for pid, ck in keys.items():
+        entry = library.paper(pid)
+        if entry and ck in files:
+            by_key[entry["key"]] = files[ck]
+    return {**files, **by_key}
 
 
 # ---------------------------------------------------------------------------
@@ -289,9 +334,13 @@ async def import_bibtex(campaign_id: str, body: BibImport) -> dict[str, Any]:
 @project_router.get(L + "/export.bib", response_class=PlainTextResponse)
 async def export_bibtex(campaign_id: str) -> PlainTextResponse:
     _project(campaign_id)
+    from aurora.literature.zotero import zotero_store
     items = library.items(campaign_id)
     stored = library.papers([i["paper_id"] for i in items])
-    return PlainTextResponse(to_bibtex([stored[i["paper_id"]] for i in items if i["paper_id"] in stored]),
+    citekeys = zotero_store.citekeys(list(stored))       # Better BibTeX keys, where the papers have them
+    entries = [{**stored[i["paper_id"]], "key": citekeys.get(i["paper_id"], stored[i["paper_id"]]["key"])}
+               for i in items if i["paper_id"] in stored]
+    return PlainTextResponse(to_bibtex(entries),
                              media_type="application/x-bibtex",
                              headers={"Content-Disposition": f'attachment; filename="{campaign_id}.bib"'})
 
@@ -329,6 +378,10 @@ async def get_library() -> dict[str, Any]:
     for cid in projects:
         for item in library.items(cid):
             add(item, cid)
+    from aurora.literature.zotero import zotero_store
+    in_zotero = zotero_store.papers_in(me.user_id)
+    for pid, row in papers.items():
+        row["in_zotero"] = pid in in_zotero
     rows = sorted(papers.values(), key=lambda r: -r["added_at"])
     return {"papers": rows, "projects": [{"campaign_id": k, "name": v} for k, v in projects.items()],
             "rule": _rule(), "rules": list(IMPORT_RULES)}

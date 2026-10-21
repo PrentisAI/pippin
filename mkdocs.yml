@@ -33,6 +33,7 @@ nav:
       - Command line: guide/cli.md
       - Web console: guide/web-console.md
       - Accounts and sharing: guide/accounts.md
+      - Zotero: guide/zotero.md
       - Notifications: guide/notifications.md
       - Cluster jobs (SLURM): guide/cluster-jobs.md
       - Models and costs: guide/models-and-costs.md

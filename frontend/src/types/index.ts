@@ -573,6 +573,12 @@ export interface LitItem extends LitPaper {
   starred: boolean
   added_at: number
   used_in: string[]
+  /** In the asking person's Zotero. */
+  in_zotero?: boolean
+  /** Highlights and notes that reach the project (from someone's Zotero). */
+  notes?: { kind: 'highlight' | 'note'; text: string; comment: string; page: string; by: string }[]
+  /** Its PDF in the project's files, e.g. papers/behrens2012active.pdf. */
+  pdf_file?: string
 }
 
 export interface LitReference {
@@ -618,6 +624,8 @@ export interface LitSearch {
 
 export interface ProjectLiterature {
   rule: AddFound
+  /** The asking person's Zotero, for this project (null: not connected). */
+  zotero: { connected: boolean; collections: string[]; can_send: boolean; last_sync: number | null; last_error: string } | null
   papers: LitItem[]
   refs: LitFlag[]
   searches: LitSearch[]
@@ -637,6 +645,7 @@ export interface LitCheck {
 export interface LibraryPaper extends LitPaper {
   projects: { campaign_id: string; name: string }[]
   mine: boolean
+  in_zotero?: boolean
   added_at: number
 }
 
@@ -645,3 +654,28 @@ export interface LibraryView {
   projects: { campaign_id: string; name: string }[]
   rule: AddFound
 }
+
+// ---------------------------------------------------------------------------
+// Zotero
+// ---------------------------------------------------------------------------
+
+export interface ZoteroOptions { pdfs: boolean; notes: boolean; push: boolean; citekeys: boolean }
+
+export interface ZoteroMapping { library: string; collection_key: string; name: string; campaign_id: string; project?: string }
+
+export interface ZoteroStatus {
+  connected: boolean
+  method?: 'web' | 'local'
+  username?: string
+  can_write?: boolean
+  files?: boolean
+  options?: ZoteroOptions
+  last_sync?: number | null
+  last_error?: string
+  last_report?: { collections?: number; seen?: number; added?: number; vouched?: number; pdfs?: number; notes?: number; pushed?: number; problems?: string[] }
+  syncing?: boolean
+  key_hint?: string
+  mappings?: ZoteroMapping[]
+}
+
+export interface ZoteroCollection { library: string; collection_key: string; name: string; items: number; campaign_id: string | null }

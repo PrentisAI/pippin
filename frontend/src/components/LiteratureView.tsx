@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, describeError } from '../api/client'
 import type { AddFound, LitFlag, LitItem, LitPaper, LitSearch, ProjectLiterature } from '../types'
+import { ZoteroDialog } from './ZoteroDialog'
 
 export const RULE_LABELS: Record<AddFound, string> = {
   cited: 'Add the papers they cite',
@@ -50,7 +51,7 @@ export function LiteratureView({ campaignId }: { campaignId: string }) {
   const [openSearch, setOpenSearch] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
-  const [dialog, setDialog] = useState<'add' | 'import' | null>(null)
+  const [dialog, setDialog] = useState<'add' | 'import' | 'zotero' | null>(null)
 
   const load = useCallback(() => {
     api.literature.get(campaignId).then(setLit).catch((err) => setMessage({ tone: 'error', text: describeError(err) }))
@@ -58,8 +59,10 @@ export function LiteratureView({ campaignId }: { campaignId: string }) {
   useEffect(() => {
     load()
     const timer = setInterval(load, 15000)       // agents add papers while a run goes on
+    // opening the page brings the person's Zotero collection for the project in step
+    api.zotero.sync(campaignId, true).then((z) => { if (z.syncing) setTimeout(load, 8000) }).catch(() => {})
     return () => clearInterval(timer)
-  }, [load])
+  }, [load, campaignId])
 
   const act = async (key: string, fn: () => Promise<ProjectLiterature | { literature: ProjectLiterature }>, ok?: string) => {
     setBusy(key)
@@ -84,7 +87,7 @@ export function LiteratureView({ campaignId }: { campaignId: string }) {
     <div className="lit-page">
       <div className="lit-toolbar">
         <div className="lit-chips" role="group" aria-label="Show">
-          {([['all', `All ${lit.papers.length + openFlags.length}`], ['checked', `Checked ${lit.counts.checked}`],
+          {([['all', `All ${lit.papers.length + openFlags.length + decided.filter((r) => r.resolution === 'have').length}`], ['checked', `Checked ${lit.counts.checked}`],
             ['flagged', `Not found ${openFlags.length}`], ['searches', `Searches ${lit.searches.length}`]] as const).map(([k, l]) => (
             <button key={k} className={`lit-chip${filter === k ? ' on' : ''}${k === 'flagged' && openFlags.length ? ' warn' : ''}`}
               aria-pressed={filter === k} onClick={() => { setFilter(k); setOpenSearch(null) }}>{l}</button>
@@ -93,12 +96,30 @@ export function LiteratureView({ campaignId }: { campaignId: string }) {
         <div className="lit-actions">
           <button className="btn-sm btn-modify" onClick={() => setDialog('add')}>Search and add</button>
           <button className="btn-sm lit-btn" onClick={() => setDialog('import')}>Import BibTeX</button>
+          <button className="btn-sm lit-btn" onClick={() => setDialog('zotero')}
+            title={lit.zotero ? (lit.zotero.collections.length ? `Synced with ${lit.zotero.collections.join(', ')}` : 'Connected; no collection goes with this project yet') : 'Connect your Zotero'}>
+            Zotero{lit.zotero ? (lit.zotero.collections.length ? ' ✓' : ' ·') : ''}</button>
           <a className="btn-sm lit-btn" href={api.literature.exportUrl(campaignId)} download>Export .bib</a>
         </div>
       </div>
       <div className="lit-rule">Papers the agents find: <b>{RULE_LABELS[lit.rule]}</b>. {RULE_HINTS[lit.rule]} The default is in
         Settings → Literature; each run’s proposal can change it.</div>
       {message && <div className={`panel-message ${message.tone}`} style={{ margin: '6px 0' }}>{message.text}</div>}
+      {lit.zotero?.last_error && <div className="panel-message error" style={{ margin: '6px 0' }}>Zotero: {lit.zotero.last_error}</div>}
+      {(() => {
+        const missing = lit.papers.filter((p) => !p.in_zotero)
+        return lit.zotero?.can_send && missing.length > 0 && (
+          <div className="lit-zot-banner">
+            <span>{missing.length} checked paper{missing.length === 1 ? ' is' : 's are'} not in your Zotero collection yet.</span>
+            <button className="btn-sm lit-btn" disabled={busy === 'zotero'}
+              onClick={() => act('zotero', async () => {
+                const r = await api.zotero.push(campaignId)
+                if (r.problems.length) throw new Error(r.problems[0])
+                return api.literature.get(campaignId)
+              }, 'Sent to your Zotero collection, tagged “aurora”.')}>Send them to Zotero</button>
+          </div>
+        )
+      })()}
 
       {filter === 'searches' ? (
         openSearch ? <SearchPane campaignId={campaignId} searchId={openSearch} rule={lit.rule} onBack={() => setOpenSearch(null)}
@@ -118,9 +139,20 @@ export function LiteratureView({ campaignId }: { campaignId: string }) {
               ))}
               {filter !== 'flagged' && shownPapers.map((p) => (
                 <PaperRow key={p.paper_id} p={p} open={openPaper === p.paper_id}
+                  onZotero={lit.zotero?.can_send && !p.in_zotero ? () => act(p.paper_id, async () => { await api.zotero.push(campaignId, [p.paper_id]); return api.literature.get(campaignId) },
+                    `${p.key} is in your Zotero collection now, tagged “aurora”.`) : undefined}
                   onToggle={() => setOpenPaper(openPaper === p.paper_id ? null : p.paper_id)}
                   onStar={() => act(p.paper_id, () => api.literature.star(campaignId, p.paper_id, !p.starred))}
                   onRemove={() => act(p.paper_id, () => api.literature.remove(campaignId, p.paper_id), `${p.key} is no longer in the project’s literature.`)} />
+              ))}
+              {filter === 'all' && decided.filter((r) => r.resolution === 'have').map((r) => (
+                <tr key={r.ref_id}>
+                  <td><div className="lit-title">{r.reference.title || r.reference.text}</div>
+                    <div className="lit-sub">{[r.reference.authors, r.reference.year].filter(Boolean).join(' · ')}</div></td>
+                  <td><span className="lit-sub">vouched for by {r.decided_by}</span><div className="lit-sub">no index has it (a thesis or report, say)</div></td>
+                  <td className="lit-sub">{r.used_in.length ? r.used_in.join(', ') : 'not used yet'}</td>
+                  <td className="lit-sub">{r.by}</td>
+                </tr>
               ))}
               {filter === 'flagged' && decided.map((r) => (
                 <tr key={r.ref_id} className="lit-decided">
@@ -153,18 +185,21 @@ export function LiteratureView({ campaignId }: { campaignId: string }) {
       </div>
       {dialog === 'add' && <AddPaperDialog campaignId={campaignId} onClose={() => setDialog(null)} onChanged={setLit} />}
       {dialog === 'import' && <ImportDialog campaignId={campaignId} onClose={() => setDialog(null)} onChanged={setLit} />}
+      {dialog === 'zotero' && <ZoteroDialog onClose={() => { setDialog(null); load() }} />}
     </div>
   )
 }
 
-function PaperRow({ p, open, onToggle, onStar, onRemove }: { p: LitItem; open: boolean; onToggle: () => void; onStar: () => void; onRemove: () => void }) {
+function PaperRow({ p, open, onToggle, onStar, onRemove, onZotero }: { p: LitItem; open: boolean; onToggle: () => void; onStar: () => void; onRemove: () => void; onZotero?: () => void }) {
   return (
     <>
       <tr className={open ? 'lit-open' : ''}>
         <td>
           <button className="lit-title-btn" aria-expanded={open} onClick={onToggle}>
             {p.starred && <span className="lit-star" aria-label="starred">★</span>}{p.title}</button>
-          <div className="lit-sub">{p.byline}{p.cites_per_year != null && ` · ${p.cites_per_year} cit/yr`} · <span className="lit-key">{p.key}</span></div>
+          <div className="lit-sub">{p.byline}{p.cites_per_year != null && ` · ${p.cites_per_year} cit/yr`} · <span className="lit-key">{p.key}</span>
+            {p.in_zotero && <span className="lit-zot" title="In your Zotero">Z ✓</span>}
+            {(p.notes?.length ?? 0) > 0 && <span className="lit-tag" style={{ marginLeft: 6 }}>{p.notes!.length} highlight{p.notes!.length === 1 ? '' : 's'} and notes</span>}</div>
         </td>
         <td><span className="lit-ok">✓ {p.found_in.join(', ') || 'checked'}</span>{idLabel(p) && <div className="lit-sub mono">{idLabel(p)}</div>}</td>
         <td className="lit-sub">{p.used_in.length ? p.used_in.map((u) => <div key={u}>{u}</div>) : 'not used yet'}</td>
@@ -173,7 +208,21 @@ function PaperRow({ p, open, onToggle, onStar, onRemove }: { p: LitItem; open: b
       {open && (
         <tr className="lit-detail"><td colSpan={4}>
           {p.abstract ? <p>{p.abstract}</p> : <p className="lit-sub">The indexes give no abstract for this paper.</p>}
+          {(p.notes?.length ?? 0) > 0 && (
+            <div className="lit-notes-list">
+              {p.notes!.map((n, k) => (
+                <div key={k} className={`lit-note ${n.kind}`}>
+                  {n.kind === 'highlight' ? <q>{n.text}</q> : <span>{n.text}</span>}
+                  {n.comment && <span className="lit-sub"> — {n.comment}</span>}
+                  <span className="lit-sub"> · {n.by}{n.page && `, p. ${n.page}`}</span>
+                </div>
+              ))}
+              <div className="lit-sub">From Zotero. The agents see these with the paper.</div>
+            </div>
+          )}
+          {p.pdf_file && <p className="lit-sub">PDF in the project’s files: <span className="mono">{p.pdf_file}</span></p>}
           <div className="lit-detail-actions"><PaperLinks p={p} />
+            {onZotero && <button className="link-btn" onClick={onZotero}>+ Zotero</button>}
             <button className="link-btn" onClick={onStar}>{p.starred ? 'Unstar' : 'Star'}</button>
             <button className="link-btn danger" onClick={onRemove}>Remove from the project</button></div>
         </td></tr>

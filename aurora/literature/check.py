@@ -36,6 +36,7 @@ class Reference:
     doi: str = ""
     arxiv_id: str = ""
     text: str = ""              # the citation as written, for showing it back
+    truncated: bool = False     # the title may be cut off (a file name): a longer indexed title can still match
 
     def __post_init__(self) -> None:
         self.doi = clean_doi(self.doi) or clean_doi(self.text)
@@ -86,7 +87,9 @@ def _names(ids: list[str]) -> str:
 def agrees(ref: Reference, paper: Paper, title_min: float = TITLE_MATCH) -> tuple[bool, str]:
     """Whether an indexed paper is the one cited; if not, why."""
     if ref.title and title_similarity(ref.title, paper.title) < title_min:
-        return False, "the title differs"
+        head, full = fold(ref.title), fold(paper.title)
+        if not (ref.truncated and len(head) >= 25 and full.startswith(head)):
+            return False, "the title differs"
     if ref.first_author and paper.authors and not any(same_person(ref.first_author, a) for a in paper.authors[:2]):
         return False, "the first author differs"
     if ref.year and paper.year and abs(ref.year - paper.year) > 1:

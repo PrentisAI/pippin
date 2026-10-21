@@ -104,6 +104,12 @@ proposal card can override it.
 
 Whatever the setting, a reference that is not verified never goes in.
 
+## Zotero
+
+Connect your Zotero to bring a collection into a project, with its PDFs and your
+highlights and notes, and to send the project's papers back to it. See
+[Zotero](../guide/zotero.md).
+
 ## Your Library
 
 The **Library** (the book icon in the activity bar) holds:

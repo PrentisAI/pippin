@@ -37,6 +37,15 @@ def clean_title(text: str) -> str:
     return re.sub(r"(?<=[A-Za-z]\d) (?=[A-Z][a-z]?\d)", "", text)      # "Al2 O3" -> "Al2O3"
 
 
+def clean_text(text: str) -> str:
+    """Prose without markup (Crossref abstracts come as JATS XML): tags and a leading "Abstract" go."""
+    text = re.sub(r"<jats:title>.*?</jats:title>", " ", text or "", flags=re.I | re.S)
+    text = re.sub(r"<jats:related-article[^>]*>.*?</jats:related-article>", " ", text, flags=re.I | re.S)
+    text = " ".join(_TAGS.sub(" ", text).split())
+    text = re.sub(r"\s+([,.;:)])", r"\1", text).replace("( ", "(")
+    return re.sub(r"^(abstract|summary)[:.]?\s+", "", text, flags=re.I)
+
+
 def fold(text: str) -> str:
     """Lower case, no accents, markup or punctuation: for comparing titles and names."""
     text = _TAGS.sub("", text or "")

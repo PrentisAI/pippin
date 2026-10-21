@@ -15,6 +15,8 @@ from aurora.auth.permissions import User
 from aurora.auth.store import auth_store
 
 PROVIDERS = ("openrouter",)
+# other services a person connects (not model providers): their keys are kept the same way
+SERVICES = ("zotero",)
 
 
 def _fernet() -> Fernet:
@@ -32,8 +34,8 @@ def _hint(value: str) -> str:
 
 def put_key(owner: str, provider: str, value: str) -> str:
     value = value.strip()
-    if provider not in PROVIDERS:
-        raise ValueError(f"provider must be one of {PROVIDERS}")
+    if provider not in PROVIDERS + SERVICES:
+        raise ValueError(f"provider must be one of {PROVIDERS + SERVICES}")
     if len(value) < 8:
         raise ValueError("That does not look like an API key")
     auth_store.put_secret(owner, provider, _fernet().encrypt(value.encode()), _hint(value))

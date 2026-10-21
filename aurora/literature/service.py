@@ -13,6 +13,7 @@ Whatever the rule, a reference that is not verified never goes in.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -63,7 +64,17 @@ def paper_card(entry: dict[str, Any], *, abstract_words: int = 60) -> str:
     words = p.abstract.split()
     abstract = " ".join(words[:abstract_words]) + ("…" if len(words) > abstract_words else "")
     head = f"[{entry['key']}] {p.title} — {p.byline()}" + (f" · {cy:g} citations/yr" if cy is not None else "")
-    return head + (f"\n    {abstract}" if abstract else "")
+    out = head + (f"\n    {abstract}" if abstract else "")
+    # a researcher's highlights and notes (from their Zotero) say what they found important; one-word
+    # highlights (a marked term) say little out of context, so the fuller ones go first
+    notes = [n for n in entry.get("notes") or [] if n.get("comment") or len(n["text"].split()) >= 4]
+    notes.sort(key=lambda n: (not n.get("comment"), -len(n["text"])))
+    for n in notes[:5]:
+        where = f" (p. {n['page']})" if n.get("page") else ""
+        text = re.sub(r"(\w)- (\w)", r"\1\2", n["text"])        # hyphenation the PDF's lines left behind
+        what = f"“{text[:300]}”" if n["kind"] == "highlight" else text[:300]
+        out += f"\n    Researcher's {n['kind']}{where}: {what}" + (f" — {n['comment'][:200]}" if n.get("comment") else "")
+    return out
 
 
 class ProjectLiterature:
@@ -104,8 +115,10 @@ class ProjectLiterature:
                 library.add_item(self.campaign_id, e["paper_id"], source="search", added_by=by, search_id=sid)
         await self._emit("literature_search", search_id=sid, by=by, query=query, context=context,
                          found=len(entries), reached=found.reached, failed=found.failed)
+        notes = library.notes(self.campaign_id, [e["paper_id"] for e in entries])
         for e in entries:
             e["search_id"] = sid
+            e["notes"] = notes.get(e["paper_id"], [])
         self.last_search_id = sid
         return entries
 
@@ -187,7 +200,8 @@ class ProjectLiterature:
             if r["resolution"] == "replaced" and r["paper_id"] and any(u["ref_id"] == r["ref_id"] for u in uses):
                 ids.append(r["paper_id"])
         stored = library.papers(ids)
-        return [stored[i] for i in dict.fromkeys(ids) if i in stored]
+        notes = library.notes(self.campaign_id, ids)
+        return [{**stored[i], "notes": notes.get(i, [])} for i in dict.fromkeys(ids) if i in stored]
 
     def items(self) -> list[dict[str, Any]]:
         rows = library.items(self.campaign_id)
