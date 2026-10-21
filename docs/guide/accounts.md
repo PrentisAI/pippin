@@ -70,8 +70,16 @@ The rest of the Share window:
 * **Everyone else in the team**: no access, can see, or can see and comment.
 * **Who answers a run's decisions**: whoever started the run (owners can step
   in), only the owners, or one named person. Every decision records who made it.
-* **Confidential project**: hidden from the rest of the team whatever the
-  setting above; skills learned in it stay in it.
+* **Links outside the team**: *Anyone with the link can read the report (read
+  only)* makes a link for people who have no account. It shows the project's
+  latest report and its figures, nothing else, and stops working after 7, 30 or
+  90 days (you can change that, or untick it to stop the link at once). Making
+  one needs the right to invite people, and the team's rules must allow links.
+* **Confidential project**: no links outside the team (an existing link stops
+  working), hidden from the rest of the team whatever the setting above, skills
+  learned in it stay in it, and only model providers that keep no data are used
+  (by default Anthropic and OpenAI): a run, the front desk or a brainstorm agent
+  with a model from another provider is refused, with the reason.
 
 Someone without view rights gets "not found" for the project, so a private
 project does not even reveal that it exists. Search and Analytics only show
@@ -111,9 +119,26 @@ it, and it notifies that person's channels.
 
 | Rule | Default |
 |---|---|
+| Members can create read-only links to reports for people outside the team | on |
 | Guests can start runs (charged to their own key) | off |
 | New projects start as confidential | off |
+| Skills learned in a project reach the whole team only after an admin approves them | on |
+| Members can see that projects they are not in exist | off |
 | Members without a key of their own may use the team's key | on |
+
+With *Members can see that projects they are not in exist*, the sidebar lists
+the team's other projects under **Other team projects**: only the name
+and whom to ask to be invited. Confidential projects are never listed.
+
+**Model providers** limits the providers every run, front desk and brainstorm
+may use (all, unless some are unticked). Confidential projects also keep to the
+providers with a no-retention agreement (`no_retention_providers`, Anthropic and
+OpenAI by default).
+
+**Skills waiting for approval** lists the skills members want to reach other
+projects (*selected projects* or *all projects*). Until an admin approves one,
+it is used only in the project it was learned in; *Keep it in its project*
+leaves it there. An admin's own skills need no approval.
 
 ## Exposing the console
 

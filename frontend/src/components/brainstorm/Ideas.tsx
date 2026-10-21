@@ -84,7 +84,8 @@ function Loose({ card, ideas, onAttach, onOpen }: { card: BsCard; ideas: BsCard[
   return (
     <div className="bs-ev">
       <button className="bs-link" onClick={() => onOpen(card.card_id)}>{card.paper ? card.paper.title : card.text}</button>
-      <div className="lit-sub">{card.paper ? <>Paper ✓ · {card.paper.byline} · <span className="lit-key">{card.paper.key}</span></> : `${card.type} by ${card.by_name}`}</div>
+      <div className="lit-sub">{card.paper ? <>Paper ✓ · {card.paper.byline} · <span className="lit-key">{card.paper.key}</span></>
+        : card.source ? <>{card.source}{card.url && <> · <a href={card.url} target="_blank" rel="noreferrer">open</a></>}</> : `${card.type} by ${card.by_name}`}</div>
       {ideas.length > 0 && (
         <div className="bs-row">
           <select aria-label="Idea" value={to} onChange={(e) => setTo(e.target.value)} style={{ flex: 1, minWidth: 0 }}>
@@ -108,7 +109,8 @@ export function IdeaCard({ idea, a, space, open, focused, flash, threads, action
   const tally = [`${a.forIt.length} for`, `${a.against.length} against`, `${a.open.length} open question${a.open.length === 1 ? '' : 's'}`,
     a.next.length ? `${a.next.length} next step${a.next.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')
   const src = (c: BsCard) => c.paper ? <>Paper ✓ · {c.paper.byline} · <span className="lit-key">{c.paper.key}</span></>
-    : c.run_id ? <>Run {c.run_id}</> : <>{c.type === 'question' ? 'asked' : 'proposed'} by {c.by_name}{c.live ? ' · live round table' : ''}</>
+    : c.run_id ? <>Run {c.run_id}</> : c.source ? <>{c.source}{c.url && <> · <a href={c.url} target="_blank" rel="noreferrer">open</a></>}</>
+      : <>{c.type === 'question' ? 'asked' : 'proposed'} by {c.by_name}{c.live ? ' · live round table' : ''}</>
   return (
     <article ref={ref} className={`bs-idea${open ? ' open' : ''}${focused ? ' focused' : ''}${flash ? ' flash' : ''}`} id={`idea-${idea.card_id}`}>
       <div className="bs-row" style={{ justifyContent: 'space-between' }}>

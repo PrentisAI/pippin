@@ -226,6 +226,8 @@ export interface ConversationMessage {
   attachments?: string[]
   /** Who wrote it, in a run's shared conversation on a console with accounts. */
   by?: string
+  /** Items from the Library sent with it. */
+  library?: LibraryRef[]
 }
 
 export interface ProjectChatStatus {
@@ -261,6 +263,8 @@ export interface Skill {
   kind: string
   version: number
   history: { version: number; text: string; description?: string; updated_at: number; replaced_because?: string }[]
+  /** Reaching other projects waits for a team admin: '' (not needed, or approved) | pending | rejected */
+  approval?: '' | 'pending' | 'rejected'
 }
 
 /** What the researcher did with a suggested skill (kept on the server). */
@@ -487,6 +491,7 @@ export interface TeamRules {
   skills_need_approval: boolean
   members_see_all_projects: boolean
   allowed_providers: string[]
+  no_retention_providers: string[]
   team_key_for_members: boolean
   monthly_budget_usd: number | null
   per_person_usd: number | null
@@ -718,6 +723,9 @@ export interface BsCard {
   mine: boolean
   created_at: number
   paper?: { key: string; title: string; byline: string; doi: string; arxiv_id: string; url: string; found_in: string[] }
+  /** Material from the feed that is not a paper (a post, a blog, a discussion): where it is from, and its link */
+  source?: string
+  url?: string
 }
 
 export interface BsLink { from_card: string; to_card: string; rel: Relation }
@@ -786,3 +794,159 @@ export interface BsSpace {
   threads: Record<string, number>
   suggestions: BsSuggestion[]
 }
+
+// ---------------------------------------------------------------------------- the feed
+
+export type FeedKind = 'paper' | 'post' | 'blog' | 'discussion'
+
+export interface FeedFit { campaign_id: string; project: string; rel: number; why: string }
+
+export interface FeedItem {
+  item_id: string
+  kind: FeedKind
+  label: string
+  source: string
+  src: string
+  url: string
+  pdf_url: string
+  /** What the open button says: PDF, Open thread, Read, See all replies */
+  open: string
+  title: string
+  summary: string
+  /** A discussion's main points */
+  points: string[]
+  /** A discussion's places: [label, url] */
+  places: [string, string][]
+  /** [name, followed person's ID or ''] */
+  people: [string, string][]
+  /** A checked identity: "arXiv:2610.08812", "DOI 10.…" */
+  idv: string
+  extra: string
+  published_at: number | null
+  fetched_at: number
+  rel: number
+  why: string
+  campaign_id: string
+  project: string
+  fits: FeedFit[]
+  folded: boolean
+  saved: { campaign_id: string; project: string } | null
+  is_paper: boolean
+  about: string
+}
+
+export interface FeedIdentity {
+  kind: 'openalex' | 's2' | 'bluesky' | 'mastodon' | 'x' | 'blog' | 'linkedin'
+  handle: string
+  url: string
+  label: string
+  state: 'ok' | 'warn' | 'muted'
+  follow: boolean
+  note: string
+  works?: number
+}
+
+export interface FeedPerson {
+  person_id: string
+  name: string
+  initials: string
+  aff: string
+  ids: FeedIdentity[]
+  wants: { papers: boolean; posts: boolean; blog: boolean; about: boolean }
+  coauthors: string[]
+  activity?: string
+  fresh?: number
+}
+
+export interface FeedDigest {
+  to: string
+  label: string
+  at: string
+  top: number
+  skip: boolean
+  channels: { id: string; label: string }[]
+}
+
+export interface FeedView {
+  date: number
+  items: FeedItem[]
+  projects: { campaign_id: string; name: string }[]
+  spaces: { space: string; name: string }[]
+  people: FeedPerson[]
+  digest: FeedDigest
+  counts: Record<string, number | string>
+  problems: Record<string, string>
+  last: number | null
+  refreshing: boolean
+  saved_count: number
+  sources: Record<string, string>
+  following_anything: boolean
+}
+
+export interface FeedRss { url: string; title: string; state: 'ok' | 'error'; last_ok: number | null; error: string }
+
+export interface Following {
+  people: FeedPerson[]
+  topics: string[]
+  keywords: string[]
+  from_objectives: boolean
+  derived: { project: string; keywords: string[]; categories: string[] }[]
+  hf: boolean
+  discussions: boolean
+  rss: FeedRss[]
+  digest: FeedDigest
+  x_key: boolean
+}
+
+export interface PersonCandidate {
+  cid: string
+  name: string
+  aff: string
+  works: number
+  detail: string
+  coauthors: string[]
+  orcid: string
+  homepage?: string
+  ids: FeedIdentity[]
+}
+
+export interface ScholarEntry {
+  item_id: string
+  k: 'paper' | 'post' | 'blog' | 'discussion' | 'about'
+  label: string
+  when: number
+  source: string
+  title: string
+  body: string
+  url: string
+  in_project: string
+  points: string[]
+}
+
+export interface ScholarPage {
+  person: FeedPerson
+  timeline: ScholarEntry[]
+  theirs: (LitPaper & { campaign_id: string; project: string; how: string; cited_version: number })[]
+  coauthors: string[]
+}
+
+/** An item from the Library attached to a message to a project's front desk. */
+export interface LibraryRef {
+  kind: 'feed' | 'paper'
+  item_id?: string
+  paper_id?: string
+  title: string
+  label: string
+  ok: boolean
+  by: string
+  where?: string
+}
+
+export interface ReportLink {
+  link: { path: string; url: string; days: number; expires_at: number; created_at: number } | null
+  allowed: boolean
+  reason: string
+  has_report: boolean
+}
+
+export interface OtherProject { campaign_id: string; name: string; owner: string; owner_email: string }

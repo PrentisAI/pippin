@@ -65,6 +65,7 @@ export function CardDrawer({ cardId, space, cards, projects, onClose, onOpen, on
       <div className="bs-drawer-body" ref={body}>
         <div className="bs-drawer-text">{c.paper ? c.paper.title : c.text}</div>
         {c.paper && <div className="lit-sub">{c.paper.byline} · <button className="bs-kchip" onClick={() => onPaper(c.paper!.key)}>{c.paper.key}</button></div>}
+        {!c.paper && c.source && <div className="lit-sub">{c.source}{c.url && <> · <a href={c.url} target="_blank" rel="noreferrer">Open it</a></>}</div>}
         {c.answer && <div className="lit-sub"><span className="lit-ok">Answered</span> by {c.answered_by_name}: {c.answer}</div>}
         {space.can_write && (
           <div className="bs-row"><span className="lit-sub">Ask</span>

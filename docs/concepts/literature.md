@@ -18,8 +18,10 @@ work:
 | arXiv | preprints, by arXiv ID |
 | Semantic Scholar | citation counts and open-access PDFs; heavily rate-limited without a key |
 
-Set `AURORA_CONTACT_EMAIL` so OpenAlex and Crossref answer faster (their
-"polite pool"). Set `SEMANTIC_SCHOLAR_API_KEY` to use Semantic Scholar fully;
+Set `OPENALEX_API_KEY` (free, from openalex.org): without a key OpenAlex allows
+only a small daily budget, shared by everyone on the same IP address, and once it
+is used up OpenAlex is reported as not answering. Set `AURORA_CONTACT_EMAIL` so
+OpenAlex and Crossref answer faster (their "polite pool"). Set `SEMANTIC_SCHOLAR_API_KEY` to use Semantic Scholar fully;
 without it Semantic Scholar is asked only when it is not busy.
 
 Each paper gets a short key from its first author and its year, such as

@@ -48,6 +48,7 @@ DEFAULT_RULES: dict[str, Any] = {
     "skills_need_approval": True,      # skills learned in a project reach the team after an admin approves
     "members_see_all_projects": False,  # members see that projects they are not in exist
     "allowed_providers": [],           # empty: any model provider
+    "no_retention_providers": ["anthropic", "openai"],   # what a confidential project may use
     "team_key_for_members": True,      # members without a key of their own may use the team key
     "monthly_budget_usd": None,
     "per_person_usd": None,

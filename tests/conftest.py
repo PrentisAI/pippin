@@ -1,4 +1,11 @@
+import httpx
 import pytest
+
+
+def _offline() -> httpx.AsyncClient:
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no network in tests", request=request)
+    return httpx.AsyncClient(transport=httpx.MockTransport(refuse))
 
 
 @pytest.fixture(autouse=True)
@@ -14,20 +21,26 @@ def isolated_home(tmp_path, monkeypatch):
     from aurora.api.routes import campaigns, skills
     from aurora.auth.store import auth_store
     from aurora.brainstorm.store import bs_store
+    from aurora.feed import sources as feed_sources
+    from aurora.feed.store import feed_store
     from aurora.literature import indexes
     from aurora.literature.library import library
     from aurora.literature.zotero import zotero_store
     bs_store.reset()
+    feed_store.reset()
     auth_store.reset()
     library.reset()
     zotero_store.reset()
     indexes.clear_cache()
+    # no network for the feed either: tests that need sources bring their own
+    monkeypatch.setattr(feed_sources, "_shared", feed_sources.Sources(client=_offline()))
     # no network: the scholarly indexes are asked only by tests that bring their own
     monkeypatch.setattr(indexes, "_shared", indexes.Indexes(use=()))
     campaigns.store.reset()
     campaigns._campaigns.clear()
     skills._store = None
     yield tmp_path
+    feed_store.reset()
     bs_store.reset()
     auth_store.reset()
     library.reset()

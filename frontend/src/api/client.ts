@@ -1,4 +1,4 @@
-import type { BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -309,6 +309,42 @@ export const api = {
       request<{ proposal_id: string; campaign_id: string }>(`/brainstorm/cards/${cardId}/promote`, post(body)),
     setActivity: (activity: Activity) => request<{ activity: Activity }>('/brainstorm/settings', put({ activity })),
   },
+  feed: {
+    get: () => request<FeedView>('/feed'),
+    refresh: () => request<{ refreshing: boolean; started: boolean }>('/feed/refresh', post()),
+    saved: () => request<{ items: FeedItem[] }>('/feed/saved'),
+    attachable: () => request<{ items: LibraryRef[] }>('/feed/library'),
+    save: (itemId: string, campaign_id = '') =>
+      request<{ saved: { campaign_id: string; project: string }; in_literature: boolean }>(`/feed/items/${itemId}/save`, post({ campaign_id })),
+    unsave: (itemId: string) => request<{ ok: boolean }>(`/feed/items/${itemId}/save`, del),
+    hide: (itemId: string) => request<{ ok: boolean }>(`/feed/items/${itemId}/hide`, post()),
+    unhide: (itemId: string) => request<{ ok: boolean }>(`/feed/items/${itemId}/hide`, del),
+    bring: (itemId: string, space: string) =>
+      request<{ card: BsCard; space: string; space_name: string }>(`/feed/items/${itemId}/bring`, post({ space })),
+    ask: (itemId: string, campaign_id: string) =>
+      request<{ campaign_id: string; ref: LibraryRef; seed: boolean }>(`/feed/items/${itemId}/ask`, post({ campaign_id })),
+    following: () => request<Following>('/feed/following'),
+    settings: (body: Partial<Pick<Following, 'topics' | 'keywords' | 'from_objectives' | 'hf' | 'discussions'>> & { digest?: Partial<{ to: string; at: string; top: number; skip: boolean }> }) =>
+      request<Following>('/feed/settings', put(body)),
+    addRss: (url: string) => request<Following>('/feed/rss', post({ url })),
+    removeRss: (url: string) => request<Following>(`/feed/rss?url=${encodeURIComponent(url)}`, del),
+    setXKey: (key: string) => request<Following>('/feed/x-key', put({ key })),
+    removeXKey: () => request<Following>('/feed/x-key', del),
+    testDigest: () => request<{ ok: boolean }>('/feed/digest/test', post()),
+    find: (query: string) => request<{ candidates: PersonCandidate[] }>('/feed/people/find', post({ query })),
+    identities: (candidate: PersonCandidate) => request<{ ids: FeedIdentity[] }>('/feed/people/identities', post({ candidate })),
+    follow: (candidate: PersonCandidate, ids: FeedIdentity[]) => request<{ person: FeedPerson }>('/feed/people', post({ candidate, ids })),
+    changePerson: (personId: string, body: { wants?: Partial<FeedPerson['wants']>; ids?: FeedIdentity[]; removed?: boolean }) =>
+      request<{ person: FeedPerson }>(`/feed/people/${personId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    unfollow: (personId: string) => request<{ ok: boolean }>(`/feed/people/${personId}`, del),
+    person: (personId: string) => request<ScholarPage>(`/feed/people/${personId}`),
+  },
+  links: {
+    get: (campaignId: string) => request<ReportLink>(`/campaigns/${campaignId}/link`),
+    make: (campaignId: string, days: number) => request<ReportLink>(`/campaigns/${campaignId}/link`, post({ days })),
+    revoke: (campaignId: string) => request<ReportLink>(`/campaigns/${campaignId}/link`, del),
+  },
+  others: () => request<OtherProject[]>('/campaigns/others'),
   zotero: {
     get: () => request<ZoteroStatus>('/zotero'),
     connect: (method: 'web' | 'local', api_key = '') => request<ZoteroStatus>('/zotero/connect', post({ method, api_key })),
@@ -351,6 +387,8 @@ export const api = {
 
   skills: {
     list: () => request<Skill[]>('/skills/'),
+    pending: () => request<Skill[]>('/skills/pending'),
+    decide: (skillId: string, approve: boolean) => request<Skill>(`/skills/${skillId}/approval`, post({ approve })),
     template: () => request<{ sections: { name: string; what: string }[]; template: string }>('/skills/template'),
     create: (skill: { name: string; rule: string; description?: string; scope?: string; kind?: string }) =>
       request<Skill>('/skills/', post({ origin: 'manual', scope: 'global', ...skill })),
@@ -385,10 +423,10 @@ export const api = {
 
   /** The project conversation with the front desk. */
   chat: {
-    send: (campaignId: string, text: string, attachments: string[] = []) =>
+    send: (campaignId: string, text: string, attachments: string[] = [], library: LibraryRef[] = []) =>
       request<{ status: string; response?: string; error?: string; proposal?: ConversationMessage['proposal'] }>(
         `/campaigns/${campaignId}/chat/send`,
-        post({ text, attachments }),
+        post({ text, attachments, library: library.map((r) => r.kind === 'feed' ? { kind: 'feed', item_id: r.item_id } : { kind: 'paper', paper_id: r.paper_id }) }),
       ),
 
     history: (campaignId: string, limit = 100) =>

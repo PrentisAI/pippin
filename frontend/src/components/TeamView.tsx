@@ -1,15 +1,21 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, describeError } from '../api/client'
 import { useAuth } from '../auth'
-import type { ActivityEntry, KeyStatus, Person, TeamGroup, TeamRules } from '../types'
+import type { ActivityEntry, KeyStatus, Person, Skill, TeamGroup, TeamRules } from '../types'
 
 const TABS: [string, string][] = [['people', 'People'], ['groups', 'Groups'], ['rules', 'Rules'], ['keys', 'Keys'], ['activity', 'Activity']]
-// external_links and skills_need_approval join once read-only links and skill approval exist
 const RULE_LABELS: [keyof TeamRules, string][] = [
+  ['external_links', 'Members can create read-only links to reports for people outside the team'],
   ['guests_can_run', 'Guests can start runs (charged to their own key)'],
   ['new_projects_confidential', 'New projects start as confidential'],
+  ['skills_need_approval', 'Skills learned in a project reach the whole team only after an admin approves them'],
+  ['members_see_all_projects', 'Members can see that projects they are not in exist'],
   ['team_key_for_members', 'Members without a key of their own may use the team’s key'],
 ]
+// model providers, as OpenRouter names them
+const PROVIDERS: [string, string][] = [['anthropic', 'Anthropic'], ['openai', 'OpenAI'], ['google', 'Google'], ['deepseek', 'DeepSeek'],
+  ['moonshotai', 'Moonshot'], ['z-ai', 'Z.ai'], ['qwen', 'Qwen'], ['x-ai', 'xAI'], ['meta-llama', 'Meta'], ['mistralai', 'Mistral']]
+const providerName = (k: string) => PROVIDERS.find(([p]) => p === k)?.[1] ?? k
 
 function ago(ts: number | null | undefined): string {
   if (!ts) return '—'
@@ -35,12 +41,14 @@ export function TeamView() {
   const [inviteRole, setInviteRole] = useState('member')
   const [newGroup, setNewGroup] = useState('')
   const [teamKey, setTeamKey] = useState('')
+  const [pending, setPending] = useState<Skill[]>([])
 
   const load = useCallback(async () => {
     try {
       setPeople(await api.team.people())
       setGroups(await api.team.groups())
       setRules(await api.team.rules())
+      setPending(await api.skills.pending())
       if (admin) {
         setKeys(await api.team.keys())
         setActivity(await api.team.activity())
@@ -175,6 +183,47 @@ export function TeamView() {
             <input defaultValue={rules.member_domains.join(', ')} disabled={!admin} placeholder="e.g. lab.org, university.edu"
               onBlur={(e) => act(() => api.team.setRules({ member_domains: e.target.value.split(/[\s,]+/).filter(Boolean) }), 'Saved for the whole team.')} />
           </label>
+          <div className="share-section">
+            <div className="share-section-title">Model providers</div>
+            <div className="team-chips">
+              {PROVIDERS.map(([k, l]) => {
+                const all = !rules.allowed_providers.length
+                const on = all || rules.allowed_providers.includes(k)
+                return (
+                  <label key={k} className="modal-check">
+                    <input type="checkbox" checked={on} disabled={!admin} onChange={(e) => {
+                      const now = all ? PROVIDERS.map(([p]) => p) : rules.allowed_providers
+                      const next = e.target.checked ? [...now, k] : now.filter((x) => x !== k)
+                      if (!next.length) return
+                      act(() => api.team.setRules({ allowed_providers: next.length === PROVIDERS.length ? [] : next }), 'Saved for the whole team.')
+                    }} /> {l}
+                  </label>
+                )
+              })}
+            </div>
+            <div className="team-sub">Runs, front desks and brainstorms use only models from the providers ticked here.
+              Confidential projects use only providers with a no-retention agreement: {(rules.no_retention_providers ?? []).map(providerName).join(', ')}.</div>
+          </div>
+          {(pending.length > 0 || rules.skills_need_approval) && (
+            <div className="share-section">
+              <div className="share-section-title">Skills waiting for approval · {pending.length}</div>
+              {pending.map((sk) => (
+                <div key={sk.skill_id} className="team-card">
+                  <div className="team-card-head"><b>{sk.name}</b>
+                    <span className="team-sub">{sk.scope === 'global' ? 'for every project' : `for ${sk.projects.length} project${sk.projects.length === 1 ? '' : 's'}`}</span></div>
+                  {sk.description && <div className="team-sub">{sk.description}</div>}
+                  <details><summary className="team-sub">Read it</summary><pre className="team-pre">{sk.rule}</pre></details>
+                  {admin && (
+                    <div className="team-row-form">
+                      <button className="btn-sm btn-approve" onClick={() => act(() => api.skills.decide(sk.skill_id, true), `“${sk.name}” now reaches the projects it was meant for.`)}>Approve</button>
+                      <button className="btn-sm" onClick={() => act(() => api.skills.decide(sk.skill_id, false), `“${sk.name}” stays in the project it was learned in.`)}>Keep it in its project</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {!pending.length && <div className="team-sub">None. Until an admin approves one, a skill is used only in the project it was learned in.</div>}
+            </div>
+          )}
         </>
       )}
 

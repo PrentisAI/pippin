@@ -89,6 +89,11 @@ class DistilledSkill(BaseModel):
     kind: str = ""             # procedure | failure | convention | correction
     version: int = 1
     history: list[dict[str, Any]] = Field(default_factory=list)   # earlier versions, oldest first
+    # reaching other projects (scope projects or global) may wait for a team admin's approval:
+    # '' (none needed, or approved) | pending | rejected.  Until approved it is used only where it
+    # was learned.
+    approval: str = ""
+    approved_by: str = ""
 
 
 class SkillStore:
@@ -100,7 +105,8 @@ class SkillStore:
         self._conn.executescript(_SKILL_SCHEMA)
         self._conn.execute("PRAGMA journal_mode=WAL")
         for column in ("source_campaign TEXT DEFAULT ''", "origin TEXT DEFAULT 'manual'", "kind TEXT DEFAULT ''",
-                       "version INTEGER DEFAULT 1", "history TEXT DEFAULT '[]'", "projects TEXT DEFAULT '[]'"):
+                       "version INTEGER DEFAULT 1", "history TEXT DEFAULT '[]'", "projects TEXT DEFAULT '[]'",
+                       "approval TEXT DEFAULT ''", "approved_by TEXT DEFAULT ''"):
             try:
                 self._conn.execute(f"ALTER TABLE distilled_skills ADD COLUMN {column}")
                 self._conn.commit()
@@ -119,6 +125,8 @@ class SkillStore:
         d["origin"] = d.get("origin") or "manual"
         d["kind"] = d.get("kind") or ""
         d["version"] = d.get("version") or 1
+        d["approval"] = d.get("approval") or ""
+        d["approved_by"] = d.get("approved_by") or ""
         return DistilledSkill(**d)
 
     def create(self, skill: DistilledSkill) -> DistilledSkill:
@@ -130,15 +138,15 @@ class SkillStore:
             """INSERT INTO distilled_skills
                (skill_id, name, rule, description, source_phase,
                 source_experiment, source_campaign, scope, tags,
-                created_at, updated_at, origin, kind, version, history, projects)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                created_at, updated_at, origin, kind, version, history, projects, approval, approved_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 skill.skill_id, skill.name, skill.rule, skill.description,
                 skill.source_phase, skill.source_experiment,
                 skill.source_campaign, skill.scope,
                 json.dumps(skill.tags), skill.created_at, skill.updated_at,
                 skill.origin, skill.kind, skill.version, json.dumps(skill.history),
-                json.dumps(skill.projects),
+                json.dumps(skill.projects), skill.approval, skill.approved_by,
             ),
         )
         self._conn.commit()
@@ -179,7 +187,7 @@ class SkillStore:
     def update(self, skill_id: str, **fields: Any) -> DistilledSkill | None:
         import json
         allowed = {"name", "rule", "description", "scope", "tags", "source_phase", "source_experiment",
-                   "source_campaign", "origin", "kind", "projects"}
+                   "source_campaign", "origin", "kind", "projects", "approval", "approved_by"}
         parts: list[str] = []
         values: list[Any] = []
         for k, v in fields.items():
@@ -266,4 +274,15 @@ class SkillStore:
             (campaign_id, experiment_id),
         ).fetchall()
         skills = [self._row_to_skill(r) for r in rows]
-        return [s for s in skills if s.scope != "projects" or (campaign_id and campaign_id in s.projects)]
+
+        def usable(s: DistilledSkill) -> bool:
+            if s.scope in ("projects", "global") and s.approval in ("pending", "rejected"):
+                # not approved for other projects yet: only where it was learned
+                return bool(s.source_campaign and s.source_campaign == campaign_id) or \
+                    bool(s.source_experiment and s.source_experiment == experiment_id)
+            return s.scope != "projects" or bool(campaign_id and campaign_id in s.projects)
+        return [s for s in skills if usable(s)]
+
+    def pending(self) -> list[DistilledSkill]:
+        rows = self._conn.execute("SELECT * FROM distilled_skills WHERE approval='pending' ORDER BY updated_at DESC").fetchall()
+        return [self._row_to_skill(r) for r in rows]

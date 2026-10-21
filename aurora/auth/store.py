@@ -68,6 +68,14 @@ CREATE TABLE IF NOT EXISTS project_access (
     deciders     TEXT DEFAULT 'starter',
     decider_user TEXT
 );
+CREATE TABLE IF NOT EXISTS report_links (     -- read-only links to a project's report, for anyone
+    token       TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL,
+    created_by  TEXT,
+    created_at  REAL NOT NULL,
+    expires_at  REAL NOT NULL,
+    revoked_at  REAL
+);
 CREATE TABLE IF NOT EXISTS project_members (
     campaign_id TEXT NOT NULL,
     principal   TEXT NOT NULL,          -- user:<id> or group:<id>
@@ -302,7 +310,35 @@ class AuthStore:
     def remove_member(self, campaign_id: str, principal: str) -> None:
         self._x("DELETE FROM project_members WHERE campaign_id=? AND principal=?", (campaign_id, principal))
 
+    # ------------------------------------------------------------------ read-only report links
+
+    def active_link(self, campaign_id: str) -> dict[str, Any] | None:
+        return _row(self._conn.execute(
+            "SELECT * FROM report_links WHERE campaign_id=? AND revoked_at IS NULL AND expires_at>? "
+            "ORDER BY created_at DESC LIMIT 1", (campaign_id, time.time())).fetchone())
+
+    def set_link(self, campaign_id: str, created_by: str, days: int) -> dict[str, Any]:
+        """The project's link, made now or kept (with its new lifetime)."""
+        current = self.active_link(campaign_id)
+        if current:
+            self._x("UPDATE report_links SET expires_at=? WHERE token=?",
+                    (current["created_at"] + days * 86400, current["token"]))
+            return self.link(current["token"])  # type: ignore[return-value]
+        token = secrets.token_urlsafe(18)
+        now = time.time()
+        self._x("INSERT INTO report_links (token, campaign_id, created_by, created_at, expires_at) VALUES (?,?,?,?,?)",
+                (token, campaign_id, created_by, now, now + days * 86400))
+        return self.link(token)  # type: ignore[return-value]
+
+    def link(self, token: str) -> dict[str, Any] | None:
+        return _row(self._conn.execute("SELECT * FROM report_links WHERE token=?", (token,)).fetchone())
+
+    def revoke_links(self, campaign_id: str) -> int:
+        return self._x("UPDATE report_links SET revoked_at=? WHERE campaign_id=? AND revoked_at IS NULL",
+                       (time.time(), campaign_id)).rowcount
+
     def drop_project(self, campaign_id: str) -> None:
+        self._x("DELETE FROM report_links WHERE campaign_id=?", (campaign_id,))
         self._x("DELETE FROM project_members WHERE campaign_id=?", (campaign_id,))
         self._x("DELETE FROM project_access WHERE campaign_id=?", (campaign_id,))
 

@@ -63,10 +63,55 @@ def _check_scope(scope: str | None, projects: list[str] | None, source_experimen
         raise HTTPException(400, "scope 'campaign' needs the project it belongs to")
 
 
+def _gate(scope: str, source_campaign: str, current: DistilledSkill | None = None) -> dict[str, str]:
+    """Rules on reaching beyond one project: a confidential project's skills stay in it; with the team
+    rule on, a member's skill reaches other projects once an admin approves.  The approval fields."""
+    if scope not in ("projects", "global"):
+        return {"approval": ""}
+    from aurora.auth.guard import current_user
+    from aurora.auth.store import auth_store
+    if source_campaign and (auth_store.project_access(source_campaign) or {}).get("confidential"):
+        raise HTTPException(400, "The project it was learned in is confidential: its skills stay in it")
+    if current is not None and current.scope == scope and current.approval in ("", "pending"):
+        return {"approval": current.approval, "approved_by": current.approved_by}
+    user = current_user()
+    if user.is_admin or not auth_store.rules().get("skills_need_approval"):
+        return {"approval": "", "approved_by": "" if user.is_local else user.user_id}
+    return {"approval": "pending", "approved_by": ""}
+
+
 class SkillReviseRequest(BaseModel):
     rule: str
     reason: str = ""
     description: str | None = None
+
+
+@router.get("/pending")
+async def pending_skills() -> list[DistilledSkill]:
+    """Skills waiting for a team admin before they reach other projects."""
+    return get_skill_store().pending()
+
+
+class Approval(BaseModel):
+    approve: bool
+
+
+@router.post("/{skill_id}/approval")
+async def decide_skill(skill_id: str, body: Approval) -> DistilledSkill:
+    """Approve a skill for other projects, or keep it where it was learned."""
+    from aurora.auth.guard import current_user
+    from aurora.auth.store import auth_store
+    store = get_skill_store()
+    skill = store.get(skill_id)
+    if skill is None:
+        raise HTTPException(404, "Skill not found")
+    if skill.approval != "pending":
+        raise HTTPException(409, "This skill is not waiting for approval")
+    user = current_user()
+    out = store.update(skill_id, approval="" if body.approve else "rejected", approved_by=user.user_id)
+    auth_store.log(user.user_id, ("approved" if body.approve else "kept in its project") + f" the skill “{skill.name}”",
+                   skill.source_campaign)
+    return out  # type: ignore[return-value]
 
 
 @router.get("/template")
@@ -106,7 +151,8 @@ async def create_skill(req: SkillCreateRequest) -> DistilledSkill:
     existing = store.get_by_name(req.name)
     if existing:
         raise HTTPException(409, f"Skill '{req.name}' already exists")
-    skill = DistilledSkill(
+    gate = _gate(req.scope, req.source_campaign)
+    skill = DistilledSkill(**gate,
         name=req.name,
         rule=req.rule,
         description=req.description,
@@ -143,6 +189,8 @@ async def update_skill(skill_id: str, req: SkillUpdateRequest) -> DistilledSkill
     _check_scope(req.scope, fields.get("projects", current.projects),
                  fields.get("source_experiment", current.source_experiment),
                  fields.get("source_campaign", current.source_campaign))
+    if req.scope is not None:
+        fields.update(_gate(req.scope, fields.get("source_campaign", current.source_campaign), current))
     skill = store.update(skill_id, **fields)
     if not skill:
         raise HTTPException(404, "Skill not found")
@@ -191,7 +239,8 @@ async def accept_suggestion(req: SkillCreateRequest) -> DistilledSkill:
         revised = store.revise(existing.skill_id, req.rule, reason=req.reason or "accepted suggestion",
                                description=req.description or None, source_experiment=req.source_experiment)
         if req.scope == "global" and existing.scope != "global":
-            revised = store.update(existing.skill_id, scope="global")
+            revised = store.update(existing.skill_id, scope="global",
+                                   **_gate("global", existing.source_campaign, existing))
         result = revised or existing
         _record_added(req.suggestion_id, result)
         return result
@@ -207,6 +256,7 @@ async def accept_suggestion(req: SkillCreateRequest) -> DistilledSkill:
         tags=req.tags,
         origin=req.origin if req.origin in ORIGINS else "manual",
         kind=req.kind,
+        **_gate(req.scope, req.source_campaign),
     )
     created = store.create(skill)
     _record_added(req.suggestion_id, created)

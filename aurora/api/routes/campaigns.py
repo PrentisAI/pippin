@@ -461,6 +461,29 @@ async def list_campaigns() -> list[dict[str, Any]]:
     return sorted(results, key=lambda c: c["updated_at"], reverse=True)
 
 
+@campaign_router.get("/others")
+async def other_projects() -> list[dict[str, Any]]:
+    """Projects of the team the asking member is not in, when the team's rules let members see that
+    they exist: only the name and whom to ask.  Never confidential ones."""
+    from aurora.auth.guard import current_user, visible
+    from aurora.auth.store import auth_store
+    me = current_user()
+    if me.is_local or me.is_guest or not auth_store.rules().get("members_see_all_projects"):
+        return []
+    all_ids = [row["campaign_id"] for row in store.list_campaigns()]
+    mine = set(visible(me, all_ids))
+    out = []
+    for cid in all_ids:
+        access = auth_store.project_access(cid) or {}
+        if cid in mine or access.get("confidential"):
+            continue
+        owner = auth_store.get_user(access.get("owner_id") or "") or {}
+        row = store.get_campaign(cid) or {}
+        out.append({"campaign_id": cid, "name": row.get("name", ""), "owner": owner.get("name", ""),
+                    "owner_email": owner.get("email", "")})
+    return sorted(out, key=lambda x: x["name"].lower())
+
+
 def _sharing(cid: str, user: Any) -> dict[str, Any] | None:
     """How a project is shared, as its list entry shows it (None: the console has no accounts)."""
     from aurora.auth.guard import accounts_on, rights
@@ -571,6 +594,8 @@ async def delete_campaign(campaign_id: str, delete_files: bool = False) -> dict[
     library.drop_project(campaign_id)
     from aurora.brainstorm.store import bs_store
     bs_store.drop_space(campaign_id)
+    from aurora.feed.store import feed_store
+    feed_store.drop_project(campaign_id)
     auth_store.log(current_user().user_id, "deleted a project", campaign_id)
     return {"ok": True, "campaign_id": campaign_id, "files_deleted": delete_files}
 
@@ -774,6 +799,10 @@ async def _start(campaign: CampaignState, req: StartExperimentRequest, *, run_id
         config = _experiment_config(campaign, run_id, req)
     except Exception as exc:
         raise HTTPException(400, f"Invalid experiment settings: {exc}") from exc
+    from aurora.auth.providers import config_models, models_problem
+    problem = models_problem(config_models(config), campaign.campaign_id)
+    if problem:
+        raise HTTPException(400, problem + " Choose other models in the run's settings.")
     run = ExperimentRunState(run_id, campaign.campaign_id, req.name or slug, config.models.for_phase("research"),
                              config.human.autonomy.value)
     run.frontdesk_enabled = config.human.frontdesk
@@ -1157,6 +1186,30 @@ class ChatBody(BaseModel):
     # files sent with the message (already uploaded): paths in the project's files (project chat)
     # or in the experiment's inputs/ (experiment chat)
     attachments: list[str] = []
+    # items from the Library sent with a project message: [{kind: feed, item_id} | {kind: paper, paper_id}]
+    library: list[dict[str, str]] = []
+
+
+def _with_library(text: str, refs: list[dict[str, str]]) -> tuple[str, list[dict[str, Any]]]:
+    """The message with the Library items it carries, and how they show in the conversation."""
+    from aurora.api.routes.feed import library_ref, ref_text
+    from aurora.feed.store import feed_store
+    shown, read = [], []
+    for ref in refs[:10]:
+        body = ref_text(ref, _me())
+        if body is None:
+            continue
+        read.append(body)
+        if ref.get("kind") == "feed":
+            shown.append(library_ref(feed_store.item(ref["item_id"])))
+        else:
+            from aurora.literature.library import library
+            entry = library.paper(ref.get("paper_id", ""))
+            shown.append({"kind": "paper", "paper_id": ref.get("paper_id"), "title": entry["paper"].title if entry else "",
+                          "label": "Paper", "ok": True, "by": entry["paper"].byline() if entry else ""})
+    if not read:
+        return text, []
+    return f"{text}\n\n[From the researcher's Library, read it before answering:\n\n" + "\n\n".join(read) + "]", shown
 
 
 def _with_attachments(text: str, attachments: list[str], where: str) -> str:
@@ -1569,11 +1622,19 @@ def _project_frontdesk(campaign: CampaignState) -> Any:
 async def campaign_chat_send(campaign_id: str, body: ChatBody) -> dict[str, Any]:
     campaign = _ensure_campaign(campaign_id)
     _require_key()
-    if not body.text.strip() and not body.attachments:
+    if not body.text.strip() and not body.attachments and not body.library:
         raise HTTPException(400, "An empty message")
+    from aurora.auth.providers import model_problem
+    from aurora.config import AuroraConfig
+    problem = model_problem(AuroraConfig.model_validate({**base_config(), "objective": "project"}).models.frontdesk,
+                            campaign_id)
+    if problem:
+        raise HTTPException(400, problem + " An admin can change the front desk's model under Settings.")
+    message, shown = _with_library(body.text, body.library)
     campaign.chat_history.append({"role": "user", "text": body.text, "timestamp": time.time(),
-                                  **({"attachments": body.attachments} if body.attachments else {})})
-    message = _with_attachments(body.text, body.attachments,
+                                  **({"attachments": body.attachments} if body.attachments else {}),
+                                  **({"library": shown} if shown else {})})
+    message = _with_attachments(message, body.attachments,
                                 "uploaded to the project's files (give them to an experiment as project:<path>)")
     try:
         result = await _project_frontdesk(campaign).handle_user_message(message)

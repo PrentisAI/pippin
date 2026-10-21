@@ -57,19 +57,23 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
     from aurora.api.routes.accounts import access_router, auth_router, me_router, team_router
     from aurora.api.routes.brainstorm import router as brainstorm_router
     from aurora.api.routes.campaigns import campaign_router, settings_router, store
+    from aurora.api.routes.feed import router as feed_router
     from aurora.api.routes.files import router as files_router
     from aurora.api.routes.insights import router as insights_router
+    from aurora.api.routes.links import public_router as report_pages
+    from aurora.api.routes.links import router as links_router
     from aurora.api.routes.literature import library_router, project_router
     from aurora.api.routes.skills import router as skills_router
     from aurora.api.routes.zotero import router as zotero_router
     from aurora.auth.guard import guard
 
     # every route checks who is asking and whether they may (aurora.auth.guard.RULES);
-    # only signing in and invitations are open
+    # only signing in, invitations and read-only report links (checked by their token) are open
     app.include_router(auth_router)
+    app.include_router(report_pages)            # /r/<token>: a report shared read-only, checked by its token
     for router in (campaign_router, settings_router, skills_router, insights_router, files_router,
                    me_router, team_router, access_router, project_router, library_router,
-                   zotero_router, brainstorm_router):
+                   zotero_router, brainstorm_router, feed_router, links_router):
         app.include_router(router, dependencies=[Depends(guard)])
 
     @app.on_event("startup")
@@ -91,10 +95,13 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
         # the brainstorm agents' own work (by each person's "How active")
         from aurora.brainstorm.background import loop as brainstorm_loop
         app.state.brainstorm_work = asyncio.create_task(brainstorm_loop())
+        # each person's feed: their sources every few hours, and their daily digest
+        from aurora.feed.service import loop as feed_loop
+        app.state.feed_work = asyncio.create_task(feed_loop())
 
     @app.on_event("shutdown")
     async def shutdown() -> None:
-        for name in ("zotero_sync", "brainstorm_work"):
+        for name in ("zotero_sync", "brainstorm_work", "feed_work"):
             task = getattr(app.state, name, None)
             if task is not None:
                 task.cancel()

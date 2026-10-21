@@ -43,6 +43,8 @@ import {
   type Phase,
   type Proposal,
   type Skill,
+  type LibraryRef,
+  type OtherProject,
 } from '../types'
 import { turnKey, type StreamEvent } from '../types/chat'
 
@@ -322,9 +324,19 @@ function SidebarPanel({
   onOpenFiles: (campaignId: string) => void
   onShare: (campaign: CampaignSummary) => void
 }) {
-  const { accounts } = useAuth()
+  const auth = useAuth()
+  const accounts = auth.accounts
   // the project or run whose name is being edited ("c:<id>" or "e:<id>")
   const [renaming, setRenaming] = useState<string | null>(null)
+  // projects of the team you are not in, when the team lets members see that they exist
+  const [others, setOthers] = useState<OtherProject[]>([])
+  const [otherOpen, setOtherOpen] = useState<string | null>(null)
+  const [showOthers, setShowOthers] = useState(false)
+  const memberCount = campaigns.length
+  useEffect(() => {
+    if (!accounts || auth.user.team_role === 'guest') return
+    api.others().then(setOthers).catch(() => setOthers([]))
+  }, [accounts, auth.user.team_role, memberCount])
   return (
     <div className={`sidebar${collapsed ? ' collapsed' : ''}`} ref={sidebarRef}>
       <div className="sidebar-brand">
@@ -399,6 +411,24 @@ function SidebarPanel({
             </div>
           )
         })}
+        {others.length > 0 && (
+          <>
+            <button className="sidebar-section sidebar-others" aria-expanded={showOthers} onClick={() => setShowOthers(!showOthers)}>
+              {showOthers ? '▾' : '▸'} Other team projects · {others.length}
+            </button>
+            {showOthers && others.map((o) => (
+              <div key={o.campaign_id} className="camp-item locked" onClick={() => setOtherOpen(otherOpen === o.campaign_id ? null : o.campaign_id)}>
+                <div className="camp-dot idle" />
+                <div className="camp-body">
+                  <div className="camp-name"><span className="camp-share" aria-hidden="true">{svgIcon(<><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 018 0v4" /></>, 12)}</span>{o.name}</div>
+                  <div className="camp-meta">{otherOpen === o.campaign_id
+                    ? <>You are not in this project. Ask {o.owner || 'its owner'}{o.owner_email ? ` (${o.owner_email})` : ''} to invite you.</>
+                    : `${o.owner || 'Someone'}’s project`}</div>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
       </div>
     </div>
   )
@@ -471,6 +501,67 @@ function WelcomeView({ onSend }: { onSend: (text: string) => Promise<void> }) {
 // Chat Area (shared between campaign-level and experiment-level chat)
 // ---------------------------------------------------------------------------
 
+// What other pages hand to a project's chat: an item from the Library for its front desk, a tab to open
+const projectMailbox: Record<string, { refs: LibraryRef[]; tab?: string }> = {}
+function toProject(campaignId: string, what: { ref?: LibraryRef; tab?: string }) {
+  const box = projectMailbox[campaignId] ??= { refs: [] }
+  if (what.ref && !box.refs.some((r) => (r.item_id ?? r.paper_id) === (what.ref!.item_id ?? what.ref!.paper_id))) box.refs.push(what.ref)
+  if (what.tab) box.tab = what.tab
+  window.dispatchEvent(new CustomEvent('aurora:project-mail', { detail: campaignId }))
+}
+
+/** Items from the Library to attach to a message: what you saved from the feed, and your papers. */
+function LibraryPicker({ onPick, onClose }: { onPick: (r: LibraryRef) => void; onClose: () => void }) {
+  const [items, setItems] = useState<LibraryRef[] | null>(null)
+  const [q, setQ] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    api.feed.attachable().then((r) => setItems(r.items)).catch((e) => setError(describeError(e)))
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', esc)
+    return () => document.removeEventListener('keydown', esc)
+  }, [onClose])
+  const shown = (items ?? []).filter((r) => !q || (r.title + r.by + (r.where ?? '')).toLowerCase().includes(q.toLowerCase()))
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <div className="modal lit-modal" role="dialog" aria-modal="true" aria-label="Attach from the Library" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="modal-title">Attach from the Library</div>
+        <div className="modal-body">
+          <input autoFocus placeholder="Filter" aria-label="Filter" value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="lib-pick-list">
+            {shown.map((r) => (
+              <button key={(r.item_id ?? r.paper_id) + (r.where ?? '')} className="lib-pick" onClick={() => { onPick(r); onClose() }}>
+                <span className="lit-title">{r.title}</span>
+                <span className="lit-sub">{r.label}{r.ok ? ' ✓' : ''} · {r.by ? `${r.by} · ` : ''}{r.where}</span>
+              </button>
+            ))}
+            {items && !shown.length && <div className="modal-hint">Nothing saved yet. Use “Save to project” on the Library’s feed, or save papers from a search.</div>}
+            {!items && !error && <div className="modal-hint">Loading…</div>}
+          </div>
+          {error && <div className="modal-error">{error}</div>}
+          <div className="modal-hint">The front desk reads what you attach (the summary, the abstract and why the feed picked it) with your message.</div>
+        </div>
+        <div className="modal-actions"><button className="btn-sm" onClick={onClose}>Close</button></div>
+      </div>
+    </div>
+  )
+}
+
+function LibraryRefCards({ refs, onRemove }: { refs: LibraryRef[]; onRemove?: (r: LibraryRef) => void }) {
+  return (
+    <div className="lib-refs">
+      {refs.map((r) => (
+        <div key={(r.item_id ?? r.paper_id) ?? r.title} className="lib-ref">
+          <div className="lib-ref-title">{r.title}</div>
+          <div className="lib-ref-meta"><span className={`fd-badge k-${r.label.toLowerCase() === 'paper' ? 'paper' : r.label.toLowerCase()}`}>{r.label}{r.ok ? ' ✓' : ''}</span>
+            {r.by && <span className="lit-sub">{r.by}</span>}
+            {onRemove && <button className="link-btn" aria-label="Remove" onClick={() => onRemove(r)}>×</button>}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function ChatArea({
   campaignId,
   experimentId,
@@ -498,6 +589,8 @@ function ChatArea({
   const chatAreaRef = useRef<HTMLDivElement>(null)
   const isNearBottom = useRef(true)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [libRefs, setLibRefs] = useState<LibraryRef[]>([])
+  const [pickLibrary, setPickLibrary] = useState(false)
 
   const isProjectTab = activeTab === 'project'
 
@@ -506,6 +599,25 @@ function ChatArea({
       setActiveTab(experimentId)
     }
   }, [experimentId])
+
+  // what another page handed to this project: an item for the front desk, a tab to open
+  useEffect(() => {
+    const take = () => {
+      const box = projectMailbox[campaignId]
+      if (!box) return
+      delete projectMailbox[campaignId]
+      if (box.refs.length) {
+        setActiveTab('project')
+        setLibRefs((prev) => [...prev, ...box.refs.filter((r) => !prev.some((p) => (p.item_id ?? p.paper_id) === (r.item_id ?? r.paper_id)))])
+        setTimeout(() => textareaRef.current?.focus(), 50)
+      }
+      if (box.tab) setActiveTab(box.tab)
+    }
+    take()
+    const on = (e: Event) => { if ((e as CustomEvent<string>).detail === campaignId) take() }
+    window.addEventListener('aurora:project-mail', on)
+    return () => window.removeEventListener('aurora:project-mail', on)
+  }, [campaignId])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -551,13 +663,15 @@ function ChatArea({
 
   const handleSend = async () => {
     const files = att.ready
-    if ((!input.trim() && !files.length) || sending || att.uploading) return
+    const refs = isProjectTab ? libRefs : []
+    if ((!input.trim() && !files.length && !refs.length) || sending || att.uploading) return
     const text = input.trim()
     setInput('')
     att.clear()
+    setLibRefs([])
     setSending(true)
     setSendError(null)
-    setMessages((prev) => [...prev, { role: 'user', text, timestamp: Date.now() / 1000, attachments: files }])
+    setMessages((prev) => [...prev, { role: 'user', text, timestamp: Date.now() / 1000, attachments: files, ...(refs.length ? { library: refs } : {}) }])
     try {
       if (!isProjectTab) {
         const resp = await api.expChat.send(campaignId, activeTab, text, files)
@@ -565,7 +679,7 @@ function ChatArea({
           setMessages((prev) => [...prev, { role: 'system', text: resp.response, timestamp: Date.now() / 1000 }])
         }
       } else {
-        const resp = await api.chat.send(campaignId, text, files)
+        const resp = await api.chat.send(campaignId, text, files, refs)
         if (resp?.proposal) {
           setMessages((prev) => {
             const last = prev[prev.length - 1]
@@ -613,7 +727,7 @@ function ChatArea({
   const tabRunning = !!tabExp && isActiveStatus(tabExp.status)
   const deskOff = !!tabExp && tabExp.frontdesk_enabled === false
   const chatClosed = deskOff && !tabRunning          // nobody would answer
-  const placeholder = isProjectTab ? 'Message the project...'
+  const placeholder = isProjectTab ? (libRefs.length ? 'What would you like to know about it? (or just send)' : 'Message the project...')
     : chatClosed ? 'The front desk of this experiment is off (switch it on in the header)'
     : deskOff ? `Front desk off: messages go straight to the research agent of ${tabTaskName}`
     : tabRunning ? `Message ${tabTaskName}...` : `Ask about ${tabTaskName}...`
@@ -634,6 +748,7 @@ function ChatArea({
     { label: 'Upload a folder', icon: <FolderIcon />, onSelect: () => chatPickers.pick('folder') },
     ...(isProjectTab ? [
       { label: 'From the project’s files', icon: <ClipIcon />, divided: true, onSelect: () => setShowFiles('pick') },
+      { label: 'From the Library', icon: <BooksIcon />, onSelect: () => setPickLibrary(true) },
       { label: 'Manage project files', icon: <ClipIcon />, onSelect: () => setShowFiles('manage') },
     ] : []),
   ]
@@ -683,6 +798,7 @@ function ChatArea({
       {activeTab === 'literature' ? <LiteratureView campaignId={campaignId} /> : <>
       {/* Chat messages (files can be dropped here) */}
       {chatPickers.inputs}
+      {pickLibrary && <LibraryPicker onPick={(r) => setLibRefs((prev) => prev.some((p) => (p.item_id ?? p.paper_id) === (r.item_id ?? r.paper_id)) ? prev : [...prev, r])} onClose={() => setPickLibrary(false)} />}
       {showFiles && (
         <ProjectFilesDialog campaignId={campaignId} mode={showFiles}
           onPick={(picked) => att.addExisting(picked.map((x) => x.replace(/^project:/, '')))}
@@ -726,7 +842,8 @@ function ChatArea({
                 {isUser ? (msg.by ? initials(msg.by) : 'Y') : 'M'}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                {(msg.text || !msg.attachments?.length) && <div className={`msg-bubble ${isUser ? 'user' : 'bot'}`}>{msg.text}</div>}
+                {msg.library && msg.library.length > 0 && <LibraryRefCards refs={msg.library} />}
+                {(msg.text || (!msg.attachments?.length && !msg.library?.length)) && <div className={`msg-bubble ${isUser ? 'user' : 'bot'}`}>{msg.text}</div>}
                 {msg.attachments && msg.attachments.length > 0 && <SentAttachments paths={msg.attachments} />}
                 {msg.proposal && isProjectTab && (
                   <ProposalCard
@@ -795,6 +912,7 @@ function ChatArea({
       <div className="input-bar">
         <div className="input-wrap with-cards">
           <AttachmentCards attachments={att.attachments} onRemove={att.remove} />
+          {isProjectTab && libRefs.length > 0 && <LibraryRefCards refs={libRefs} onRemove={(r) => setLibRefs(libRefs.filter((x) => x !== r))} />}
           <textarea
             ref={textareaRef}
             value={input}
@@ -811,7 +929,7 @@ function ChatArea({
               trigger={<PlusIcon />} buttonClass="attach-btn" items={attachMenu} disabled={chatClosed} />
             {att.uploading && <span className="input-note">uploading…</span>}
             <span style={{ flex: 1 }} />
-            <button className="send-btn" disabled={(!input.trim() && !att.ready.length) || att.uploading || sending || chatClosed}
+            <button className="send-btn" disabled={(!input.trim() && !att.ready.length && !(isProjectTab && libRefs.length)) || att.uploading || sending || chatClosed}
               onClick={handleSend} title={att.uploading ? 'Wait for the uploads to finish' : 'Send'}>
               {sending ? <span className="spinner" /> : <SendSvgIcon />}
             </button>
@@ -1430,6 +1548,8 @@ function SkillsPanel({ collapsed, panelRef, initialSearch = '' }: {
                     {sk.scope === 'experiment' && <span className="skill-badge">one run</span>}
                     {sk.scope === 'campaign' && <span className="skill-badge">one project</span>}
                     {sk.scope === 'projects' && <span className="skill-badge">{sk.projects?.length ?? 0} project{sk.projects?.length === 1 ? '' : 's'}</span>}
+                    {sk.approval === 'pending' && <span className="skill-badge pending" title="Used only in the project it was learned in until a team admin approves it">waiting for an admin</span>}
+                    {sk.approval === 'rejected' && <span className="skill-badge" title="A team admin kept it in the project it was learned in">kept in its project</span>}
                   </div>
                   <div className="skill-desc">{sk.description}</div>
                   <div className="skill-meta">{SKILL_ORIGIN_LABELS[sk.origin] ?? sk.origin}{sk.source_experiment ? ` · ${sk.source_experiment}` : ''}</div>
@@ -1862,6 +1982,23 @@ export default function Home() {
     setActiveExperimentId(null)
     navigate(`/campaigns/${id}`, { replace: true })
   }, [navigate])
+
+  // from the Library: ask a project's front desk about an item, or open a project's tab
+  useEffect(() => {
+    const ask = (e: Event) => {
+      const { campaignId, ref } = (e as CustomEvent<{ campaignId: string; ref: LibraryRef }>).detail
+      toProject(campaignId, { ref })
+      setActivePanel((p) => p === '' ? 'projects' : p)
+      selectCampaign(campaignId)
+    }
+    const tab = (e: Event) => {
+      const { campaignId, tab } = (e as CustomEvent<{ campaignId: string; tab: string }>).detail
+      toProject(campaignId, { tab })
+    }
+    window.addEventListener('aurora:ask-frontdesk', ask)
+    window.addEventListener('aurora:open-project-tab', tab)
+    return () => { window.removeEventListener('aurora:ask-frontdesk', ask); window.removeEventListener('aurora:open-project-tab', tab) }
+  }, [selectCampaign])
 
   const selectExperiment = useCallback((expId: string | null) => {
     setActiveExperimentId(expId)

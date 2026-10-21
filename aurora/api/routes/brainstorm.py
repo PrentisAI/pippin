@@ -203,6 +203,13 @@ def _run_agents(ch: dict[str, Any], campaign_id: str, names: list[str], question
     if not names:
         return
     access = _access()
+    if campaign_id:
+        from aurora.auth.providers import model_problem
+        problem = model_problem(access.model, campaign_id)
+        if problem:
+            bs_store.add_message(ch["chat_id"], names[0], f"I cannot answer here: {problem} An admin can choose "
+                                 "another model for the brainstorm agents (models.brainstorm) under Settings.")
+            return
     context = _attached(attachments or [], campaign_id)
 
     async def go() -> None:

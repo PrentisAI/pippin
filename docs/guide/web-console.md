@@ -114,9 +114,13 @@ files 200 GB (`uploads.max_file_gb`, `uploads.max_project_gb`, also in
 
 A project's **Literature** tab lists the papers the agents cited, the references
 that could not be found in any index (with what to do about each), and every
-search the agents ran. The **Library** (the book icon) holds your own papers and
-the literature of the projects you can see, and searches the scholarly indexes.
-See [Literature](../concepts/literature.md).
+search the agents ran. The **Library** (the book icon) opens on your **feed**:
+new papers, posts, blogs and discussions from the people and sources you follow,
+ranked against your projects (see [The feed](feed.md)). Its **Saved** tab holds
+your own papers, what you saved from the feed and the literature of the projects
+you can see; **Search** searches the scholarly indexes. In a project's chat,
+**+ → From the Library** attaches a saved item for the front desk to read. See
+[Literature](../concepts/literature.md).
 
 ## Brainstorm
 

@@ -463,6 +463,8 @@ async def set_access(campaign_id: str, body: AccessSettings) -> dict[str, Any]:
         if "manage" not in rights(me, campaign_id):
             raise HTTPException(403, "Only those who manage the project can change whether it is confidential")
         changes["confidential"] = int(body.confidential)
+        if body.confidential:
+            auth_store.revoke_links(campaign_id)     # no links outside the team
     if body.deciders is not None:
         if body.deciders not in ("starter", "owners", "user"):
             raise HTTPException(400, "deciders must be starter, owners or user")

@@ -1,7 +1,8 @@
 """The scholarly indexes papers are found and checked in: OpenAlex, Crossref, arXiv, Semantic Scholar.
 
 All four are free.  OpenAlex and Crossref answer faster with a contact address
-(``AURORA_CONTACT_EMAIL``, their "polite pool").  Semantic Scholar limits anonymous use
+(``AURORA_CONTACT_EMAIL``, their "polite pool"); OpenAlex also wants its own free key
+(``OPENALEX_API_KEY``), without which it allows only a small daily budget per IP address.  Semantic Scholar limits anonymous use
 hard; with ``SEMANTIC_SCHOLAR_API_KEY`` it is asked like the others, without it only
 when it is not busy (a 429 pauses it for a few minutes).
 
@@ -41,6 +42,18 @@ _CACHE_SECONDS = 24 * 3600
 _CACHE_MAX = 4000
 _ARXIV_GAP = 3.0                 # arXiv asks for at most one request every 3 seconds
 _S2_PAUSE = 300.0                # after a 429 from Semantic Scholar without a key
+
+
+def openalex_params(params: dict[str, Any], contact: str = "") -> dict[str, Any]:
+    """OpenAlex's own key (``OPENALEX_API_KEY``, free) and a contact address, when set.  Without a
+    key, requests count against a small daily budget shared by everyone on the same IP address."""
+    out = dict(params)
+    if os.environ.get("OPENALEX_API_KEY"):
+        out["api_key"] = os.environ["OPENALEX_API_KEY"]
+    contact = contact or os.environ.get("AURORA_CONTACT_EMAIL", "")
+    if contact:
+        out["mailto"] = contact
+    return out
 
 
 class Unreachable(Exception):
@@ -265,7 +278,7 @@ class Indexes:
         return found
 
     def _polite(self, params: dict[str, Any]) -> dict[str, Any]:
-        return {**params, "mailto": self.contact} if self.contact else params
+        return openalex_params(params, self.contact)
 
     # -- by identifier -----------------------------------------------------------
 

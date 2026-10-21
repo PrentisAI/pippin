@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, describeError } from '../api/client'
-import type { AccessMember, Perm, Person, ProjectAccess, TeamGroup } from '../types'
+import type { AccessMember, Perm, Person, ProjectAccess, ReportLink, TeamGroup } from '../types'
 
 const ROLE_NAMES: [string, string][] = [['owner', 'Owner'], ['editor', 'Editor'], ['commenter', 'Commenter'], ['viewer', 'Viewer'], ['custom', 'Custom']]
 const PERM_ORDER: Perm[] = ['view', 'comment', 'edit', 'run', 'decide', 'share', 'manage']
@@ -19,9 +19,12 @@ export function ShareDialog({ campaignId, projectName, onClose }: { campaignId: 
   const [open, setOpen] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ tone: 'ok' | 'error'; text: string; link?: string } | null>(null)
+  const [report, setReport] = useState<ReportLink | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     api.access.get(campaignId).then(setAccess).catch((err) => setMessage({ tone: 'error', text: describeError(err) }))
+    api.links.get(campaignId).then(setReport).catch(() => {})
     api.team.people().then(setPeople).catch(() => {})
     api.team.groups().then(setGroups).catch(() => {})
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -191,12 +194,53 @@ export function ShareDialog({ campaignId, projectName, onClose }: { campaignId: 
         </div>
 
         <div className="share-section">
+          <div className="share-section-title">Links outside the team</div>
+          {report && (
+            <>
+              <label className="modal-check">
+                <input type="checkbox" checked={!!report.link} disabled={busy || (!report.allowed && !report.link) || !canShare}
+                  onChange={async (e) => {
+                    setBusy(true)
+                    setMessage(null)
+                    try { setReport(e.target.checked ? await api.links.make(campaignId, 30) : await api.links.revoke(campaignId)) }
+                    catch (err) { setMessage({ tone: 'error', text: describeError(err) }) } finally { setBusy(false) }
+                  }} />
+                Anyone with the link can read the report (read only)
+              </label>
+              {report.link && (
+                <>
+                  <div className="share-link-row">
+                    <label htmlFor="lnkdays">Link stops working after</label>
+                    <select id="lnkdays" value={report.link.days} disabled={busy || !canShare}
+                      onChange={async (e) => { try { setReport(await api.links.make(campaignId, Number(e.target.value))) } catch (err) { setMessage({ tone: 'error', text: describeError(err) }) } }}>
+                      {[7, 30, 90].map((d) => <option key={d} value={d}>{d}</option>)}
+                    </select> days
+                    <button type="button" className="btn-sm" onClick={async () => {
+                      const url = report.link!.url || `${window.location.origin}${report.link!.path}`
+                      try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+                      catch { setMessage({ tone: 'ok', text: 'Copy this link:', link: url }) }
+                    }}>{copied ? 'Copied' : 'Copy link'}</button>
+                  </div>
+                  <div className="share-hint">Until {new Date(report.link.expires_at * 1000).toLocaleDateString()}. It shows the latest report and its figures, nothing else of the project.
+                    {!report.has_report && ' The project has no report yet: the link will show it once a run writes one.'}</div>
+                </>
+              )}
+              {!report.link && report.reason && <div className="share-hint warn">{report.reason}</div>}
+            </>
+          )}
+        </div>
+
+        <div className="share-section">
           <label className="modal-check">
             <input type="checkbox" checked={access.confidential} disabled={!canManage || busy}
-              onChange={(e) => act(() => api.access.set(campaignId, { confidential: e.target.checked }), e.target.checked ? 'The project is now confidential.' : 'The project is no longer confidential.')} />
+              onChange={(e) => act(async () => {
+                const r = await api.access.set(campaignId, { confidential: e.target.checked })
+                setReport(await api.links.get(campaignId))
+                return r
+              }, e.target.checked ? 'The project is now confidential.' : 'The project is no longer confidential.')} />
             <b>Confidential project</b>
           </label>
-          <div className="share-hint">Not shown to the rest of the team, whatever the setting above; skills learned here stay here.</div>
+          <div className="share-hint">No links outside the team, not shown to the rest of {access.team}, skills learned here stay here, and only model providers that keep no data are used.</div>
         </div>
         <div className="modal-actions"><span className="share-hint" style={{ marginRight: 'auto' }}>Changes are saved as you make them.</span><button className="btn-sm btn-approve" onClick={onClose}>Done</button></div>
       </div>

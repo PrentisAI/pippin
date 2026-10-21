@@ -1,0 +1,93 @@
+# The feed: what to read today
+
+The **Library** opens on your feed: new papers, posts, blogs and discussions
+from the people and sources you follow, each ranked against every project you
+can see, and shown under the ones it fits with one sentence on why.
+
+## A card
+
+Each card says what it is (*Paper*, *Post*, *Blog*, *Discussion*), where it
+comes from, when, and for a paper its checked identity (`✓ arXiv:2610.08812`).
+Below the title and the people (those you follow are links to their page) and a
+summary, **Why for &lt;project&gt;** says what it means for that project: its
+data, a planned step, a finding it supports or contradicts. The five dots show
+how well it fits.
+
+| Button | What it does |
+|---|---|
+| **Save to project ▾** | Keeps it under a project, or *for later*. A paper joins that project's literature (marked *from the feed*) and its Literature page. *Remove* takes it back. |
+| **Bring to brainstorm ▾** | Puts it on a brainstorm board as material: a project's, or your own ideas. The Librarian notes why it was brought (unless the agents are set to *Only when asked*). |
+| **Ask the front desk** | Opens the project's chat with the item attached; write your question, or just send. The front desk reads its summary, abstract and why it was picked. A paper also joins the project's literature, marked as a *seed*. |
+| **PDF / Open thread / Read** | The item itself. |
+| **Not interested** | Hides it, and similar items rank lower from now on (*Undo* brings it back). |
+
+Filter by kind (papers, posts, blogs, discussions) and by project. Items that fit
+no project well are folded away: **Show N less relevant items**.
+
+A **discussion** gathers what people say about a paper in one of your projects
+(or a new paper of someone you follow): Bluesky posts that link it, Hacker
+News threads, its OpenReview forum. **Show the points** lists the main points
+raised, with links to each place.
+
+The right column lists the people you follow, with what is new from each since
+you last opened their page; your daily digest; and how many items each source
+brought today (and any source that did not answer, with why).
+
+## Sources and people
+
+**Sources and people** (top of the Library) is where you choose what the feed
+follows.
+
+**People.** Type a name, a profile link (OpenAlex, Semantic Scholar, ORCID, a
+homepage), an ORCID, or a handle (`@someone.bsky.social`, `@user@mastodon.social`,
+`x.com/someone`). When several authors share the name, you pick the right one by
+affiliation, number of papers, latest paper and co-authors. AURORA then looks
+for their other places, in their ORCID record and on their homepage: Bluesky,
+Mastodon, X, their blog's feed. What it is sure of is ticked; what it only found
+by name is offered unticked, with a note. For each person you choose what to
+follow: papers, posts, blog, and discussions about their work; click a place to
+stop or start following it there.
+
+**Topics.** arXiv categories (`cs.LG`, `stat.AP`) and keywords, searched in
+arXiv and OpenAlex. *Topics from my projects' objectives* adds search phrases
+and categories worked out from each project's objective.
+
+**Other sources.** HF Daily Papers; discussions around the papers in your
+projects; any blog or newsletter (paste its address: its RSS or Atom feed is
+found from the page).
+
+**X** has no free API. Paste an X API key (a bearer token) to follow X accounts;
+it is stored encrypted, like your other keys. Bluesky and Mastodon need no key.
+LinkedIn cannot be followed (it has no open API).
+
+## The daily digest
+
+Every day at the time you choose, the top items per project go to one of your
+notification channels (WeCom, Feishu, Slack, Server酱, a webhook; set them up
+under **Settings → Notifications**), or only to the console. *Skip days when
+nothing fits a project well* sends nothing on a day without a strong match.
+**Send today's now** shows what it looks like.
+
+## How it works
+
+Your sources are asked every three hours (and when you press **Look again
+now**); the feed shows what came in over the last three days. Each new item is
+first scored by the words it shares with each project's objective, the papers in
+its literature and what its runs found; the most promising are then ranked by a
+model (`models.brainstorm`, by default the front desk's), with your *Not
+interested* items as examples of what you do not want. At most 12 ranking calls
+a day per person; without a key, the word scores alone rank the feed.
+
+A confidential project is described to the model only if the model's provider
+keeps no data; otherwise its items are ranked by the word scores.
+
+| Source | Needs |
+|---|---|
+| arXiv, HF Daily Papers, Bluesky, Mastodon, RSS, Hacker News, OpenReview | nothing |
+| OpenAlex | works without a key, but set `OPENALEX_API_KEY` (free): the keyless daily budget is shared by everyone on your IP address |
+| Semantic Scholar | works without a key, rate-limited; `SEMANTIC_SCHOLAR_API_KEY` to use it fully |
+| X | an X API key, per person |
+
+Everything in the feed is your own: nobody else sees what you follow, save or
+hide. What you save to a project or bring to a shared brainstorm is seen there
+like anything else added to it.

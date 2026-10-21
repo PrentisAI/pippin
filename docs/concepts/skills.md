@@ -89,6 +89,12 @@ campaign runs reach its next agent sessions.
 | selected projects | `projects` | the experiments of the projects you tick |
 | all projects | `global` | every campaign |
 
+A skill a member sends beyond its project (*selected projects* or *all
+projects*) waits for a team admin when the team's rule asks for it: until then
+it is used only in the project it was learned in, and the Skills panel marks it
+*waiting for an admin* (see [Accounts and sharing](../guide/accounts.md#team-rules)).
+Skills learned in a confidential project cannot leave it.
+
 In the *Skills* panel you can read, edit (each save is a new version), look
 through the history of, change where it is used, and delete every skill.
 
