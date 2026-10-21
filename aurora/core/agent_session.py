@@ -59,8 +59,11 @@ class AgentSession:
         resume_session_id: str | None = None,
         max_budget_usd: float | None = None,
         session_callback: Any = None,
+        extras: dict[str, Any] | None = None,
     ) -> None:
         self._session_callback = session_callback
+        # more the session may use (`aurora papers`): extra_tools, extra_env, extra_prompt
+        self._extras = extras or {}
         self._max_budget_usd = max_budget_usd
         self._config = config
         self._bus = event_bus
@@ -141,6 +144,7 @@ class AgentSession:
             resume_session_id=self._resume_session_id,
             max_budget_usd=self._max_budget_usd,
             session_callback=self._session_callback,
+            **self._extras,
         )
 
 

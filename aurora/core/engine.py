@@ -22,6 +22,7 @@ and skips completed phases.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -267,6 +268,8 @@ class ResearchEngine:
         self.notifier: Any = None
         # cluster jobs of the research agents (aurora.compute.slurm.SlurmCompute), when enabled
         self.compute: Any = None
+        # `aurora papers` for the research agents (aurora.literature.agent_service.PaperService)
+        self.papers: Any = None
         # the project's literature (aurora.literature.service.ProjectLiterature); made on first use
         self._literature: Any = None
         # the round table while it meets (a live meeting takes the researcher's remarks)
@@ -344,6 +347,7 @@ class ResearchEngine:
                 if resume:
                     await self._restore_container_files()
                 await self._start_compute()
+                await self._start_papers()
             if not finished:            # with or without a container
                 await self._copy_inputs()
 
@@ -602,6 +606,9 @@ class ResearchEngine:
                     await self.compute.stop()
                 except Exception:
                     logger.warning("Stopping the cluster jobs failed", exc_info=True)
+            if self.papers is not None:
+                with contextlib.suppress(Exception):
+                    await self.papers.stop()
             if self._execution_backend is not None:
                 if self._workspace:
                     dest = self._workspace.campaign_dir / "workspace"
@@ -1526,6 +1533,7 @@ Be specific: cite file names and concrete observations.
             resume_session_id=resume_session_id,
             max_budget_usd=self._remaining_budget(),
             session_callback=(lambda sid: self._sessions.record(key, sid, full_system)) if self._sessions else None,
+            extras=self._phase_extras(phase_name),
         )
         result = await session.run(full_system, user_message)
         self.cost_usd += float(result.get("cost_usd") or 0.0)
@@ -2350,22 +2358,63 @@ Be specific: cite file names and concrete observations.
         await self.compute.start()
         logger.info("Cluster jobs on (socket %s)", self.compute.socket_path)
 
+    async def _start_papers(self) -> None:
+        """`aurora papers` for the research agents, when the literature is on."""
+        if self.literature is None or self.papers is not None:
+            return
+        from aurora.compute.slurm import install_wrapper_command, socket_dir_for
+        from aurora.literature.agent_service import PaperService
+        files = None
+        if self.project_id:
+            with contextlib.suppress(Exception):
+                from aurora.api.routes.files import project_files_dir
+                files = project_files_dir(self.project_id)
+        self.papers = PaperService(self.literature, socket_dir=socket_dir_for(self._workspace.campaign_dir),
+                                   workspace_dir=self._workspace.campaign_dir / "workspace", project_files=files)
+        await self.papers.start()
+        backend = self._execution_backend
+        if getattr(backend, "agent_env", None) and getattr(backend, "container_id", None):
+            with contextlib.suppress(Exception):
+                await backend.exec_command(install_wrapper_command(), timeout=60)
+
+    def _phase_extras(self, phase_name: str) -> dict[str, Any]:
+        """`aurora papers` for the phases' own sessions (they run on the host), not for audits."""
+        if self.papers is None or phase_name == "audit":
+            return {}
+        return {"extra_tools": list(self.papers.allowed_tools), "extra_env": self.papers.agent_env(),
+                "extra_prompt": self.papers.agent_prompt()}
+
     def _compute_mounts(self) -> list[str]:
-        """The job socket's directory and the job client, for agents inside the container."""
-        if not (self._config.compute.slurm.enabled and self._config.sandbox.mount_workspace):
+        """The sockets' directory and the clients (`aurora job`, `aurora papers`), for agents inside the container."""
+        if not self._config.sandbox.mount_workspace:
+            return []
+        jobs = self._config.compute.slurm.enabled
+        papers = self._config.literature.enabled and not self._config.mock_mode
+        if not (jobs or papers):
             return []
         from aurora.compute.slurm import CLIENT_PATH, CONTAINER_CLIENT, CONTAINER_SOCKET_DIR, socket_dir_for
+        from aurora.literature.agent_service import CLIENT_PATH as PAPERS_CLIENT
+        from aurora.literature.agent_service import CONTAINER_CLIENT as PAPERS_IN_CONTAINER
         sockets = socket_dir_for(self._workspace.campaign_dir)
         sockets.mkdir(parents=True, exist_ok=True)
-        return [f"{sockets}:{CONTAINER_SOCKET_DIR}", f"{CLIENT_PATH}:{CONTAINER_CLIENT}:ro"]
+        return [f"{sockets}:{CONTAINER_SOCKET_DIR}",
+                *([f"{CLIENT_PATH}:{CONTAINER_CLIENT}:ro"] if jobs else []),
+                *([f"{PAPERS_CLIENT}:{PAPERS_IN_CONTAINER}:ro"] if papers else [])]
 
     def _agent_extras(self) -> dict[str, Any]:
-        if self.compute is None:
-            return {}
         inside = bool(getattr(self._execution_backend, "agent_env", None))   # agents in the container
-        return {"extra_tools": [] if inside else self.compute.allowed_tools,
-                "extra_env": self.compute.agent_env(in_container=inside),
-                "extra_prompt": self.compute.agent_prompt(in_container=inside)}
+        out: dict[str, Any] = {"extra_tools": [], "extra_env": {}, "extra_prompt": ""}
+        for service in (self.compute, self.papers):
+            if service is None:
+                continue
+            if not inside:
+                out["extra_tools"] += service.allowed_tools
+            env = service.agent_env(in_container=inside)
+            if "PATH" in env and "PATH" in out["extra_env"]:
+                env = {k: v for k, v in env.items() if k != "PATH"}
+            out["extra_env"].update(env)
+            out["extra_prompt"] += service.agent_prompt(in_container=inside)
+        return out if (self.compute is not None or self.papers is not None) else {}
 
     def _campaign_brief(self, proposal: RoundtableProposal | None) -> str:
         lines = [f"## Research objective\n\n{self._config.objective}"]

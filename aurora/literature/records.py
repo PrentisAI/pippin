@@ -90,6 +90,9 @@ def family_name(author: str) -> str:
         name = parts[-1] if parts else ""
         if name.lower() in ("jr", "jr.", "ii", "iii") and len(parts) > 1:
             name = parts[-2]
+        # Vancouver style, initials after the name: "Behrens M", "Studt FJ"
+        elif len(parts) > 1 and re.fullmatch(r"(?:[A-Z]\.?){1,3}", "".join(parts[1:])) and len(parts[0]) > 2:
+            name = parts[0]
     return fold(name).replace(" ", "")
 
 

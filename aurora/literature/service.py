@@ -131,13 +131,36 @@ class ProjectLiterature:
             library.add_item(self.campaign_id, paper_id, source="agent", added_by=by)
 
     async def check_reference(self, ref: Reference) -> Check:
-        """Check one reference; a person's earlier decision about it counts."""
+        """Check one reference; a person's earlier decision about it counts, and so does a paper this
+        project already found in the indexes under (almost) the same title."""
         known = library.known_ref(self.campaign_id, ref.to_dict())
         if known and known["resolution"] == "replaced" and known["paper_id"]:
             stored = library.paper(known["paper_id"])
             if stored:
                 return Check("verified", ref, paper=stored["paper"], reason="replaced by a person")
-        return await check(ref, self.idx)
+        result = await check(ref, self.idx)
+        if not result.verified and ref.title and not ref.doi and not ref.arxiv_id:
+            seen = self._seen_with_title(ref)
+            if seen is not None:
+                return Check("verified", ref, paper=seen, searched=result.searched, failed=result.failed,
+                             reason="the same paper this project found in the indexes")
+        return result
+
+    def _seen_with_title(self, ref: Reference) -> Paper | None:
+        from aurora.literature.records import family_name, title_similarity
+        for pid in library.known_to(self.campaign_id):
+            entry = library.paper(pid)
+            if entry is None:
+                continue
+            p = entry["paper"]
+            if title_similarity(ref.title, p.title) < 0.97:
+                continue
+            if ref.year and p.year and abs(ref.year - p.year) > 1:
+                continue
+            if ref.first_author and p.authors and family_name(ref.first_author) not in {family_name(a) for a in p.authors}:
+                continue
+            return p
+        return None
 
     async def check_text(self, text: str, *, by: str, place: str) -> Citations:
         """Find the references in what an agent wrote, check them and record where they were used."""

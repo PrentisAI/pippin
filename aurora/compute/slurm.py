@@ -45,9 +45,20 @@ ACTIVE = {"PENDING", "CONFIGURING", "RUNNING", "COMPLETING", "SUSPENDED", "REQUE
 CLIENT_PATH = Path(job_client.__file__).resolve()
 CONTAINER_SOCKET_DIR = "/aurora/run"
 CONTAINER_CLIENT = "/aurora/lib/aurora_job.py"
+# `aurora` inside the container: `aurora job ...` and `aurora papers ...` (whichever clients are mounted)
 _WRAPPER = ("#!/bin/sh\n"
-            "command -v python3 >/dev/null 2>&1 || { echo 'aurora job: python3 is missing in this image' >&2; exit 1; }\n"
-            f"exec python3 {CONTAINER_CLIENT} \"$@\"\n")
+            "command -v python3 >/dev/null 2>&1 || { echo \"aurora $1: python3 is missing in this image\" >&2; exit 1; }\n"
+            "case \"$1\" in\n"
+            "  papers) exec python3 /aurora/lib/aurora_papers.py \"$@\" ;;\n"
+            f"  *) exec python3 {CONTAINER_CLIENT} \"$@\" ;;\n"
+            "esac\n")
+
+
+def install_wrapper_command() -> str:
+    """The shell command that installs `aurora` in the container (run once a client is mounted)."""
+    wrapper = base64.b64encode(_WRAPPER.encode()).decode()
+    return (f"( [ -f {CONTAINER_CLIENT} ] || [ -f /aurora/lib/aurora_papers.py ] ) && echo {wrapper} | base64 -d "
+            "> /usr/local/bin/aurora && chmod 755 /usr/local/bin/aurora")
 
 
 def _tag(campaign_dir: Path) -> str:
@@ -178,9 +189,7 @@ class SlurmCompute:
             # files the agents create stay writable for jobs, which run as the cluster's user
             await self._exec("printf 'umask 000\\n' > /etc/profile.d/aurora-jobs.sh")
             # `aurora job` for agents that work inside the container (the client is mounted there)
-            wrapper = base64.b64encode(_WRAPPER.encode()).decode()
-            await self._exec(f"[ -f {CONTAINER_CLIENT} ] && echo {wrapper} | base64 -d > /usr/local/bin/aurora "
-                             "&& chmod 755 /usr/local/bin/aurora")
+            await self._exec(install_wrapper_command())
 
     async def stop(self) -> None:
         """Stop serving; cancel the jobs still queued or running if configured."""

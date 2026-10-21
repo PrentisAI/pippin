@@ -35,7 +35,11 @@ text are checked as well. Each reference is looked up:
 
 1. by DOI or arXiv ID, if one is given. If the ID exists but names a different
    paper than the cited title, the title is looked up instead;
-2. otherwise by title, authors and year, in every index.
+2. otherwise by title, authors and year, in every index. A title with chemical
+   formulas (`Cu/ZnO/Al2O3`) is also asked with the numbers apart, since Crossref
+   keeps formulas with their subscripts marked up and otherwise misses them. A
+   paper this project already found in the indexes under the same title (same
+   first author, year within one) counts as verified too.
 
 A match must agree on the title, the first author (where one is cited) and the
 year (within one year, since a preprint and its journal version can differ).
@@ -67,6 +71,28 @@ and judges novelty against those papers (`literature.screening_search`).
 key. Every reference in the report is then checked again. The report's
 reference list and a `references.bib` next to it are built only from verified
 papers; references that could not be found are left out.
+
+**The agents' own sessions.** The research agent, and the planning, analysis
+and writing sessions, have a command for the literature (inside the container
+too):
+
+```text
+aurora papers search "<what you look for>" [--limit 8]   OpenAlex, arXiv, Crossref, Semantic Scholar
+aurora papers show <Key|DOI|arXiv ID>    the abstract, links, the researcher's highlights and notes
+aurora papers pdf <Key> [--text]         its PDF into the workspace's papers/ (and its text)
+aurora papers check "<reference>" ...    is it a real paper? (or --file refs.bib)
+aurora papers list                       the project's papers and their keys
+aurora papers cite <Key> ...             record that the run uses them
+aurora papers bib [<Key> ...]            BibTeX for them
+```
+
+Their searches are recorded as the research agent's on the Literature page,
+`cite` records the use (the papers then join the literature by the project's
+rule), and `check` takes a citation however it is written: a DOI, an arXiv ID,
+"Behrens et al. (2012). Title. Journal", or Vancouver style "Behrens M, Studt F,
+et al. Title. Science. 2012". `pdf` uses the researcher's own copy from Zotero
+when the project has one, else the open-access PDF; it is downloaded by AURORA,
+so it works when the container has no network.
 
 Searches and checks show up in the experiment's stream, and so do flagged
 references.

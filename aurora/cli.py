@@ -454,6 +454,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     from aurora.compute.cli import add_parser as add_job_parser
     add_job_parser(sub)
+    papers = sub.add_parser("papers", add_help=False,
+                            help="search the literature and check references (used by a running experiment's agents)")
+    papers.add_argument("papers_args", nargs="*")
     return parser
 
 
@@ -464,6 +467,9 @@ def main(argv: list[str] | None = None) -> None:
     if argv[:1] == ["job"]:      # the agents' command: its own parser, options passed through as they are
         from aurora.compute.job_client import main as job_main
         sys.exit(job_main(argv[1:]))
+    if argv[:1] == ["papers"]:   # the agents' literature command (aurora.literature.agent_service)
+        from aurora.literature.papers_client import main as papers_main
+        sys.exit(papers_main(argv[1:]))
     load_dotenv()
     parser = build_parser()
     args = parser.parse_args(argv)

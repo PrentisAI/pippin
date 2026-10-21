@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -278,12 +279,17 @@ class Indexes:
         return found
 
     def _polite(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Crossref's polite pool: a contact address."""
+        return {**params, "mailto": self.contact} if self.contact else params
+
+    def _oa(self, params: dict[str, Any]) -> dict[str, Any]:
+        """OpenAlex: its key and a contact address."""
         return openalex_params(params, self.contact)
 
     # -- by identifier -----------------------------------------------------------
 
     async def _openalex_doi(self, doi: str) -> list[Paper]:
-        r = await self._get("openalex", f"https://api.openalex.org/works/doi:{doi}", self._polite({"select": _OA_SELECT}))
+        r = await self._get("openalex", f"https://api.openalex.org/works/doi:{doi}", self._oa({"select": _OA_SELECT}))
         return [] if r.status_code == 404 else [_openalex_paper(r.json())]
 
     async def _crossref_doi(self, doi: str) -> list[Paper]:
@@ -335,14 +341,25 @@ class Indexes:
         # "search" also matches full texts, which brings in papers that only mention a word
         where = "title.search" if title_only else "title_and_abstract.search"
         params["filter"] = f"{where}:{fold(query)[:300]}"
-        r = await self._get("openalex", "https://api.openalex.org/works", self._polite(params))
+        r = await self._get("openalex", "https://api.openalex.org/works", self._oa(params))
         papers = [_openalex_paper(w) for w in r.json().get("results") or []]
         if not title_only and len(papers) < max(2, limit // 2):
             # every word must appear in the title or abstract: few hits; widen, and let rank() sort it out
             wide = {"per-page": limit, "select": _OA_SELECT, "search": query}
-            r = await self._get("openalex", "https://api.openalex.org/works", self._polite(wide))
+            r = await self._get("openalex", "https://api.openalex.org/works", self._oa(wide))
             papers += [_openalex_paper(w) for w in r.json().get("results") or []]
         return papers
+
+    async def _crossref_lookup(self, title: str, bib: str, limit: int = 5) -> list[Paper]:
+        """Crossref for a cited title.  Crossref keeps chemical formulas with their subscripts
+        marked up ("Al<sub>2</sub>O<sub>3</sub>"), and its ranking misses "Al2O3": a title with
+        formulas is also asked with the numbers apart ("Al 2 O 3")."""
+        split = re.sub(r"(?<=[A-Za-z])(\d+)", r" \1 ", title)
+        if split == title:
+            return await self._crossref_search(bib, limit)
+        first, second = await asyncio.gather(self._crossref_search(bib, limit),
+                                             self._crossref_search(" ".join(split.split()), limit))
+        return first + second
 
     async def _crossref_search(self, query: str, limit: int) -> list[Paper]:
         r = await self._get("crossref", "https://api.crossref.org/works",
@@ -386,7 +403,7 @@ class Indexes:
         if self._active("semantic_scholar"):
             jobs["semantic_scholar"] = self._s2_search(query, limit)
         if self._active("crossref"):
-            jobs["crossref"] = self._crossref_search(query, max(3, limit // 2))
+            jobs["crossref"] = self._crossref_lookup(query, query, max(3, limit // 2))
         found = await self._ask(jobs)
         found.papers = rank(query, found.papers)
         if not found.failed:
@@ -401,7 +418,7 @@ class Indexes:
             return hit
         jobs: dict[str, Any] = {}
         if self._active("crossref"):
-            jobs["crossref"] = self._crossref_search(bib, 5)
+            jobs["crossref"] = self._crossref_lookup(title, bib)
         if self._active("openalex"):
             jobs["openalex"] = self._openalex_search(title, 5, title_only=True)
         if self._active("arxiv"):
