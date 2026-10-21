@@ -15,7 +15,7 @@ from aurora.env import load_dotenv
 # API keys from .env must be in the environment before any route builds a config
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException  # noqa: E402
+from fastapi import Depends, FastAPI, HTTPException  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
@@ -53,16 +53,19 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
             allow_headers=["*"],
         )
 
+    from aurora.api.routes.accounts import access_router, auth_router, me_router, team_router
     from aurora.api.routes.campaigns import campaign_router, settings_router, store
     from aurora.api.routes.files import router as files_router
     from aurora.api.routes.insights import router as insights_router
     from aurora.api.routes.skills import router as skills_router
+    from aurora.auth.guard import guard
 
-    app.include_router(campaign_router)
-    app.include_router(settings_router)
-    app.include_router(skills_router)
-    app.include_router(insights_router)
-    app.include_router(files_router)
+    # every route checks who is asking and whether they may (aurora.auth.guard.RULES);
+    # only signing in and invitations are open
+    app.include_router(auth_router)
+    for router in (campaign_router, settings_router, skills_router, insights_router, files_router,
+                   me_router, team_router, access_router):
+        app.include_router(router, dependencies=[Depends(guard)])
 
     @app.on_event("startup")
     async def startup() -> None:

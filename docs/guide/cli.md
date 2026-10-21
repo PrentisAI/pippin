@@ -10,6 +10,7 @@ aurora status CAMPAIGN_DIR     show where a campaign is
 aurora resume CAMPAIGN_DIR     continue a campaign from its last checkpoint
 aurora serve                   start the web console
 aurora skills list|add|remove  manage the skill library
+aurora users add|list|passwd|role|remove  manage accounts (see Accounts and sharing)
 ```
 
 ## `aurora run`
@@ -53,9 +54,23 @@ aurora serve --port 9000 --config base.yaml
 ```
 
 `--config` is the base configuration for experiments started from the console
-(models, sandbox image, budgets, autonomy); its objective is ignored. The
-console has no login, so by default it listens on 127.0.0.1 only. On a remote
-machine, use an SSH tunnel: `ssh -L 8000:localhost:8000 server`.
+(models, sandbox image, budgets, autonomy); its objective is ignored. Without
+accounts the console has no login, so by default it listens on 127.0.0.1 only.
+On a remote machine, use an SSH tunnel: `ssh -L 8000:localhost:8000 server`.
+
+## `aurora users`
+
+```bash
+aurora users add you@lab.org --name "Your Name" --admin   # the first account must be an admin
+aurora users add sara@lab.org --name "Sara Novak"
+aurora users list
+aurora users role sara@lab.org guest                      # admin | member | guest
+aurora users passwd sara@lab.org
+aurora users remove sara@lab.org
+```
+
+The first account turns sign-in on and becomes the owner of existing projects.
+See [Accounts and sharing](accounts.md).
 
 ## `aurora skills`
 

@@ -29,6 +29,8 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "numpy>=1.26",
     "matplotlib>=3.8",
+    "httpx>=0.27",          # notifications
+    "cryptography>=42",     # API keys stored encrypted (accounts)
 ]
 
 [project.optional-dependencies]

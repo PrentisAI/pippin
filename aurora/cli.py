@@ -258,6 +258,76 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_users(args: argparse.Namespace) -> int:
+    """Accounts of the web console. The first admin turns sign-in on."""
+    import getpass
+
+    from aurora.api.persistence import Store
+    from aurora.auth.passwords import check_new_password
+    from aurora.auth.store import AuthStore
+
+    auth = AuthStore()
+
+    def ask_password() -> str:
+        while True:
+            pw = getpass.getpass("Password: ")
+            problem = check_new_password(pw)
+            if problem:
+                print(problem)
+                continue
+            if getpass.getpass("Again: ") == pw:
+                return pw
+            print("The two do not match.")
+
+    if args.users_cmd == "add":
+        first = not auth.has_users()
+        role = "admin" if args.admin else "guest" if args.guest else "member"
+        if first and role != "admin":
+            print("The first account must be an admin: add it with --admin.", file=sys.stderr)
+            return 1
+        password = args.password or ask_password()
+        problem = check_new_password(password)
+        if problem:
+            print(problem, file=sys.stderr)
+            return 1
+        try:
+            row = auth.add_user(args.email, args.name or "", password, role)
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        auth.log(None, f"added {row['name']} as {role} from the command line", row["user_id"])
+        print(f"Added {row['email']} ({role}).")
+        if first:
+            store = Store()
+            n = auth.adopt_unowned([r["campaign_id"] for r in store.list_campaigns()], row["user_id"])
+            print("Sign-in is now required in the web console." + (f" {n} existing projects now belong to {row['email']}." if n else ""))
+        return 0
+    if args.users_cmd == "list":
+        for u in auth.list_users():
+            print(f"{u['email']:<40} {u['team_role']:<7} {u['name']}")
+        return 0
+    row = auth.user_by_email(args.email)
+    if row is None:
+        print(f"No account {args.email}", file=sys.stderr)
+        return 1
+    if args.users_cmd == "passwd":
+        auth.update_user(row["user_id"], password=ask_password())
+        print("Password changed.")
+    elif args.users_cmd == "role":
+        if row["team_role"] == "admin" and args.role != "admin" and len(auth.admins()) == 1:
+            print("The team needs at least one admin.", file=sys.stderr)
+            return 1
+        auth.update_user(row["user_id"], team_role=args.role)
+        print(f"{row['email']} is now {args.role}.")
+    elif args.users_cmd == "remove":
+        if row["team_role"] == "admin" and len(auth.admins()) == 1:
+            print("The team needs at least one admin.", file=sys.stderr)
+            return 1
+        auth.remove_user(row["user_id"])
+        print(f"Removed {row['email']}; what they made stays theirs.")
+    return 0
+
+
 def cmd_skills(args: argparse.Namespace) -> int:
     from aurora.paths import aurora_home
     from aurora.skills.store import DistilledSkill, SkillStore, missing_sections, skill_template
@@ -365,6 +435,22 @@ def build_parser() -> argparse.ArgumentParser:
     r = sk.add_parser("remove", help="remove a skill")
     r.add_argument("name")
     p.set_defaults(func=cmd_skills)
+
+    p = sub.add_parser("users", help="accounts of the web console (the first admin turns sign-in on)")
+    us = p.add_subparsers(dest="users_cmd", metavar="ACTION", required=True)
+    a = us.add_parser("add", help="add an account")
+    a.add_argument("email")
+    a.add_argument("--name", default="")
+    a.add_argument("--admin", action="store_true", help="a team admin (the first account must be one)")
+    a.add_argument("--guest", action="store_true", help="a guest: sees only the projects they are invited to")
+    a.add_argument("--password", default="", help="(asked for when left out)")
+    us.add_parser("list", help="list accounts")
+    us.add_parser("passwd", help="set a new password").add_argument("email")
+    r = us.add_parser("role", help="make someone admin, member or guest")
+    r.add_argument("email")
+    r.add_argument("role", choices=["admin", "member", "guest"])
+    us.add_parser("remove", help="remove an account (what they made stays)").add_argument("email")
+    p.set_defaults(func=cmd_users)
 
     from aurora.compute.cli import add_parser as add_job_parser
     add_job_parser(sub)

@@ -73,6 +73,7 @@ async def test_submit_follow_and_finish(tmp_path, slurm):
     fake, image = slurm
     m, events = manager(tmp_path, image)
     await m.start()
+    m._poller.cancel()          # the test polls by hand; the background loop would race it
     try:
         for bad, why in [({"gpus": 3}, "--gpus"), ({"partition": "other"}, "not allowed"),
                          ({"time_limit": "13:00:00"}, "at most 12:00:00"), ({"name": "a b"}, "--name")]:

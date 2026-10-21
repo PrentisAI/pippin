@@ -52,6 +52,15 @@ export interface CampaignSummary {
   active_experiments: number
   completed_experiments: number
   needs_attention: boolean
+  /** How it is shared (null: the console has no accounts). */
+  sharing?: ProjectSharing | null
+}
+
+export interface ProjectSharing {
+  members: number
+  team_access: 'none' | 'view' | 'comment'
+  confidential: boolean
+  my_rights: Perm[]
 }
 
 export type AutonomyMode = 'supervised' | 'autonomous'
@@ -110,6 +119,8 @@ export interface ExperimentSummary {
   frontdesk_enabled?: boolean
   /** Its cost limit (US$; null: none). */
   max_cost_usd?: number | null
+  /** Who started it (their key pays; their channels are notified). */
+  started_by?: string
 }
 
 export interface ContainerResources {
@@ -211,6 +222,8 @@ export interface ConversationMessage {
   proposal?: Proposal
   /** Files sent with the message. */
   attachments?: string[]
+  /** Who wrote it, in a run's shared conversation on a console with accounts. */
+  by?: string
 }
 
 export interface ProjectChatStatus {
@@ -411,4 +424,112 @@ export interface ClusterJobs {
   live: boolean
   jobs: ClusterJob[]
   gpu_hours: number
+}
+
+// ---------------------------------------------------------------------------
+// Accounts, teams and sharing
+// ---------------------------------------------------------------------------
+
+export type TeamRole = 'admin' | 'member' | 'guest'
+export type Perm = 'view' | 'comment' | 'edit' | 'run' | 'decide' | 'share' | 'manage'
+export type ProjectRole = 'owner' | 'editor' | 'commenter' | 'viewer' | 'custom'
+
+export interface AuthUser {
+  user_id: string
+  email: string
+  name: string
+  team_role: TeamRole
+  /** The single user of a console without accounts. */
+  is_local: boolean
+}
+
+export interface AuthStatus {
+  accounts: boolean
+  user: AuthUser | null
+  team: string | null
+}
+
+export interface InviteInfo {
+  email: string
+  team_role: TeamRole
+  team: string
+  project: string | null
+  project_role: ProjectRole | null
+  invited_by: string | null
+  has_account: boolean
+}
+
+export interface Person {
+  user_id: string
+  email: string
+  name: string
+  team_role: TeamRole
+  org: string
+  /** Admins only. */
+  last_active?: number | null
+  key?: 'own' | 'team' | 'none'
+}
+
+export interface TeamGroup {
+  group_id: string
+  name: string
+  members: string[]
+}
+
+export interface TeamRules {
+  external_links: boolean
+  guests_can_run: boolean
+  new_projects_confidential: boolean
+  skills_need_approval: boolean
+  members_see_all_projects: boolean
+  allowed_providers: string[]
+  team_key_for_members: boolean
+  monthly_budget_usd: number | null
+  per_person_usd: number | null
+  per_project_usd: number | null
+  member_domains: string[]
+}
+
+export interface KeyStatus {
+  provider: string
+  set: boolean
+  hint: string
+  updated_at: number | null
+}
+
+export interface ActivityEntry {
+  id: number
+  ts: number
+  user_id: string | null
+  who: string
+  action: string
+  target: string
+  detail: string
+}
+
+export interface AccessMember {
+  principal: string
+  kind: 'user' | 'group'
+  role: ProjectRole
+  perms: Perm[]
+  name: string
+  email?: string
+  team_role?: TeamRole
+  org?: string
+  members?: number
+}
+
+export interface ProjectAccess {
+  owner_id: string
+  team_access: 'none' | 'view' | 'comment'
+  confidential: boolean
+  deciders: 'starter' | 'owners' | 'user'
+  decider_user: string | null
+  members: AccessMember[]
+  invites: { invite_id: string; email: string; role: ProjectRole; team_role: TeamRole }[]
+  my_rights: Perm[]
+  roles: Record<string, Perm[]>
+  perm_labels: Record<Perm, string>
+  team_access_options: string[]
+  team: string
 }

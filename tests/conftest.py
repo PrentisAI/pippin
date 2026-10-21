@@ -12,9 +12,12 @@ def isolated_home(tmp_path, monkeypatch):
     from aurora.core import requirements
     monkeypatch.setattr(requirements, "available_models", lambda *a, **k: None)
     from aurora.api.routes import campaigns, skills
+    from aurora.auth.store import auth_store
+    auth_store.reset()
     campaigns.store.reset()
     campaigns._campaigns.clear()
     skills._store = None
     yield tmp_path
+    auth_store.reset()
     campaigns.store.reset()
     skills._store = None

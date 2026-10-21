@@ -11,6 +11,10 @@ import { AttachmentCards, SentAttachments } from '../components/AttachmentCards'
 import { ConfirmDelete, InlineRename, ItemMenu, type MenuItem, PencilIcon, RerunIcon, StopIcon, TrashIcon } from '../components/ItemMenu'
 import { ScopePicker, type ScopeValue } from '../components/SkillScope'
 import { WorkspacePanel } from '../components/WorkspacePanel'
+import { ShareDialog } from '../components/ShareDialog'
+import { TeamView } from '../components/TeamView'
+import { AccountButton } from '../components/AccountMenu'
+import { useAuth } from '../auth'
 import { ClusterJobsPanel } from '../components/ClusterJobsPanel'
 import { formatCost, formatDuration } from '../format'
 import {
@@ -128,6 +132,10 @@ const SettingsIcon = () => (
 const ExplorerIcon = () => (
   <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
 )
+const TeamIcon = () => (
+  <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0111 0"/><path d="M16 5.2a3 3 0 010 5.6M17.5 14a5 5 0 013.5 5"/></svg>
+)
+const ShareIcon = () => svgIcon(<><circle cx="18" cy="5" r="2.5" /><circle cx="6" cy="12" r="2.5" /><circle cx="18" cy="19" r="2.5" /><path d="M8.2 10.9l7.6-4.4M8.2 13.1l7.6 4.4" /></>)
 const SkillsIcon = () => (
   <svg viewBox="0 0 24 24"><path d="M20 16V8a2 2 0 00-2-2h-3a3 3 0 00-6 0H6a2 2 0 00-2 2v3a3 3 0 000 6v3a2 2 0 002 2h3a3 3 0 006 0h3a2 2 0 002-2v-3a3 3 0 000-6z"/></svg>
 )
@@ -164,6 +172,22 @@ const PlusIcon = () => svgIcon(<><path d="M12 5v14" /><path d="M5 12h14" /></>, 
 const FileIcon = () => svgIcon(<><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></>)
 const ClipIcon = () => svgIcon(<path d="M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9" />)
 
+function initials(name: string): string {
+  return name.split(/\s+/).filter(Boolean).map((x) => x[0]).join('').slice(0, 2).toUpperCase() || '?'
+}
+
+/** A small mark after a project's name: shared with others, or confidential. */
+function sharedMark(c: CampaignSummary) {
+  const s = c.sharing
+  if (!s) return null
+  if (s.confidential) return <span className="camp-share" title="Confidential">{svgIcon(<><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 018 0v4" /></>, 12)}</span>
+  if (s.members > 1 || s.team_access !== 'none') {
+    const who = s.team_access !== 'none' ? 'the team' : `${s.members} people`
+    return <span className="camp-share" title={`Shared with ${who}`}>{svgIcon(<><circle cx="9" cy="8" r="3.2" /><path d="M3.5 19a5.5 5.5 0 0111 0" /><path d="M16 5.2a3 3 0 010 5.6M17.5 14a5 5 0 013.5 5" /></>, 12)}</span>
+  }
+  return null
+}
+
 // ---------------------------------------------------------------------------
 // Activity Bar
 // ---------------------------------------------------------------------------
@@ -171,11 +195,15 @@ const ClipIcon = () => svgIcon(<path d="M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l8
 function ActivityBar({
   activePanel,
   explorerActive,
+  teamActive,
   onTogglePanel,
+  onOpenTeam,
 }: {
   activePanel: string
   explorerActive: boolean
+  teamActive: boolean
   onTogglePanel: (panel: string) => void
+  onOpenTeam: () => void
 }) {
   return (
     <div className="activity-bar">
@@ -186,7 +214,8 @@ function ActivityBar({
       <button className={`ab-btn${activePanel === 'skills' ? ' active' : ''}`} title="Skills" onClick={() => onTogglePanel('skills')}><SkillsIcon /></button>
       <button className={`ab-btn${activePanel === 'settings' ? ' active' : ''}`} title="Settings" onClick={() => onTogglePanel('settings')}><SettingsIcon /></button>
       <div className="ab-spacer" />
-      <button className="ab-btn" title="Account" style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>Y</button>
+      <button className={`ab-btn${teamActive ? ' active' : ''}`} title="Team" onClick={onOpenTeam}><TeamIcon /></button>
+      <AccountButton onOpenTeam={onOpenTeam} />
     </div>
   )
 }
@@ -258,6 +287,7 @@ function SidebarPanel({
   onRenameExperiment,
   onDeleteExperiment,
   onOpenFiles,
+  onShare,
 }: {
   campaigns: CampaignSummary[]
   activeCampaignId: string | null
@@ -275,7 +305,9 @@ function SidebarPanel({
   onRenameExperiment: (campaignId: string, expId: string, name: string) => void
   onDeleteExperiment: (campaignId: string, exp: ExperimentSummary) => void
   onOpenFiles: (campaignId: string) => void
+  onShare: (campaign: CampaignSummary) => void
 }) {
+  const { accounts } = useAuth()
   // the project or run whose name is being edited ("c:<id>" or "e:<id>")
   const [renaming, setRenaming] = useState<string | null>(null)
   return (
@@ -307,13 +339,14 @@ function SidebarPanel({
                     <InlineRename value={c.name} onCancel={() => setRenaming(null)}
                       onSave={(name) => { setRenaming(null); onRenameCampaign(c.campaign_id, name) }} />
                   ) : (
-                    <div className="camp-name">{c.name}</div>
+                    <div className="camp-name">{sharedMark(c)}{c.name}</div>
                   )}
                   <div className="camp-meta">{c.objective || 'No objective'}</div>
                 </div>
                 <div className="camp-time">{relativeTime(c.updated_at)}</div>
                 <ItemMenu label="Project actions" items={[
                   { label: 'Files', icon: <FolderIcon />, onSelect: () => onOpenFiles(c.campaign_id) },
+                  ...(accounts ? [{ label: 'Share', icon: <ShareIcon />, onSelect: () => onShare(c) }] : []),
                   { label: 'Rename', icon: <PencilIcon />, onSelect: () => setRenaming(`c:${c.campaign_id}`) },
                   { label: 'Delete', icon: <TrashIcon />, danger: true, divided: true, onSelect: () => onDeleteCampaign(c) },
                 ]} />
@@ -664,8 +697,8 @@ function ChatArea({
           const isUser = msg.role === 'user'
           return (
             <div key={`${msg.timestamp}-${i}`} className={`msg-row${isUser ? ' user' : ''}`}>
-              <div className={`msg-avatar ${isUser ? 'human' : 'bot'}`}>
-                {isUser ? 'Y' : 'M'}
+              <div className={`msg-avatar ${isUser ? 'human' : 'bot'}`} title={isUser ? msg.by : undefined}>
+                {isUser ? (msg.by ? initials(msg.by) : 'Y') : 'M'}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 {(msg.text || !msg.attachments?.length) && <div className={`msg-bubble ${isUser ? 'user' : 'bot'}`}>{msg.text}</div>}
@@ -927,6 +960,7 @@ function ExperimentView({
   }, [isActive])
   const elapsed = run ? (run.finished_at || now) - run.started_at : 0
   const canResume = run?.status === 'failed' || run?.status === 'stopped'
+  const { accounts } = useAuth()
 
   return (
     <div className="exp-content">
@@ -938,6 +972,12 @@ function ExperimentView({
             {run ? statusLabel(run.status) : '—'}
           </div>
         </div>
+        {accounts && run?.started_by && (
+          <div className="stat" title="Their key pays for the run; their notification channels hear about it">
+            <div className="stat-label">Started by</div>
+            <div className="stat-value">{run.started_by}</div>
+          </div>
+        )}
         <div className="stat">
           <div className="stat-label">Phase</div>
           <div className="stat-value">{phaseLabel(run?.phase) || '—'}</div>
@@ -1674,11 +1714,13 @@ function CampaignChatView({
   campaign,
   experiments,
   onSelectExperiment,
+  onShare,
 }: {
   campaignId: string
   campaign: CampaignSummary | null
   experiments: ExperimentSummary[]
   onSelectExperiment: (expId: string | null) => void
+  onShare: () => void
 }) {
   return (
     <>
@@ -1693,6 +1735,12 @@ function CampaignChatView({
           <span className="badge" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--fg-muted)' }}>
             {experiments.length} exp
           </span>
+        )}
+        {campaign?.sharing && (
+          <button className="share-btn" onClick={onShare} title="Who is in this project, and with which rights">
+            <ShareIcon />{campaign.sharing.members > 1 ? `Shared · ${campaign.sharing.members}` : 'Share'}
+            {campaign.sharing.confidential && <span className="share-conf">Confidential</span>}
+          </button>
         )}
       </div>
       <ChatArea
@@ -1725,6 +1773,8 @@ export default function Home() {
   const [notice, setNotice] = useState<string | null>(null)
   const [activePanel, setActivePanel] = useState<string>('projects')
   const [rightPanel, setRightPanel] = useState<string>('stream')
+  const [teamOpen, setTeamOpen] = useState(false)
+  const [sharing, setSharing] = useState<CampaignSummary | null>(null)
 
   const sidebarRef = useRef<HTMLDivElement>(null)
   const skillsPanelRef = useRef<HTMLDivElement>(null)
@@ -1750,6 +1800,7 @@ export default function Home() {
 
   // Sync state → URL
   const selectCampaign = useCallback((id: string) => {
+    setTeamOpen(false)
     setActiveCampaignId(id)
     setActiveExperimentId(null)
     navigate(`/campaigns/${id}`, { replace: true })
@@ -1908,11 +1959,12 @@ export default function Home() {
   const activeCampaign = campaigns.find((c) => c.campaign_id === activeCampaignId) || null
 
   // Determine view
-  const view = !activeCampaignId ? 'welcome' : activeExperimentId ? 'experiment' : 'campaign'
+  const view = teamOpen ? 'team' : !activeCampaignId ? 'welcome' : activeExperimentId ? 'experiment' : 'campaign'
 
   return (
     <div className="shell">
-      <ActivityBar activePanel={activePanel} explorerActive={rightPanel === 'files'} onTogglePanel={handleTogglePanel} />
+      <ActivityBar activePanel={activePanel} explorerActive={rightPanel === 'files'} onTogglePanel={handleTogglePanel}
+        teamActive={teamOpen} onOpenTeam={() => setTeamOpen(!teamOpen)} />
 
       <SidebarPanel
         campaigns={campaigns}
@@ -1923,6 +1975,7 @@ export default function Home() {
         sidebarRef={sidebarRef}
         onSelectCampaign={selectCampaign}
         onNewProject={() => {
+          setTeamOpen(false)
           setActiveCampaignId(null)
           setActiveExperimentId(null)
           navigate('/', { replace: true })
@@ -1935,7 +1988,10 @@ export default function Home() {
         onRenameExperiment={handleRenameExperiment}
         onDeleteExperiment={(campaignId, exp) => setDeleting({ kind: 'run', campaignId, exp })}
         onOpenFiles={setFilesFor}
+        onShare={setSharing}
       />
+      {sharing && <ShareDialog campaignId={sharing.campaign_id} projectName={sharing.name}
+        onClose={() => { setSharing(null); fetchCampaigns() }} />}
       {filesFor && <ProjectFilesDialog campaignId={filesFor} onClose={() => setFilesFor(null)} />}
 
       {deleting && (
@@ -1969,6 +2025,7 @@ export default function Home() {
 
       <div className="main" style={{ position: 'relative' }}>
         <ErrorBanner message={notice} onDismiss={() => setNotice(null)} />
+        {view === 'team' && <TeamView />}
         {view === 'welcome' && (
           <WelcomeView onSend={handleNewProject} />
         )}
@@ -1980,6 +2037,7 @@ export default function Home() {
             campaign={activeCampaign}
             experiments={experiments}
             onSelectExperiment={selectExperiment}
+            onShare={() => activeCampaign && setSharing(activeCampaign)}
           />
         )}
 

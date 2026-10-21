@@ -281,7 +281,9 @@ function describeEvent(event: StreamEvent): Described {
         str(d.title), 'waiting', str(d.detail) || undefined)
     case 'human_gate_resolved': {
       const action = str(d.action)
-      const by = DECIDED_BY_LABELS[d.decided_by] ?? str(d.decided_by)
+      const by = d.by && (d.decided_by === 'human' || d.decided_by === 'frontdesk')
+        ? (d.decided_by === 'human' ? str(d.by) : `the front desk (from ${str(d.by)}’s message)`)
+        : DECIDED_BY_LABELS[d.decided_by] ?? str(d.decided_by)
       return oversight(action === 'stop' ? 'error' : 'success',
         `Decision · ${GATE_SOURCE_LABELS[d.source] ?? str(d.source)}`,
         `${GATE_ACTION_LABELS[action] ?? action}, decided by ${by}`, action,
@@ -290,7 +292,7 @@ function describeEvent(event: StreamEvent): Described {
 
     // -- the researcher and the front desk -------------------------------------------
     case 'chat_message':
-      return system('info', `${d.role === 'user' ? 'You' : 'Assistant'}: ${str(d.text)}`)
+      return system('info', `${d.role === 'user' ? (d.by ? str(d.by) : 'You') : 'Assistant'}: ${str(d.text)}`)
     case 'frontdesk_response':
       return system('info', `Front desk: ${str(d.text)}`)
     case 'frontdesk_tool_call':

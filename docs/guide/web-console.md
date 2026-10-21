@@ -166,6 +166,7 @@ human:
 
 ## Remote use
 
-The console has no authentication. Run it on `127.0.0.1` (the default) and
-reach it through an SSH tunnel; do not expose it on a public interface, since
-anyone who can reach it can start campaigns with your API key.
+Without accounts the console has no authentication. Run it on `127.0.0.1` (the
+default) and reach it through an SSH tunnel; do not expose it on a public
+interface, since anyone who can reach it can start campaigns with your API key.
+To share one console with others, turn on [accounts](accounts.md).

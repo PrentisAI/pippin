@@ -2,6 +2,7 @@ import { Component, type ReactNode } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Home from './pages/Home'
+import { AuthGate } from './auth'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -45,9 +46,11 @@ export default function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <Routes>
-            <Route path="*" element={<Home />} />
-          </Routes>
+          <AuthGate>
+            <Routes>
+              <Route path="*" element={<Home />} />
+            </Routes>
+          </AuthGate>
         </BrowserRouter>
       </QueryClientProvider>
     </ErrorBoundary>

@@ -20,6 +20,13 @@ router = APIRouter(prefix="/api", tags=["insights"])
 # Search
 # ---------------------------------------------------------------------------
 
+def _visible_rows() -> list[dict[str, Any]]:
+    """The projects the asking user may see (all of them without accounts)."""
+    from aurora.auth.guard import can_see, current_user
+    user = current_user()
+    return [row for row in c.store.list_campaigns() if user.is_local or can_see(user, row["campaign_id"])]
+
+
 def _snippet(text: str, q: str, width: int = 160) -> str | None:
     """The part of *text* around the first match of *q* (case-insensitive), or None."""
     i = text.lower().find(q)
@@ -39,7 +46,7 @@ def _search(q: str, per_kind: int) -> dict[str, list[dict[str, Any]]]:
         if len(out[kind]) < per_kind:
             out[kind].append(item)
 
-    for row in c.store.list_campaigns():
+    for row in _visible_rows():
         cid = row["campaign_id"]
         try:
             camp = c._ensure_campaign(cid)
@@ -114,7 +121,7 @@ async def search(q: str, limit: int = 8) -> dict[str, Any]:
 def _analytics(days: int) -> dict[str, Any]:
     since = time.time() - days * 86400
     runs = []
-    for row in c.store.list_campaigns():
+    for row in _visible_rows():
         try:
             camp = c._ensure_campaign(row["campaign_id"])
         except Exception:

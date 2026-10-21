@@ -2664,3 +2664,117 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 .job-command { font-size: 10.5px; color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .job-actions { display: flex; gap: 4px; }
 .job-actions .link-btn { margin-left: 0; margin-right: 8px; }
+
+/* ── Sign-in and invitations ── */
+.signin-page { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; background: var(--bg); }
+.signin-card {
+  width: min(380px, 100%); display: flex; flex-direction: column; gap: 12px; padding: 26px 26px 22px;
+  background: var(--bg-raised); border: 1px solid var(--border); border-radius: 14px; color: var(--fg);
+}
+.signin-card h1 { font-size: 18px; font-weight: 600; color: var(--fg-bright); margin: 2px 0 4px; text-wrap: balance; }
+.signin-brand { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; letter-spacing: .08em; color: var(--fg-muted); }
+.signin-logo {
+  width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center;
+  background: var(--accent); color: var(--bg); font-size: 13px; letter-spacing: 0;
+}
+.signin-lead { font-size: 12.5px; line-height: 1.55; color: var(--fg-muted); }
+.signin-field { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; color: var(--fg-muted); }
+.signin-field input, .share-invite input, .share-invite select, .team-row-form input, .team-row-form select,
+.team-field input, .share-section select, .share-member select, .team-table select, .modal-body input[type=password] {
+  font: inherit; font-size: 12.5px; padding: 7px 9px; border-radius: 7px;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+}
+.signin-field input:focus, .share-invite input:focus, .team-row-form input:focus, .team-field input:focus,
+.modal-body input[type=password]:focus { outline: none; border-color: var(--accent); }
+.signin-submit {
+  margin-top: 4px; padding: 9px 12px; border-radius: 8px; border: none; cursor: pointer;
+  background: var(--accent); color: var(--bg); font: inherit; font-weight: 600; font-size: 13px;
+}
+.signin-submit:disabled { opacity: .6; cursor: wait; }
+.signin-hint { font-size: 11px; line-height: 1.5; color: var(--fg-dim); }
+.signin-hint code, .team-note code { font-size: 10.5px; }
+
+/* ── Share a project ── */
+.share-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 20px;
+  border: 1px solid var(--border); background: var(--bg-surface); color: var(--fg); cursor: pointer;
+  font: inherit; font-size: 11.5px; font-weight: 500; white-space: nowrap;
+}
+.share-btn:hover { border-color: var(--accent-border); color: var(--fg-bright); }
+.share-conf { font-size: 10px; padding: 1px 6px; border-radius: 10px; background: var(--amber-dim); color: var(--amber); }
+.camp-share { display: inline-flex; vertical-align: -1px; margin-right: 5px; color: var(--fg-dim); }
+.share-modal { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.share-invite { display: flex; gap: 6px; flex-wrap: wrap; }
+.share-invite input { flex: 1 1 200px; min-width: 0; }
+.share-hint { font-size: 11px; line-height: 1.5; color: var(--fg-dim); }
+.share-hint .link-btn { font-size: 11px; }
+.share-link { display: flex; align-items: center; gap: 6px; margin-top: 5px; min-width: 0; }
+.share-link code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 10.5px; padding: 3px 6px; border-radius: 5px; background: var(--bg); color: var(--fg); }
+.share-members { display: flex; flex-direction: column; border: 1px solid var(--border-subtle); border-radius: 9px; }
+.share-member { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; }
+.share-member + .share-member { border-top: 1px solid var(--border-subtle); }
+.share-avatar {
+  width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent-dim); color: var(--accent); font-size: 11px; font-weight: 600;
+}
+.share-who { flex: 1 1 140px; min-width: 0; }
+.share-name { font-size: 12.5px; color: var(--fg-bright); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.share-email { font-size: 11px; color: var(--fg-dim); overflow-wrap: anywhere; }
+.share-guest { font-size: 10px; padding: 1px 6px; border-radius: 10px; background: var(--amber-dim); color: var(--amber); }
+.share-member select { padding: 4px 6px; font-size: 11.5px; }
+.share-member .link-btn { font-size: 11px; margin-left: 0; }
+.share-perms {
+  flex-basis: 100%; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 5px 12px;
+  padding: 8px 10px; margin-left: 36px; border-radius: 7px; background: var(--bg); font-size: 11.5px;
+}
+.share-section { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border-subtle); font-size: 12px; }
+.share-section-title { font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-muted); }
+.share-pending { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--fg-muted); }
+.share-note { font-size: 11px; line-height: 1.55; color: var(--fg-muted); padding: 8px 10px; border-radius: 7px; background: var(--bg-surface); }
+
+/* ── Account menu ── */
+.account { position: relative; }
+.account-btn { font-size: 12px; font-weight: 600; color: var(--accent); }
+.account-menu {
+  position: absolute; left: calc(100% + 6px); bottom: 0; z-index: 150; width: 240px; padding: 6px;
+  background: var(--bg-raised); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 32px rgba(0, 0, 0, .3);
+  display: flex; flex-direction: column;
+}
+.account-who { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--border-subtle); font-size: 11px; color: var(--fg-dim); }
+.account-who b { font-size: 12.5px; color: var(--fg-bright); font-weight: 600; }
+.account-menu button {
+  text-align: left; padding: 6px 8px; border: none; border-radius: 6px; background: none; cursor: pointer;
+  font: inherit; font-size: 12px; color: var(--fg);
+}
+.account-menu button:hover { background: var(--bg-hover); }
+
+/* ── Team page ── */
+.team-page { flex: 1; overflow-y: auto; padding: 28px clamp(16px, 4vw, 48px) 40px; max-width: 920px; width: 100%; color: var(--fg); }
+.team-page h1 { font-size: 22px; font-weight: 600; color: var(--fg-bright); margin: 2px 0 14px; }
+.team-eyebrow { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim); }
+.team-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border-subtle); margin-bottom: 14px; overflow-x: auto; }
+.team-tabs button {
+  padding: 7px 12px; border: none; background: none; cursor: pointer; white-space: nowrap;
+  font: inherit; font-size: 12.5px; color: var(--fg-muted); border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.team-tabs button.on { color: var(--fg-bright); border-bottom-color: var(--accent); }
+.team-note { font-size: 12px; line-height: 1.55; color: var(--fg-muted); margin: 10px 0; max-width: 68ch; }
+.team-row-form { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 12px; }
+.team-row-form input { flex: 1 1 220px; min-width: 0; }
+.team-table-wrap { overflow-x: auto; border: 1px solid var(--border-subtle); border-radius: 9px; }
+.team-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.team-table th { text-align: left; font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--fg-dim); padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); }
+.team-table td { padding: 9px 12px; vertical-align: middle; }
+.team-table tr + tr td { border-top: 1px solid var(--border-subtle); }
+.team-table select { padding: 4px 6px; font-size: 12px; }
+.team-person { color: var(--fg-bright); }
+.team-sub { font-size: 11px; color: var(--fg-dim); }
+.team-ok { color: var(--green); }
+.team-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; margin-bottom: 10px; border: 1px solid var(--border-subtle); border-radius: 9px; }
+.team-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.team-chips { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; }
+.team-chip { padding: 2px 9px; border-radius: 12px; background: var(--bg-surface); }
+.team-rule { padding: 7px 0; font-size: 12.5px; line-height: 1.45; }
+.team-field { display: flex; flex-direction: column; gap: 5px; margin-top: 12px; font-size: 12px; color: var(--fg-muted); max-width: 480px; }
+.team-log { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
+.team-log li { padding: 6px 0; border-bottom: 1px solid var(--border-subtle); }

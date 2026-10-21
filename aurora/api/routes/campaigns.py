@@ -65,9 +65,34 @@ def server_config() -> dict[str, Any]:
 
 
 def base_config() -> dict[str, Any]:
-    """What new experiments start from: the server's base config with the console's settings over it."""
+    """What new experiments start from: the server's base config with the console's settings over it.
+
+    With accounts, the API key is the asking person's (theirs, else the team's if the team allows):
+    model calls a person causes are paid by them, never by the server's key by accident."""
     from aurora.api.console_settings import deep_merge, load_overlay
-    return deep_merge(server_config(), load_overlay())
+    data = deep_merge(server_config(), load_overlay())
+    from aurora.auth.guard import current_user
+    user = current_user()
+    if not user.is_local:
+        from aurora.auth.secrets import key_for
+        key, _ = key_for(user)
+        data["api_key"] = key or NO_KEY
+    return data
+
+
+# stands in for a missing personal key, so nothing falls back to the server's own key
+NO_KEY = "no-key-set"
+
+
+def _require_key() -> None:
+    from aurora.auth.guard import current_user
+    user = current_user()
+    if user.is_local:
+        return
+    from aurora.auth.secrets import key_for
+    if not key_for(user)[0]:
+        raise HTTPException(400, "You have no API key yet: add yours under your account (or ask an admin "
+                                 "to let members use the team's key)")
 
 
 # Experiments started from the console get this cost limit unless the server's base
@@ -91,6 +116,14 @@ def _projects_root() -> Path:
 # ---------------------------------------------------------------------------
 # Live state
 # ---------------------------------------------------------------------------
+
+def _person_name(user_id: str) -> str | None:
+    if user_id in ("", "local"):
+        return None
+    from aurora.auth.store import auth_store
+    u = auth_store.get_user(user_id)
+    return u["name"] if u else None
+
 
 class ExperimentRunState:
     """Live state of one experiment: status, event log, subscribers and its engine."""
@@ -117,7 +150,8 @@ class ExperimentRunState:
         self.task: asyncio.Task | None = None
         # the front desk: on while the run runs, and afterwards for questions about it; off: no model calls
         self.frontdesk_enabled = True
-        self.finished_desk: Any = None      # the front desk of the run once it no longer runs
+        self.finished_desks: dict[str, Any] = {}  # per person: the front desk once the run no longer runs
+        self.started_by = "local"         # who started it: their key pays, their channels are notified
 
     @property
     def campaign_dir(self) -> Path:
@@ -164,6 +198,7 @@ class ExperimentRunState:
             "decisions_made": len(self.decision_history),
             "resources": self.engine.resources if self.engine is not None else self._saved_resources(),
             "frontdesk_enabled": self.frontdesk_enabled,
+            "started_by": _person_name(self.started_by),
             "max_cost_usd": (self.engine._config.budget.max_cost_usd if self.engine is not None
                              else self._saved_budget()),
         }
@@ -229,8 +264,26 @@ class ExperimentProposal:
         return p
 
 
+class Conversation:
+    """One person's conversation with a project's front desk, and the proposals drafted in it."""
+
+    def __init__(self) -> None:
+        self.chat_history: list[dict[str, Any]] = []
+        self.frontdesk: Any = None
+        self.proposals: dict[str, ExperimentProposal] = {}
+
+
+def _me() -> str:
+    from aurora.auth.guard import current_user
+    return current_user().user_id
+
+
 class CampaignState:
-    """A project: experiments, the project conversation and pending proposals."""
+    """A project: experiments, and each person's conversation with its front desk.
+
+    ``chat_history``, ``frontdesk`` and ``proposals`` are those of the person asking (the local
+    owner without accounts): nobody sees another person's conversation or drafts.
+    """
 
     def __init__(self, campaign_id: str, name: str, objective: str = "") -> None:
         self.campaign_id = campaign_id
@@ -239,9 +292,44 @@ class CampaignState:
         self.created_at = time.time()
         self.updated_at = time.time()
         self.experiments: dict[str, ExperimentRunState] = {}
-        self.chat_history: list[dict[str, Any]] = []
-        self.frontdesk: Any = None
-        self.proposals: dict[str, ExperimentProposal] = {}
+        self._conversations: dict[str, Conversation] = {}
+
+    def conversation(self, user_id: str | None = None) -> Conversation:
+        uid = user_id or _me()
+        conv = self._conversations.get(uid)
+        if conv is None:
+            conv = Conversation()
+            from aurora.auth.store import auth_store
+            access = auth_store.project_access(self.campaign_id) or {}
+            # the single conversation from before accounts belongs to the project's owner
+            legacy = uid == "local" or uid == access.get("owner_id")
+            chat, proposals = store.load_project_chat(self.campaign_id, uid, legacy=legacy)
+            conv.chat_history = chat
+            for d in proposals:
+                prop = ExperimentProposal.from_dict(d)
+                conv.proposals[prop.proposal_id] = prop
+            self._conversations[uid] = conv
+        return conv
+
+    @property
+    def chat_history(self) -> list[dict[str, Any]]:
+        return self.conversation().chat_history
+
+    @chat_history.setter
+    def chat_history(self, value: list[dict[str, Any]]) -> None:
+        self.conversation().chat_history = value
+
+    @property
+    def frontdesk(self) -> Any:
+        return self.conversation().frontdesk
+
+    @frontdesk.setter
+    def frontdesk(self, value: Any) -> None:
+        self.conversation().frontdesk = value
+
+    @property
+    def proposals(self) -> dict[str, ExperimentProposal]:
+        return self.conversation().proposals
 
     def to_summary(self) -> dict[str, Any]:
         exps = list(self.experiments.values())
@@ -259,10 +347,10 @@ class CampaignState:
         self.save()
 
     def save(self) -> None:
-        """Keep the project conversation and its proposals (they survive a server restart)."""
+        """Keep the asking person's conversation and its proposals (they survive a server restart)."""
         try:
-            store.save_project_state(self.campaign_id, self.chat_history[-500:],
-                                     [p.to_dict() for p in self.proposals.values()][-50:])
+            store.save_project_chat(self.campaign_id, _me(), self.chat_history[-500:],
+                                    [p.to_dict() for p in self.proposals.values()][-50:])
         except Exception:
             logger.warning("Could not save the conversation of project %s", self.campaign_id, exc_info=True)
 
@@ -291,16 +379,13 @@ def _ensure_campaign(campaign_id: str) -> CampaignState:
         rs.cost_usd = e.get("cost_usd") or 0.0
         rs.turn = e.get("turn") or 0
         try:
-            saved = json.loads(e.get("config_json") or "{}").get("request") or {}
+            cfg_json = json.loads(e.get("config_json") or "{}")
+            saved = cfg_json.get("request") or {}
             rs.frontdesk_enabled = saved.get("frontdesk") is not False
+            rs.started_by = cfg_json.get("started_by") or "local"
         except ValueError:
             pass
         campaign.experiments[e["run_id"]] = rs
-    chat, proposals = store.load_project_state(campaign_id)
-    campaign.chat_history = chat
-    for d in proposals:
-        prop = ExperimentProposal.from_dict(d)
-        campaign.proposals[prop.proposal_id] = prop
     _campaigns[campaign_id] = campaign
     return campaign
 
@@ -331,6 +416,17 @@ class QuickCreateRequest(BaseModel):
     auto_start: bool = True
 
 
+def _own(campaign_id: str) -> None:
+    """The person who creates a project owns it (new projects follow the team's confidentiality rule)."""
+    from aurora.auth.guard import current_user
+    from aurora.auth.store import auth_store
+    user = current_user()
+    auth_store.init_project(campaign_id, user.user_id,
+                            confidential=bool(not user.is_local and auth_store.rules().get("new_projects_confidential")))
+    if not user.is_local:
+        auth_store.log(user.user_id, "created a project", campaign_id)
+
+
 @campaign_router.post("/quick")
 async def quick_create_campaign(req: QuickCreateRequest) -> dict[str, Any]:
     """Create a project from the first message the researcher types."""
@@ -340,6 +436,7 @@ async def quick_create_campaign(req: QuickCreateRequest) -> dict[str, Any]:
     _campaigns[campaign_id] = campaign
     campaign.note("Project created")
     store.save_campaign(campaign_id, name, req.prompt, campaign.created_at, campaign.updated_at)
+    _own(campaign_id)
     return {"campaign_id": campaign_id, "name": name, "objective": req.prompt, "status": "created"}
 
 
@@ -350,19 +447,37 @@ async def create_campaign(req: CreateCampaignRequest) -> dict[str, Any]:
     _campaigns[campaign_id] = campaign
     campaign.note("Project created")
     store.save_campaign(campaign_id, req.name, req.objective, campaign.created_at, campaign.updated_at)
+    _own(campaign_id)
     return campaign.to_summary()
 
 
 @campaign_router.get("/")
 async def list_campaigns() -> list[dict[str, Any]]:
-    results = [_ensure_campaign(row["campaign_id"]).to_summary() for row in store.list_campaigns()]
+    """The projects the asking user may see."""
+    from aurora.auth.guard import current_user, visible
+    me = current_user()
+    ids = visible(me, [row["campaign_id"] for row in store.list_campaigns()])
+    results = [{**_ensure_campaign(cid).to_summary(), "sharing": _sharing(cid, me)} for cid in ids]
     return sorted(results, key=lambda c: c["updated_at"], reverse=True)
+
+
+def _sharing(cid: str, user: Any) -> dict[str, Any] | None:
+    """How a project is shared, as its list entry shows it (None: the console has no accounts)."""
+    from aurora.auth.guard import accounts_on, rights
+    from aurora.auth.store import auth_store
+    if not accounts_on():
+        return None
+    access = auth_store.project_access(cid) or {}
+    return {"members": len(auth_store.members(cid)), "team_access": access.get("team_access") or "none",
+            "confidential": bool(access.get("confidential")), "my_rights": sorted(rights(user, cid))}
 
 
 @campaign_router.get("/{campaign_id}")
 async def get_campaign(campaign_id: str) -> dict[str, Any]:
     campaign = _ensure_campaign(campaign_id)
     summary = campaign.to_summary()
+    from aurora.auth.guard import current_user
+    summary["sharing"] = _sharing(campaign_id, current_user())
     summary["experiments"] = sorted((e.to_summary() for e in campaign.experiments.values()),
                                     key=lambda e: e["started_at"], reverse=True)
     return summary
@@ -449,6 +564,10 @@ async def delete_campaign(campaign_id: str, delete_files: bool = False) -> dict[
     _campaigns.pop(campaign_id, None)
     store.delete_campaign(campaign_id)
     store.delete_events(campaign_id)
+    from aurora.auth.guard import current_user
+    from aurora.auth.store import auth_store
+    auth_store.drop_project(campaign_id)
+    auth_store.log(current_user().user_id, "deleted a project", campaign_id)
     return {"ok": True, "campaign_id": campaign_id, "files_deleted": delete_files}
 
 
@@ -526,10 +645,16 @@ def _experiment_config(campaign: CampaignState, run_id: str, req: StartExperimen
     return AuroraConfig.model_validate(raw)
 
 
-def live_notifications() -> Any:
-    """The notification settings as they are now (channels added later reach running experiments)."""
+def live_notifications(user_id: str | None = None) -> Any:
+    """Notification settings as they are now (channels added later reach running experiments):
+    a person's own with accounts, else the console's."""
     from aurora.config import NotificationsConfig
-    return NotificationsConfig.model_validate(base_config().get("notifications") or {})
+    uid = user_id or _me()
+    if uid != "local":
+        from aurora.auth.store import auth_store
+        return NotificationsConfig.model_validate(auth_store.get_pref(uid, "notifications") or {})
+    from aurora.api.console_settings import deep_merge, load_overlay
+    return NotificationsConfig.model_validate(deep_merge(server_config(), load_overlay()).get("notifications") or {})
 
 
 def console_url() -> str:
@@ -539,7 +664,7 @@ def console_url() -> str:
 def _notifier(campaign: CampaignState, run: ExperimentRunState) -> Any:
     from aurora.notify import Notifier
     base = console_url()
-    return Notifier(live_notifications, run_name=run.task_name,
+    return Notifier(lambda: live_notifications(run.started_by), run_name=run.task_name,
                     link=f"{base}/campaigns/{campaign.campaign_id}/experiments/{run.run_id}" if base else "",
                     extra={"project_id": campaign.campaign_id, "project": campaign.name,
                            "experiment_id": run.run_id})
@@ -556,10 +681,11 @@ async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any,
     engine.project_id = campaign.campaign_id
     engine.display_name = run.task_name
     engine.notifier = _notifier(campaign, run)
+    engine.may_decide = lambda: may_decide(campaign.campaign_id, run)
     engine.prior_chat = list(run.chat_history)
     engine.extra_frontdesk_tools = _run_tools(campaign) + _run_control_tools(run)
     run.engine = engine
-    run.finished_desk = None
+    run.finished_desks = {}
 
     async def mirror(event: Any) -> None:
         name, data = event.name, event.data
@@ -623,6 +749,8 @@ async def _start(campaign: CampaignState, req: StartExperimentRequest, *, run_id
     slug = re.sub(r"[^a-z0-9]+", "-", (req.name or req.instruction[:40]).lower()).strip("-")[:30] or "experiment"
     # the random part keeps two runs started in the same second apart
     run_id = run_id or f"{time.strftime('%Y%m%d-%H%M%S')}_{slug}-{uuid.uuid4().hex[:4]}"
+    _require_key()
+    previous = campaign.experiments.get(run_id)
     try:
         config = _experiment_config(campaign, run_id, req)
     except Exception as exc:
@@ -630,6 +758,7 @@ async def _start(campaign: CampaignState, req: StartExperimentRequest, *, run_id
     run = ExperimentRunState(run_id, campaign.campaign_id, req.name or slug, config.models.for_phase("research"),
                              config.human.autonomy.value)
     run.frontdesk_enabled = config.human.frontdesk
+    run.started_by = (previous.started_by if previous is not None and resume else None) or _me()
     if resume:
         # keep the earlier stream and conversation visible (and in the front desk's memory)
         run.events = store.load_events(campaign.campaign_id, run_id)
@@ -643,7 +772,7 @@ async def _start(campaign: CampaignState, req: StartExperimentRequest, *, run_id
     campaign.experiments[run_id] = run
     store.save_experiment(run_id=run_id, campaign_id=campaign.campaign_id, task_name=run.task_name,
                           model=run.model, autonomy_mode=run.autonomy_mode, started_at=run.started_at,
-                          config={"request": req.model_dump()})
+                          config={"request": req.model_dump(), "started_by": run.started_by})
     campaign.note(f"{run.task_name} started")
     _touch(campaign)
     return {**run.to_summary(), "experiment_id": run_id, "skip_phases": config.skip_phases,
@@ -768,10 +897,35 @@ class DecisionRequest(BaseModel):
     rerun: list[str] = []  # for propose: run the direction through "ideation" and/or "screening" first
 
 
+def may_decide(campaign_id: str, run: ExperimentRunState) -> tuple[bool, str]:
+    """Whether the asking person may answer the run's decisions (the project's "who decides"
+    setting), and their name for the record."""
+    from aurora.auth.guard import current_user, rights
+    from aurora.auth.store import auth_store
+    user = current_user()
+    if user.is_local:
+        return True, ""
+    have = rights(user, campaign_id)
+    if "decide" not in have:
+        return False, user.name
+    access = auth_store.project_access(campaign_id) or {}
+    rule = access.get("deciders") or "starter"
+    if rule == "user":
+        ok = user.user_id == access.get("decider_user")
+    elif rule == "owners":
+        ok = "manage" in have
+    else:                                    # the starter, and the project's owners can step in
+        ok = user.user_id == run.started_by or "manage" in have
+    return ok, user.name
+
+
 @campaign_router.post("/{campaign_id}/experiments/{exp_id}/decide")
 async def submit_decision(campaign_id: str, exp_id: str, req: DecisionRequest) -> dict[str, Any]:
     """Answer the experiment's open human gate."""
     run = _get_run(campaign_id, exp_id)
+    allowed, who = may_decide(campaign_id, run)
+    if not allowed:
+        raise HTTPException(403, "In this project another person answers this run's decisions")
     pending = run.engine.human_gate.pending if run.engine is not None else []
     if not pending:
         raise HTTPException(409, "No decision is pending")
@@ -782,7 +936,7 @@ async def submit_decision(campaign_id: str, exp_id: str, req: DecisionRequest) -
     if action == "instruct" and not req.message.strip():
         raise HTTPException(400, "An instruction needs a message")
     try:
-        resolved = run.engine.human_gate.resolve(gate_id, action, req.message, rerun=req.rerun)
+        resolved = run.engine.human_gate.resolve(gate_id, action, req.message, rerun=req.rerun, by=who)
     except ValueError as exc:     # an action this gate does not offer, or a proposal without text
         raise HTTPException(400, str(exc)) from exc
     if not resolved:
@@ -947,8 +1101,8 @@ async def resume_experiment(campaign_id: str, exp_id: str) -> dict[str, Any]:
     if not (run.campaign_dir / "checkpoint.json").exists():
         raise HTTPException(409, "No checkpoint to resume from; use Re-run instead")
     req = _saved_request(exp_id)
-    del campaign.experiments[exp_id]
-    return await _start(campaign, req, run_id=exp_id, resume=True)
+    result = await _start(campaign, req, run_id=exp_id, resume=True)
+    return result
 
 
 @campaign_router.websocket("/{campaign_id}/experiments/{exp_id}/ws")
@@ -1005,14 +1159,18 @@ async def exp_chat_send(campaign_id: str, exp_id: str, body: ChatBody) -> dict[s
         run.chat_history = _chat_from_events(run.events or store.load_events(campaign_id, exp_id))
     if not body.text.strip() and not body.attachments:
         raise HTTPException(400, "An empty message")
+    by = _person_name(_me())
     run.chat_history.append({"role": "user", "text": body.text, "timestamp": time.time(),
+                             **({"by": by} if by else {}),
                              **({"attachments": body.attachments} if body.attachments else {})})
     await run.broadcast({"type": "experiment_event", "run_id": exp_id, "event_type": "chat_message",
-                         "data": {"role": "user", "text": body.text,
+                         "data": {"role": "user", "text": body.text, **({"by": by} if by else {}),
                                   **({"attachments": body.attachments} if body.attachments else {})},
                          "timestamp": time.time()})
     message = _with_attachments(body.text, [f"inputs/{a}" for a in body.attachments],
                                 "uploaded to the experiment's inputs/ (the agents see /app/inputs)")
+    if by:
+        message = f"[{by} writes] {message}"
     if run.engine is not None and _active(run):
         reply = await run.engine.handle_user_message(message)
         if run.engine._frontdesk is None and reply.get("text"):
@@ -1031,6 +1189,7 @@ def _chat_from_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for e in events:
         if e.get("event_type") == "chat_message" and (e.get("data") or {}).get("role", "user") == "user":
             history.append({"role": "user", "text": e["data"].get("text", ""), "timestamp": e.get("timestamp"),
+                            **({"by": e["data"]["by"]} if e["data"].get("by") else {}),
                             **({"attachments": e["data"]["attachments"]} if e["data"].get("attachments") else {})})
         elif e.get("event_type") == "frontdesk_response":
             history.append({"role": "assistant", "text": e["data"].get("text", ""), "timestamp": e.get("timestamp")})
@@ -1040,8 +1199,8 @@ def _chat_from_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _finished_desk(campaign: CampaignState, run: ExperimentRunState) -> Any:
     """The front desk of a run that no longer runs: questions about it, answered from its files."""
     from aurora.human.frontdesk import FINISHED_PROMPT, FrontDeskAgent
-    if run.finished_desk is not None:
-        return run.finished_desk
+    if run.finished_desks.get(_me()) is not None:
+        return run.finished_desks[_me()]
     try:
         cfg = _experiment_config(campaign, run.run_id, _saved_request(run.run_id))
     except HTTPException:
@@ -1066,7 +1225,7 @@ def _finished_desk(campaign: CampaignState, run: ExperimentRunState) -> Any:
                           workspace_root=run.campaign_dir, tools=_run_tools(campaign),
                           status_fn=status, broadcast_fn=broadcast)
     desk.restore(run.chat_history[:-1])          # all but the message being answered now
-    run.finished_desk = desk
+    run.finished_desks[_me()] = desk           # each person's questions use their own key
     return desk
 
 
@@ -1082,7 +1241,7 @@ async def set_experiment_frontdesk(campaign_id: str, exp_id: str, req: Frontdesk
     if run.engine is not None and _active(run):
         await run.engine.set_frontdesk(req.enabled, history=list(run.chat_history))
     if not req.enabled:
-        run.finished_desk = None
+        run.finished_desks = {}
     _update_saved_request(exp_id, frontdesk=req.enabled)
     await run.broadcast({"type": "experiment_event", "run_id": exp_id, "event_type": "frontdesk_switched",
                          "data": {"enabled": req.enabled}, "timestamp": time.time()})
@@ -1273,6 +1432,10 @@ def _editable_keys() -> list[str]:
 async def _default_settings_tool(params: dict[str, Any]) -> dict[str, Any]:
     """The project front desk changes the console's defaults: preview first, save once confirmed."""
     from aurora.api.console_settings import deep_merge, load_overlay, with_changes
+    from aurora.auth.guard import current_user
+    if not current_user().is_admin:
+        return {"status": "error", "reason": "Only team admins can change the defaults for everyone; "
+                "the researcher can still choose settings for one experiment on its card."}
     changes = params.get("changes") or {}
     reset = params.get("reset") or []
     if not isinstance(changes, dict) or not isinstance(reset, list) or not (changes or reset):
@@ -1386,6 +1549,7 @@ def _project_frontdesk(campaign: CampaignState) -> Any:
 @campaign_router.post("/{campaign_id}/chat/send")
 async def campaign_chat_send(campaign_id: str, body: ChatBody) -> dict[str, Any]:
     campaign = _ensure_campaign(campaign_id)
+    _require_key()
     if not body.text.strip() and not body.attachments:
         raise HTTPException(400, "An empty message")
     campaign.chat_history.append({"role": "user", "text": body.text, "timestamp": time.time(),
@@ -1831,6 +1995,10 @@ async def update_notification_settings(req: NotificationsBody) -> dict[str, Any]
                                   budget_warning_at=req.budget_warning_at, channels=_channels(req.channels))
     except Exception as exc:
         raise HTTPException(400, f"invalid notification settings: {exc}") from exc
+    if _me() != "local":                      # each person's own channels
+        from aurora.auth.store import auth_store
+        auth_store.set_pref(_me(), "notifications", cfg.model_dump(mode="json"))
+        return _notification_settings()
     overlay = load_overlay()
     overlay["notifications"] = cfg.model_dump(mode="json")
     save_overlay(overlay)

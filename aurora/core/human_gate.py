@@ -63,6 +63,7 @@ class GateDecision:
     decided_by: str = "human"   # human | frontdesk | autonomous | timeout | system | auditor
     gate_id: str = ""
     rerun: list[str] = field(default_factory=list)   # for propose: phases the direction goes through
+    by: str = ""                # the person who decided (web console with accounts)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -130,7 +131,7 @@ class HumanGate:
         return decision
 
     def resolve(self, gate_id: str, action: str, message: str = "", *, decided_by: str = "human",
-                rerun: list[str] | None = None) -> bool:
+                rerun: list[str] | None = None, by: str = "") -> bool:
         """Answer an open gate. Returns False when no such gate is waiting."""
         entry = self._pending.get(gate_id)
         if entry is None or entry[1].done():
@@ -142,7 +143,7 @@ class HumanGate:
             raise ValueError(f"'{action}' needs a message")
         rerun = [p for p in RERUN_PHASES if p in (rerun or [])] if action == "propose" else []
         entry[1].set_result(GateDecision(action, message, decided_by=decided_by, gate_id=gate_id,  # type: ignore[arg-type]
-                                         rerun=rerun))
+                                         rerun=rerun, by=by))
         return True
 
     def close_source(self, source: str, reason: str, *, decided_by: str = "system") -> None:

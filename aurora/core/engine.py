@@ -260,6 +260,9 @@ class ResearchEngine:
         self.project_id: str = ""
         # name used in notifications; set by the web console (empty: the objective)
         self.display_name: str = ""
+        # whether the person writing to the front desk may answer decisions, and their name
+        # (the web console sets it with accounts; None: anyone may)
+        self.may_decide: Any = None
         # sends notifications (aurora.notify.Notifier); the web console sets its own before running
         self.notifier: Any = None
         # cluster jobs of the research agents (aurora.compute.slurm.SlurmCompute), when enabled
@@ -2437,7 +2440,11 @@ Be specific: cite file names and concrete observations.
         async def answer_gate(gate_id: str, action: str, message: str,
                               rerun: list[str] | None = None) -> dict[str, Any]:
             try:
-                ok = self.human_gate.resolve(gate_id, action, message, decided_by="frontdesk", rerun=rerun)
+                who = self.may_decide() if self.may_decide is not None else (True, "")
+                if not who[0]:
+                    return {"ok": False, "reason": "The person writing cannot answer decisions in this project; "
+                                                   "tell them who can (the run's starter or the project's owners)."}
+                ok = self.human_gate.resolve(gate_id, action, message, decided_by="frontdesk", rerun=rerun, by=who[1])
             except ValueError as exc:
                 return {"status": "error", "reason": str(exc)}
             return {"status": "recorded" if ok else "no such open gate"}

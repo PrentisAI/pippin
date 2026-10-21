@@ -1,4 +1,4 @@
-import type { ClusterJobs, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -46,6 +46,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const body = await res.text().catch(() => '')
+    // signed out (or the session ended): the app shows the sign-in page
+    if (res.status === 401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event('aurora:signed-out'))
     throw new ApiError(res.status, errorMessage(res.status, res.statusText, body))
   }
   if (res.status === 204) return undefined as T
@@ -59,7 +61,62 @@ const post = (body?: unknown): RequestInit => ({
 
 const experimentPath = (campaignId: string, expId: string) => `/campaigns/${campaignId}/experiments/${expId}`
 
+const put = (body: unknown): RequestInit => ({ method: 'PUT', body: JSON.stringify(body) })
+const del: RequestInit = { method: 'DELETE' }
+
 export const api = {
+  auth: {
+    status: () => request<AuthStatus>('/auth/status'),
+    login: (email: string, password: string) => request<{ user: AuthUser }>('/auth/login', post({ email, password })),
+    logout: () => request<{ ok: boolean }>('/auth/logout', post()),
+    invite: (token: string) => request<InviteInfo>(`/auth/invites/${token}`),
+    accept: (token: string, name: string, password: string) =>
+      request<{ user: AuthUser; campaign_id: string | null }>(`/auth/invites/${token}/accept`, post({ name, password })),
+  },
+
+  me: {
+    get: () => request<{ user: AuthUser; team: string | null; accounts: boolean }>('/me'),
+    update: (body: { name?: string; password?: string; current_password?: string }) => request<{ user: AuthUser }>('/me', put(body)),
+    keys: () => request<{ keys: KeyStatus[]; uses: string; team_key_allowed?: boolean; note?: string }>('/me/keys'),
+    setKey: (provider: string, value: string) => request<KeyStatus>(`/me/keys/${provider}`, put({ value })),
+    deleteKey: (provider: string) => request<KeyStatus>(`/me/keys/${provider}`, del),
+  },
+
+  team: {
+    get: () => request<{ name: string; accounts: boolean; me: AuthUser; people: number }>('/team'),
+    rename: (name: string) => request<{ name: string }>('/team', put({ name })),
+    people: () => request<Person[]>('/team/people'),
+    setRole: (userId: string, team_role: string) => request<Person>(`/team/people/${userId}`, put({ team_role })),
+    remove: (userId: string) => request<{ ok: boolean; note: string }>(`/team/people/${userId}`, del),
+    invites: () => request<{ invite_id: string; email: string; team_role: string; campaign_id: string | null; expires_at: number }[]>('/team/invites'),
+    invite: (email: string, team_role: string) => request<{ invite_id: string; link: string }>('/team/invites', post({ email, team_role })),
+    revokeInvite: (id: string) => request<{ ok: boolean }>(`/team/invites/${id}`, del),
+    groups: () => request<TeamGroup[]>('/team/groups'),
+    addGroup: (name: string, members: string[]) => request<TeamGroup>('/team/groups', post({ name, members })),
+    updateGroup: (id: string, body: { name?: string; members?: string[] }) => request<TeamGroup>(`/team/groups/${id}`, put(body)),
+    deleteGroup: (id: string) => request<{ ok: boolean }>(`/team/groups/${id}`, del),
+    rules: () => request<TeamRules>('/team/rules'),
+    setRules: (changes: Partial<TeamRules>) => request<TeamRules>('/team/rules', put(changes)),
+    keys: () => request<{ team: KeyStatus[]; server_key?: boolean; people: { user_id: string; name: string; own_key: boolean }[] }>('/team/keys'),
+    setKey: (provider: string, value: string) => request<KeyStatus>(`/team/keys/${provider}`, put({ value })),
+    deleteKey: (provider: string) => request<KeyStatus>(`/team/keys/${provider}`, del),
+    activity: () => request<ActivityEntry[]>('/team/activity'),
+    transfer: (campaign_id: string, to_user_id: string) => request<{ ok: boolean }>('/team/transfer', post({ campaign_id, to_user_id })),
+  },
+
+  access: {
+    get: (cid: string) => request<ProjectAccess>(`/campaigns/${cid}/access`),
+    set: (cid: string, body: Partial<Pick<ProjectAccess, 'team_access' | 'confidential' | 'deciders' | 'decider_user'>>) =>
+      request<ProjectAccess>(`/campaigns/${cid}/access`, put(body)),
+    setMember: (cid: string, principal: string, role: string, perms?: string[]) =>
+      request<ProjectAccess>(`/campaigns/${cid}/access/members/${encodeURIComponent(principal)}`, put({ role, perms })),
+    removeMember: (cid: string, principal: string) =>
+      request<ProjectAccess>(`/campaigns/${cid}/access/members/${encodeURIComponent(principal)}`, del),
+    invite: (cid: string, email: string, role: string, perms?: string[]) =>
+      request<{ added: boolean; link?: string; team_role?: string; access: ProjectAccess }>(`/campaigns/${cid}/access/invites`, post({ email, role, perms })),
+    cancelInvite: (cid: string, id: string) => request<ProjectAccess>(`/campaigns/${cid}/access/invites/${id}`, del),
+  },
+
   campaigns: {
     list: () => request<CampaignSummary[]>('/campaigns/'),
 

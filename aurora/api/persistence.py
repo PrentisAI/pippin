@@ -31,6 +31,14 @@ CREATE TABLE IF NOT EXISTS project_state (
     proposals_json TEXT DEFAULT '[]',   -- experiment proposals drafted in it
     updated_at     REAL
 );
+CREATE TABLE IF NOT EXISTS project_chats (
+    campaign_id    TEXT NOT NULL,
+    user_id        TEXT NOT NULL,       -- each person has their own conversation with the front desk
+    chat_json      TEXT DEFAULT '[]',
+    proposals_json TEXT DEFAULT '[]',
+    updated_at     REAL,
+    PRIMARY KEY (campaign_id, user_id)
+);
 CREATE TABLE IF NOT EXISTS experiments (
     run_id         TEXT PRIMARY KEY,
     campaign_id    TEXT NOT NULL,
@@ -132,6 +140,25 @@ class Store:
         if not row:
             return [], []
         return json.loads(row["chat_json"] or "[]"), json.loads(row["proposals_json"] or "[]")
+
+    def save_project_chat(self, campaign_id: str, user_id: str, chat: list[dict[str, Any]],
+                          proposals: list[dict[str, Any]]) -> None:
+        import time
+        self._conn.execute(
+            "INSERT OR REPLACE INTO project_chats (campaign_id, user_id, chat_json, proposals_json, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (campaign_id, user_id, json.dumps(chat, default=str), json.dumps(proposals, default=str), time.time()))
+        self._conn.commit()
+
+    def load_project_chat(self, campaign_id: str, user_id: str,
+                          legacy: bool = False) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """A person's conversation; with *legacy*, the project's single conversation from before
+        accounts when the person has none yet."""
+        row = self._conn.execute("SELECT * FROM project_chats WHERE campaign_id=? AND user_id=?",
+                                 (campaign_id, user_id)).fetchone()
+        if row:
+            return json.loads(row["chat_json"] or "[]"), json.loads(row["proposals_json"] or "[]")
+        return self.load_project_state(campaign_id) if legacy else ([], [])
 
     def rename_campaign(self, campaign_id: str, name: str) -> None:
         self._conn.execute("UPDATE campaigns SET name=? WHERE campaign_id=?", (name, campaign_id))
