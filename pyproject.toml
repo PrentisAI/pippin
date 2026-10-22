@@ -64,6 +64,8 @@ filterwarnings = ["ignore::DeprecationWarning"]
 [tool.ruff]
 line-length = 120
 target-version = "py311"
+# the examples keep the code their runs wrote, as it was
+extend-exclude = ["aurora/examples/*/run"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]

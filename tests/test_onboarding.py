@@ -111,3 +111,19 @@ def test_quickstart_without_a_terminal(monkeypatch, tmp_path, capsys):
 def test_a_member_signed_in_has_the_checklist(app, team):  # noqa: F811
     keys = [c["key"] for c in signed_in(app, "sara@lab.example", PW).get("/api/onboarding").json()["checklist"]]
     assert "gpu" not in keys and "team" not in keys and keys[0] == "key"
+
+
+def test_the_example_does_not_meet_the_run_it_was_made_from(client):  # noqa: F811
+    """A console that already has the original run (same run ID) still gets the example, with its own run."""
+    from aurora.api.routes.campaigns import _campaigns, store
+    from aurora.paths import aurora_home
+    original = "20261019-025018_citi-bike-usage-patterns"
+    store.save_campaign("p_mine", "my bikes", "", 1.0, 1.0)
+    store.save_experiment(original, "p_mine", "my run", "m", status="completed", started_at=1.0)
+    store.delete_campaign(EX)
+    _campaigns.pop(EX, None)
+    assert examples.install("citi-bike", home=aurora_home(), store=store) == EX
+    _campaigns.pop(EX, None)
+    runs = client.get(f"/api/campaigns/{EX}").json()["experiments"]
+    assert [r["run_id"] for r in runs] == ["ex-citi-bike"]
+    assert store.get_experiment(original)["campaign_id"] == "p_mine"          # theirs is untouched
