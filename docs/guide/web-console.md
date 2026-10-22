@@ -4,7 +4,7 @@
 aurora serve              # then open http://localhost:8000
 ```
 
-![Web console](../assets/web-console.png)
+![The web console: a report, with the provenance of one result open](../assets/console-report.png)
 
 ## The first time
 
@@ -16,9 +16,10 @@ and saved in `AURORA_HOME/.env`, readable only by the console's user) and pull
 the image with one click. The card hides once everything needed is there, or
 when you dismiss it.
 
-**Try a demo** starts a project with a run of scripted models and simulated
-tools: every phase, a decision, a report, in about a minute, with no key, no
-Docker and no cost. It shows what a run looks like before you spend anything.
+**Watch a demo run** starts a project with a run of scripted models and
+simulated tools: the ideation meeting, every phase, the auditors' checks and a
+report, in seconds, with no key, no Docker and no cost. It shows what a run
+looks like before you spend anything.
 
 Below the box, **templates** start the most common kinds of work: *Analyse a
 dataset*, *Compare methods*, *Reproduce a paper*, *Explore an open question*,

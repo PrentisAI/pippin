@@ -4,7 +4,7 @@
   container image, cluster jobs, notifications, OpenAlex), each with how to fix it;
 * ``PUT /api/setup/key``: the server's OpenRouter key, without accounts (written to the console's
   ``.env``, readable only by its user);
-* ``POST /api/demo``: a project with a finished-in-a-minute run of scripted models (no key, no Docker).
+* ``POST /api/demo``: a project with a run of scripted models, finished in seconds (no key, no Docker).
 """
 
 from __future__ import annotations
@@ -48,7 +48,8 @@ def checks() -> list[dict[str, Any]]:
     else:
         fix = ("Add yours under the account button → Your API keys." if where == "none" else "")
     out.append({"key": "model_key", "label": "A model key (OpenRouter)", "required": True, "ok": bool(key),
-                "detail": {"server": "the server’s key", "own": "your own key", "team": "the team’s key"}.get(where, "none yet"),
+                "detail": {"server": "the server’s key", "own": "your own key", "team": "the team’s key"}.get(where, "none yet")
+                if key else "none yet",
                 "fix": fix, "action": "key" if user.is_local and not key else ("account" if not key else "")})
 
     claude = shutil.which("claude")
@@ -176,7 +177,7 @@ DEMO_OBJECTIVE = ("Investigate surface segregation of Zn in Cu(111) and its effe
 @router.post("/demo")
 async def start_demo() -> dict[str, Any]:
     """A demo project with a run of scripted models and simulated tools: every phase, decisions, a
-    report, in about a minute. No key, no Docker, no cost."""
+    report, in seconds. No key, no Docker, no cost."""
     from aurora.api.routes.campaigns import StartExperimentRequest, _start, create_quick_project
     project = await create_quick_project("Demo: Zn segregation in Cu(111) (scripted, no cost)", DEMO_OBJECTIVE)
     from aurora.api.routes.campaigns import _ensure_campaign

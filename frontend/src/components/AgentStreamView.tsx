@@ -336,6 +336,36 @@ function describeEvent(event: StreamEvent): Described {
           'What it supports is treated as unsupported.'].filter(Boolean).join('\n')), link: ['Fix it in Literature', 'literature']}
     }
 
+    // -- results, fork points, estimate ---------------------------------------------
+    case 'result_recorded':
+      return system('info', `Result ${str(d.id)} recorded: ${str(d.name)} = ${str(d.value)}${d.unit ? ` ${str(d.unit)}` : ''}`
+        + (d.supersedes ? ` (replaces ${str(d.supersedes)})` : ''), d.job ? `by ${str(d.job)}` : undefined)
+    case 'report_results_checked': {
+      const cited = Array.isArray(d.cited) ? d.cited.length : 0
+      const unknown = Array.isArray(d.unknown) ? (d.unknown as string[]) : []
+      const old = Array.isArray(d.superseded) ? (d.superseded as string[]) : []
+      if (!unknown.length && !old.length) {
+        return system('muted', `The report cites ${cited} of ${String(d.recorded ?? 0)} recorded results; every cited ID is a recorded result`)
+      }
+      return system('warning', `The report cites ${cited} recorded results`,
+        [unknown.length ? `IDs that name no result: ${unknown.join(', ')}` : '',
+          old.length ? `Cites results that were recomputed since: ${old.join(', ')}` : ''].filter(Boolean).join('\n'))
+    }
+    case 'forkpoint_saved':
+      return system('muted', `Fork point saved: ${str(d.label)}`
+        + (Number(d.skipped) ? ` (${String(d.skipped)} large files not kept)` : ''))
+    case 'fork_direction':
+      return system('info', `This fork takes another direction: ${str(d.title)}`)
+    case 'estimate_exceeded':
+      return system('warning', `${Number(d.level) >= 2 ? 'Twice' : 'Over'} the ${d.what === 'time' ? 'time' : 'cost'} estimate`,
+        str(d.detail) || undefined)
+    case 'engine_paused':
+      return system('info', 'Paused')
+    case 'engine_resumed':
+      return system('info', 'Resumed')
+    case 'iteration_started':
+      return { lane: 'hidden', tone: 'muted', text: '' }
+
     default:
       return system('muted', event.event_type.replace(/_/g, ' '))
   }

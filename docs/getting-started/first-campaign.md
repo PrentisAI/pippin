@@ -5,7 +5,7 @@ shows where the results are. It takes a few minutes and a few dollars.
 
 ## Run the quickstart
 
-The repository ships a [quickstart example](https://github.com/titanresearchlabs/aurora/tree/main/examples/quickstart):
+The repository ships a [quickstart example](https://github.com/prentisai/aurora/tree/main/examples/quickstart):
 a CSV of 400 simulated reactor runs with a known ground truth, and a config
 asking which variables drive the yield.
 

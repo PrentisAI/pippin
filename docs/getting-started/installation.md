@@ -73,7 +73,7 @@ Set `AURORA_HOME` to move `~/.aurora` elsewhere.
 ## Installing from source
 
 ```bash
-git clone https://github.com/titanresearchlabs/aurora && cd aurora
+git clone https://github.com/prentisai/aurora && cd aurora
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 cd frontend && npm ci && npm run build && cd ..   # the web console

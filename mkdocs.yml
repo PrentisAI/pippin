@@ -1,6 +1,6 @@
 site_name: AURORA
 site_description: Long-horizon, open-ended research with AI agents, auditors and a human in the loop
-repo_url: https://github.com/titanresearchlabs/aurora
+repo_url: https://github.com/prentisai/aurora
 edit_uri: edit/main/docs/
 theme:
   name: material

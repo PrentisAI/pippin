@@ -38,6 +38,85 @@ class RecordedCall:
     response: str
 
 
+# What the scripted seats say at the ideation meeting of the demo study (Zn in Cu(111)), by turn
+_SEAT_IDEAS = {
+    "p01": ("Title: DFT segregation energetics of Zn in Cu(111) with and without adsorbates\n\n"
+            "1. The gap: the clean-surface preference of Zn for Cu(111) is known, but how the reaction "
+            "intermediates of methanol synthesis change it is not.\n"
+            "2. Prior work: Zn at Cu steps carries much of the promotion [Behrens2012]; the Zn state under "
+            "reaction conditions is debated [Kuld2016].\n"
+            "3. Main idea: compute the segregation energy of one Zn in a 4-layer Cu(111) slab, clean and with "
+            "CO, HCOO and O adsorbed above it. Hypothesis: strongly bound intermediates reverse the clean "
+            "preference. Refuted if every adsorbate leaves the sign unchanged. Feasible: about 20 relaxations.\n"
+            "4. Alternative: a full phase diagram first; I prefer the direct test, which the phase diagram "
+            "would need anyway."),
+    "p02": ("Title: Surface composition of Cu-Zn under reaction conditions from ab initio thermodynamics\n\n"
+            "1. The gap: segregation energies alone do not say how much Zn is at the surface at 500 K and "
+            "50 bar.\n2. Prior work: ab initio thermodynamics for alloy surfaces in gas mixtures.\n"
+            "3. Main idea: combine DFT energies with chemical potentials of CO, CO2 and H2 into surface "
+            "composition maps. Refuted if Zn coverage is insensitive to gas composition.\n"
+            "4. Alternative: kinetic Monte Carlo; too costly for a first pass."),
+    "p03": ("Title: Facet dependence of Zn segregation screened with a machine-learned potential\n\n"
+            "1. The gap: studies use Cu(111), but steps (211) are where the activity is.\n"
+            "2. Prior work: MLIPs reach DFT accuracy for Cu alloys after fine-tuning.\n"
+            "3. Main idea: screen Zn segregation on (111), (100) and (211) with an MLIP, then check the "
+            "extremes with DFT. Refuted if the facets agree within 0.05 eV.\n"
+            "4. Alternative: DFT on all facets; three times the cost."),
+}
+_SEAT_TURNS = {
+    "remarks": {   # on a presenter's idea, by who speaks
+        "p01": {"p02": "[BUILD-ON] Your energies are exactly the input my surface-composition maps need.\n\n"
+                       "[QUESTION] Will you include H, which covers Cu under reaction conditions?\n\nHAND: no",
+                "p03": "[CONCERN] One Zn in a 3x3 cell is 11% surface coverage; the result may not hold dilute.\n\n"
+                       "[SUGGESTION] Add a 4x4 cell for the strongest adsorbate as a coverage control.\n\nHAND: yes"},
+        "p02": {"p01": "[QUESTION] Which chemical potential will you take for HCOO, which is not a gas?\n\nHAND: no",
+                "p03": "[SUGGESTION] The maps need many energies; my potential could supply the cheap ones.\n\nHAND: no"},
+        "p03": {"p01": "[CONCERN] A potential trained on clean surfaces may be wrong with adsorbates present.\n\n"
+                       "[EVIDENCE] Errors of 0.1-0.2 eV for adsorbed O are reported for untuned potentials.\n\nHAND: no",
+                "p02": "[SUGGESTION] Fine-tune it on the DFT set of p01 before screening.\n\nHAND: no"},
+    },
+    "self": "[CONCERN] The slab may be too thin for subsurface Zn; I will check a 5-layer slab once.",
+    "response": {
+        "p01": "ACCEPT the coverage control: the strongest adsorbate is repeated in a 4x4 cell.\n"
+               "DEFER H and other facets to a follow-up.\n\nUpdated plan: Cu(111) 3x3, four adsorbate states, one "
+               "4x4 control, one 5-layer check.",
+        "p02": "HCOO is referenced to CO2 and H2 through its formation reaction; ACCEPT that this needs p01's "
+               "energies first.",
+        "p03": "ACCEPT a fine-tuning set with adsorbates; REBUT dropping the MLIP: it is only used to rank.",
+    },
+    "open": "[SUGGESTION] Do p01 first: its energies feed p02, and p03's DFT checks reuse its setup.",
+    "open_reply": "PASS",
+}
+
+
+def _seat_turn(text: str) -> str | None:
+    """The scripted words of an ideation seat (the demo), or None when *text* is not a seat's turn."""
+    import re
+    m = re.search(r"## Your turn \(you are (p\d+)\)\s*\n+(.*)", text, re.S)
+    if not m:
+        return None
+    seat, instructions = m.group(1), m.group(2)
+    if instructions.startswith("BEFORE THE MEETING"):
+        return _SEAT_IDEAS.get(seat, _SEAT_IDEAS["p01"])
+    if instructions.startswith("AGENDA ITEM"):
+        presenter = re.match(r"AGENDA ITEM: (p\d+)", instructions)
+        if "(follow-up" in instructions:
+            return "[AGREE] The 4x4 control answers my concern: it separates coverage from chemistry.\n\nHAND: no"
+        on = _SEAT_TURNS["remarks"].get(presenter.group(1) if presenter else "p01", {})
+        return on.get(seat, "PASS")
+    if instructions.startswith("SELF-REVIEW"):
+        return _SEAT_TURNS["self"]
+    if instructions.startswith("YOUR ITEM"):
+        if "[AGREE] The 4x4 control" in text:
+            return "Thank you; nothing further changes. The plan stands as updated."
+        return _SEAT_TURNS["response"].get(seat, "Updated plan: unchanged.")
+    if instructions.startswith("OPEN DISCUSSION, continued"):
+        return _SEAT_TURNS["open_reply"]
+    if instructions.startswith("OPEN DISCUSSION"):
+        return _SEAT_TURNS["open"] if seat == "p02" else "PASS"
+    return None
+
+
 # Text answer for the mental-model reconstruction of the scripted study
 _MENTAL_MODEL_TEXT = json.dumps({
     "active_hypotheses": [
@@ -352,7 +431,8 @@ class MockProvider(LLMProvider):
             if keyword.lower() in last_user_msg.lower():
                 return response
 
-        return self._default_response
+        seat = _seat_turn(last_user_msg)
+        return seat if seat is not None else self._default_response
 
     def _make_usage(self, prompt: str, response: str) -> TokenUsage:
         """Approximate token counts (4 chars ≈ 1 token)."""

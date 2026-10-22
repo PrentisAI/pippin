@@ -85,7 +85,7 @@ export function SetupCard({ onDemo }: { onDemo: () => void }) {
       {error && <div className="modal-error">{error}</div>}
       <div className="setup-demo">
         <button className="btn-sm lit-btn" onClick={onDemo}>Watch a demo run</button>
-        <span className="lit-sub">Scripted models replay a small materials study: every phase, a decision, a report. About a minute; no key, no cost.</span>
+        <span className="lit-sub">Scripted models replay a small materials study: the ideation meeting, every phase, the auditors’ checks, a report. It takes seconds; no key, no cost.</span>
       </div>
     </section>
   )

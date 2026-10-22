@@ -1,7 +1,7 @@
 # Development
 
 ```bash
-git clone https://github.com/titanresearchlabs/aurora && cd aurora
+git clone https://github.com/prentisai/aurora && cd aurora
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,docs]"
 pytest                                   # offline, about half a minute

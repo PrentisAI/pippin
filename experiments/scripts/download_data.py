@@ -26,7 +26,7 @@ import urllib.request
 from pathlib import Path, PurePosixPath
 
 EXPERIMENTS_DIR = Path(__file__).resolve().parents[1]
-RELEASE_URL = "https://github.com/titanresearchlabs/aurora/releases/download/v0.1.0/aurora-experiments-data.tar.gz"
+RELEASE_URL = "https://github.com/prentisai/aurora/releases/download/v0.1.0/aurora-experiments-data.tar.gz"
 RELEASE_SHA256 = "839bd55c383dc813c9844e04781c247a2b4dbc2eba3a841d57536808c5c34772"
 ARE_REPO = "PrentisAI/AutoResearchEval"
 ARE_REVISION = "412fb4908a3a7b98dd50cfa3e5c6cd40750d2d4f"
