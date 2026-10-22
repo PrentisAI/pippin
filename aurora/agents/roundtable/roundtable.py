@@ -1,4 +1,4 @@
-"""Multi-agent ideation among heterogeneous model seats (Section 3.4 of the paper).
+"""Multi-agent ideation among heterogeneous model seats (paper: "Multi-agent ideation").
 
 Two configurations (``ideation.mode``):
 

@@ -60,6 +60,16 @@ so ideas cannot simply be looked up; the paper's evaluation scripts do so.
 
 ## Choosing the mode
 
+In the paper's evaluation (20 tasks, a Kimi chair choosing among three ideas),
+three different models gave genuinely different ideas: the chair called three
+samples of one model essentially the same study in 19 of 20 tasks for Claude
+Sonnet and 12 for GPT, but three models' ideas in only 4. The group meeting did
+not sharpen them: presenters accepted 90% of their colleagues' remarks, and in 5
+of 20 meetings the chair merged directions into one broader plan, at about four
+times the cost (US$2.71 against US$0.72 per task). For a focused direction at
+low cost, choose *Independent*; the round table is useful when
+you want to watch the ideas being argued.
+
 Set `ideation.mode` in the config, or pick *Round table* or *Independent* on
 the proposal card in the web console (the front desk asks if you have a
 preference). Seats see the campaign's current understanding — the mental model,

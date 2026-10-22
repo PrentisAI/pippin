@@ -2,7 +2,7 @@
 
 **What is measured.** Whether AURORA's live auditor, following an agent's work as it happens, flags the
 research failures that annotators found in the agent's trajectory, how early, and how often its messages
-point at real problems (paper: Table 1 "Live", Figure 3, Appendix C "Replay harness" and "Judging").
+point at real problems (paper: Table 1 "Live", Figure 3, appendix "Evaluation Details").
 
 **Protocol.** 46 AutoResearchEval trajectories of 7 agent models (25 tasks, 5,361 normalized steps; 41
 with confirmed failures, 5 clean controls).  Each trajectory is pushed to the auditor five normalized

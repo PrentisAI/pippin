@@ -1,4 +1,4 @@
-"""Multi-agent roundtable models (Section 2.4, M.1).
+"""Multi-agent roundtable models (paper: "Multi-agent ideation").
 
 The roundtable convenes heterogeneous foundation models for multi-turn
 deliberative debate.  A ``RoundtableChair`` monitors convergence and routes

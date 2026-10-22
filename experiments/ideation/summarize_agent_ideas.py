@@ -1,5 +1,5 @@
-"""Summarize the judge scores of the AutoResearchEval agents' own ideation records (Appendix C,
-"Ideation scoring"; the 67% proxy rate of Section 5): per-model quality and flags, distinct
+"""Summarize the judge scores of the AutoResearchEval agents' own ideation records (appendix "Evaluation
+Details"; the 67% proxy rate of "Component-wise System Evaluation"): per-model quality and flags, distinct
 directions, best-of-group headroom, agreement with a second judge.  Offline and free.
 
 Usage (from experiments/):

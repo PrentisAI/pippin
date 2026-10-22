@@ -1,4 +1,4 @@
-"""Multi-agent roundtable implementation (Section 2.4)."""
+"""Multi-agent roundtable implementation (paper: "Multi-agent ideation")."""
 
 from aurora.agents.roundtable.chair import RoundtableChair
 from aurora.agents.roundtable.roundtable import Roundtable

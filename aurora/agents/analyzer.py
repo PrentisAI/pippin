@@ -1,4 +1,4 @@
-"""Analyzer agent — rigorous data analysis (Appendix M.5).
+"""Analyzer agent — rigorous data analysis (paper, appendix "Prompts for Agents").
 
 The analyzer reviews computational results with the rigor of a senior
 data scientist: cross-validating against baselines, checking statistical
@@ -74,7 +74,7 @@ class AnalysisResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# System prompt (Appendix M.5)
+# System prompt (paper, appendix "Prompts for Agents")
 # ---------------------------------------------------------------------------
 
 _DEFAULT_ANALYZER_PROMPT = """\

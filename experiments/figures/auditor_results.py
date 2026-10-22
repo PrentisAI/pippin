@@ -6,8 +6,11 @@ recall per agent model for both auditors.
 The data file holds the 93 detection leads (first detection minus annotated onset, in steps) and,
 per agent model, [detected, annotated] failures for the live and the milestone auditor, as computed
 from aurora-experiments-data (supervisor/, auditor/).  "side" puts the panels side by side."""
-import json, sys
+import json
+import sys
+
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np

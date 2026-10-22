@@ -7,7 +7,7 @@ Two targets, one rubric family:
   ranked best to worst.  Conditions that share a proposal (e.g. hetero_pick picks the GPT idea, which
   is also single:gpt) are shown once and the scores are mapped back to every condition that produced it.
 * ``agents`` - the ideation records of the eight AutoResearchEval agents per task (built by
-  ideation.build_agent_inputs), scored with the base rubric (Appendix C, "Ideation scoring").
+  ideation.build_agent_inputs), scored with the base rubric (paper, appendix "Evaluation Details").
 
 Needs OPENROUTER_API_KEY and AutoResearchEval (task conclusions are shown to the judge only).
 Usage (from experiments/):

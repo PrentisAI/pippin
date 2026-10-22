@@ -129,7 +129,7 @@ class Agent(ABC):
     1. Receives a reconstructed context (never the full workspace)
     2. Uses the LLM router for generation (never instantiates providers)
     3. Returns actions for the engine to execute
-    4. Has a system prompt derived from Appendix M of the paper
+    4. Has a system prompt derived from the paper's appendix "Prompts for Agents"
     """
 
     role: AgentRole
@@ -148,7 +148,7 @@ class Agent(ABC):
 
     @abstractmethod
     def system_prompt(self) -> str:
-        """Return the agent's system prompt (from Appendix M)."""
+        """Return the agent's system prompt (from the paper's appendix "Prompts for Agents")."""
         ...
 
     @abstractmethod

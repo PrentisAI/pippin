@@ -1,6 +1,6 @@
 # Reproducing the paper's component-wise evaluation
 
-This directory reproduces Section 5 ("Component-wise evaluation") and Appendix C of the AURORA paper:
+This directory reproduces the "Component-wise System Evaluation" section of the AURORA paper and its appendix "Evaluation Details":
 the live auditor, the milestone auditor, auditor interventions, and multi-agent ideation, all evaluated
 on recorded runs of other agents from [AutoResearchEval](https://huggingface.co/datasets/PrentisAI/AutoResearchEval)
 (Fei et al., arXiv:2608.14905).
@@ -28,12 +28,12 @@ sandbox containers.
 
 | Paper claim / table | Experiment | Recompute (free, offline) | Expected | Re-run | Cost / time of a re-run (from the paper runs) |
 |---|---|---|---|---|---|
-| Table 1 "Live", Fig. 3, App. C: live auditor flags 93/95 annotated failures (29/29 invalidating), 59 before onset, 91 at the first push, 95% of 641 messages valid, 1 incorrect, $0.89 per trajectory | [supervisor/](supervisor/) | `bash supervisor/reproduce.sh` | 93/95; 29/29, 63/65, 1/1; 607/641 valid | `bash supervisor/reproduce.sh rerun` | $40.73 auditor (Sonnet 5.5) + $3.62 judge; ~30 min |
-| Table 1 "Milestone", Fig. 3b, App. C: milestone auditor finds 100/106 visible failures (31/31 invalidating), 88% of 440 findings valid, 2% incorrect, 30 packaging complaints, fail on 36/47 problem runs vs 1/5, $0.23 per package, median 71 s | [auditor/](auditor/) | `bash auditor/reproduce.sh` | 100/106; 31/31, 69/75; 388/440 valid | `bash auditor/reproduce.sh rerun` | $11.87 auditor + $3.81 judge; ~10 min |
-| Sec. 5 "Behavioral correction", App. C: corrections 3/28 to 16/28 (round 1); 2/70 to 41/70 (round 2), 21/30 correction, 20/40 prevention, 17/20 invalidating; wrong advice followed 39/44 (GLM-5.2, GPT-5-mini), Opus 4.8 questioned 17/26 | [intervention/](intervention/) | `bash intervention/reproduce.sh` | see left | `bash intervention/reproduce.sh rerun` | ~$4 + ~$12 (paper: "about $17"); ~20 min |
-| Sec. 5 "Collective intelligence": chair calls three ideas the same study in 19/20 (Sonnet), 12/20 (GPT), 4/20 (three models); presenters ACCEPT 90%, REBUT 5%; EVIDENCE 2% of tags; 5/20 merges; $2.71 vs $0.72 per task; ~$69 total | [ideation/](ideation/) | `bash ideation/reproduce.sh` | see left | `bash ideation/reproduce.sh rerun` | ~$73 runs (21 tasks) + ~$5 judges; ~3 h |
+| Table 1 "Live", Fig. 3, appendix: live auditor flags 93/95 annotated failures (29/29 invalidating), 59 before onset, 91 at the first push, 95% of 641 messages valid, 1 incorrect, $0.89 per trajectory | [supervisor/](supervisor/) | `bash supervisor/reproduce.sh` | 93/95; 29/29, 63/65, 1/1; 607/641 valid | `bash supervisor/reproduce.sh rerun` | $40.73 auditor (Sonnet 5.5) + $3.62 judge; ~30 min |
+| Table 1 "Milestone", Fig. 3b, appendix: milestone auditor finds 100/106 visible failures (31/31 invalidating), 88% of 440 findings valid, 2% incorrect, 30 packaging complaints, fail on 36/47 problem runs vs 1/5, $0.23 per package, median 71 s | [auditor/](auditor/) | `bash auditor/reproduce.sh` | 100/106; 31/31, 69/75; 388/440 valid | `bash auditor/reproduce.sh rerun` | $11.87 auditor + $3.81 judge; ~10 min |
+| "Behavioral correction" (and its appendix): corrections 3/28 to 16/28 (round 1); 2/70 to 41/70 (round 2), 21/30 correction, 20/40 prevention, 17/20 invalidating; wrong advice followed 39/44 (GLM-5.2, GPT-5-mini), Opus 4.8 questioned 17/26 | [intervention/](intervention/) | `bash intervention/reproduce.sh` | see left | `bash intervention/reproduce.sh rerun` | ~$4 + ~$12 (paper: "about $17"); ~20 min |
+| "Collective intelligence in ideation": chair calls three ideas the same study in 19/20 (Sonnet), 12/20 (GPT), 4/20 (three models); presenters ACCEPT 90%, REBUT 5%; EVIDENCE 2% of tags; 5/20 merges; $2.71 vs $0.72 per task; ~$69 total | [ideation/](ideation/) | `bash ideation/reproduce.sh` | see left | `bash ideation/reproduce.sh rerun` | ~$73 runs (21 tasks) + ~$5 judges; ~3 h |
 | Blind ranking of ideation conditions (supplementary): mean normalised rank hetero_pick 0.20, bestof3:gpt 0.29, single:gpt 0.33, bestof3:sonnet 0.38, single:sonnet 0.425 (printed 0.425; rounds to 0.43), meeting 0.48, single:gemini 0.91; judge correlation 0.80 | [ideation/](ideation/) | `python -m ideation.analyze_judges` | see left | (part of the ideation re-run) | $2.27 (Grok 4.7) + $2.86 (Qwen 3.8 Max) |
-| Sec. 5 / App. C "Ideation scoring": 67% of agents' proposals test a proxy (50-83% by model); best proposal 2.90 vs 2.23 mean alignment (2.63 vs 2.14 without source-paper exposure); 99% within one point, second judge 53% proxies; $2.35 + $0.98 | [ideation/](ideation/) | `python -m ideation.summarize_agent_ideas` | see left | (part of the ideation re-run) | $2.35 + $0.98 |
+| Ideation scoring (appendix "Evaluation Details"): 67% of agents' proposals test a proxy (50-83% by model); best proposal 2.90 vs 2.23 mean alignment (2.63 vs 2.14 without source-paper exposure); 99% within one point, second judge 53% proxies; $2.35 + $0.98 | [ideation/](ideation/) | `python -m ideation.summarize_agent_ideas` | see left | (part of the ideation re-run) | $2.35 + $0.98 |
 
 ## Comparable, not identical
 
@@ -70,6 +70,6 @@ scripts/         download_data.py
 
 `MANIFEST.md` in the release tarball lists every file with its provenance.  The tarball is released
 under CC-BY-4.0, like AutoResearchEval, from which all items are derived.  The test sets were selected
-and annotated by us; how is described in Appendix C of the paper.  Not released: development and pilot
+and annotated by us; how is described in the paper's appendix "Evaluation Details".  Not released: development and pilot
 runs, raw per-call logs, and the scripts that built the annotation candidates and the deliverable
 packages from internal run archives.

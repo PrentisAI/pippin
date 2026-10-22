@@ -8,13 +8,15 @@ a research agent in a sandbox; the results are analysed (with follow-up rounds
 when more work is needed) and written up. Two auditors check the work as it
 goes, and the campaign asks you whenever a decision should be yours.
 
-![AURORA architecture](assets/architecture.png)
+![AURORA's architecture: the research cycle (centre) under the milestone audits and the live auditor (bottom), the front desk through which you take part (left), and the persistent state every stage shares (right)](assets/architecture.png)
 
 ## Why
 
 Long research campaigns fail in ways short agent tasks do not. An early mistake
 silently corrupts everything built on it; an agent drifts away from the
 question; results get overstated. AURORA is built around that:
+
+![Three challenges of long-horizon, open-ended research, each with the AURORA mechanism that addresses it (Figure 1 of the paper)](assets/paper-challenges.png)
 
 | Problem | What AURORA does |
 |---|---|
@@ -26,7 +28,7 @@ question; results get overstated. AURORA is built around that:
 
 ## Where to start
 
-- **Try it in one minute, offline:** `pip install aurora-research && aurora demo` —
+- **Try it in seconds, offline:** from a clone, `pip install -e . && aurora demo` —
   see [Installation](getting-started/installation.md).
 - **Run a real campaign:** [Your first campaign](getting-started/first-campaign.md).
 - **Understand the system:** [How a campaign runs](concepts/pipeline.md).

@@ -1,10 +1,9 @@
 # Multi-agent ideation
 
 **What is measured.** (1) Whether ideas from three foundation models are more diverse than three samples
-of one model, and what a group meeting among them does to the ideas (paper: Section 5 "Collective
-intelligence in ideation", Appendix C "Multi-agent ideation evaluation"); (2) how the AutoResearchEval
-agents' own ideation records score, e.g. how often they test an easier proxy (Section 5, Appendix C
-"Ideation scoring").
+of one model, and what a group meeting among them does to the ideas (paper: "Collective
+intelligence in ideation" and the appendix "Evaluation Details"); (2) how the AutoResearchEval
+agents' own ideation records score, e.g. how often they test an easier proxy (paper: "Component-wise System Evaluation", appendix "Evaluation Details").
 
 **Protocol (1).** 21 held-out open-ended tasks (3 per domain, sampled with a fixed seed from the tasks not
 used while developing the meeting protocol).  Seats: Claude Sonnet 5.5, GPT-5.6, Gemini 3.1 Pro; chair:

@@ -1,4 +1,4 @@
-"""Roundtable chair — keeps the meeting notes and decides the direction (Section 2.4).
+"""Roundtable chair — keeps the meeting notes and decides the direction (paper: "Multi-agent ideation").
 
 The chair does not argue positions. After each agenda item it records the discussion threads
 (questions, concerns, suggestions) and what became of them; at the end it decides, like a PI who

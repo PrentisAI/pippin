@@ -7,7 +7,7 @@ the container.  After each update it answers with a verdict line::
 
     VERDICT {"outcome": "advise", "reason": "...", "suggestion": "..."}
 
-Outcomes (Section 3.3 of the paper):
+Outcomes (paper: "Just-in-time auditing"):
 
 * ``continue``  — nothing to do;
 * ``advise``    — the suggestion is sent to the research agent, which keeps working;

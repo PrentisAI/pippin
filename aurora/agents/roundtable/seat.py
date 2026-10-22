@@ -1,4 +1,4 @@
-"""Roundtable seat — one researcher at the group meeting (Section 2.4, M.1).
+"""Roundtable seat — one researcher at the group meeting (paper: "Multi-agent ideation"; prompt in the appendix "Prompts for Agents").
 
 Each seat is a different foundation model. Over the meeting a seat:
   prepares   — looks into the literature and prepares a short presentation with one main idea;

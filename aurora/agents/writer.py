@@ -1,4 +1,4 @@
-"""Writer agent — manuscript writing + follow-up triggering (Appendix M.6).
+"""Writer agent — manuscript writing + follow-up triggering (paper, appendix "Prompts for Agents").
 
 The writer plans and drafts a scientific manuscript from the accumulated
 research evidence.  When critical knowledge gaps are identified, it triggers
@@ -80,7 +80,7 @@ class SectionDraft(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# System prompt (Appendix M.6)
+# System prompt (paper, appendix "Prompts for Agents")
 # ---------------------------------------------------------------------------
 
 WRITER_SYSTEM_PROMPT = """\

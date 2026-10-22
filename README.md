@@ -30,6 +30,8 @@ AutoResearch with Human-Agent Synergy*.
 
 ### The research cycle
 
+![AURORA's architecture: the research cycle under the milestone audits and the live auditor, the front desk through which you take part, and the persistent state every stage shares](docs/assets/architecture.png)
+
 | Phase | What happens |
 |---|---|
 | **Ideation** | Heterogeneous models each propose a direction, either independently or at a group meeting where they question each other's ideas; a chair decides and says why the others were set aside. |

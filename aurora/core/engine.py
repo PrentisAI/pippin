@@ -2102,7 +2102,7 @@ Be specific: cite file names and concrete observations.
 
     async def _run_preflight(self, plan: ExperimentPlan, proposal: RoundtableProposal | None,
                              guidance: str = "") -> tuple[ExperimentPlan, list[str]]:
-        """Check every job before research: prerequisites and a smoke run (Section 3.1).
+        """Check every job before research: prerequisites and a smoke run (paper: "Planning before execution").
 
         When jobs have problems, planning revises the plan with the report and the checks run
         again (``agent.preflight_max_revisions`` times).  The findings are attached to the jobs

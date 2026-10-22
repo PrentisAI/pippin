@@ -22,7 +22,7 @@ Unknown keys are an error. Paths in the file are relative to the file.
 
 ## `skills`
 
-How the skill library grows (Section 3.1, Appendix B).
+How the skill library grows (paper: "Skill invocation", appendix "Domain-Specific Skills").
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
@@ -119,7 +119,7 @@ Where the agents' commands run.
 
 ## `audit`
 
-The two auditors (Section 3.3 of the paper).
+The two auditors (paper: "Just-in-time auditing").
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|

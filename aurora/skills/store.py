@@ -1,6 +1,6 @@
 """The skill library: SQLite-backed store of skills learned from people and from runs.
 
-A skill is a structured specification (Appendix B of the paper; see :data:`SKILL_SECTIONS`):
+A skill is a structured specification (paper, appendix "Domain-Specific Skills"; see :data:`SKILL_SECTIONS`):
 its purpose, inputs and preconditions, tools, procedure, expected outputs, validation checks,
 failure modes, interpretation, and when to ask a human.  Skills come from the researcher's
 corrections (``origin="human"``), from the agents' own runs (``origin="self"``) or are written
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS distilled_skills (
 );
 """
 
-# The sections of a skill (Appendix B): (heading, what goes there)
+# The sections of a skill (paper, appendix "Domain-Specific Skills"): (heading, what goes there)
 SKILL_SECTIONS: list[tuple[str, str]] = [
     ("Purpose", "the scientific or practical task the skill is for, and when to use it"),
     ("Inputs and preconditions", "what must be given or true before starting"),

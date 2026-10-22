@@ -2,8 +2,8 @@
 
 **What is measured.** For failures the live auditor detected in the replay, whether injecting its advice
 makes the original agent model correct (or, for early warnings, avoid) the failure in its next turn,
-compared with no message, a generic reminder, and plausible but wrong advice (paper: Section 5
-"Behavioral correction via auditor intervention", Appendix C "Intervention experiment").
+compared with no message, a generic reminder, and plausible but wrong advice (paper: "Behavioral
+correction via auditor intervention" and the appendix "Evaluation Details").
 
 **Protocol.** Items come from the live-auditor scores (`supervisor/runs/test_sonnet_pi/scores.json`): a
 detected failure, cut at the last step the auditor had seen when it first flagged it (*prevention* if the

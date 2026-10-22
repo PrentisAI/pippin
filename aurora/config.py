@@ -354,7 +354,7 @@ class AgentConfig(_Section):
 
 
 class SkillsConfig(_Section):
-    """How the skill library grows (Section 3.1, Appendix B)."""
+    """How the skill library grows (paper: "Skill invocation", appendix "Domain-Specific Skills")."""
 
     distill: bool = Field(
         default=True,
@@ -619,7 +619,7 @@ class SandboxConfig(_Section):
 
 
 class AuditConfig(_Section):
-    """The two auditors (Section 3.3 of the paper)."""
+    """The two auditors (paper: "Just-in-time auditing")."""
 
     milestone: bool = Field(
         default=True,

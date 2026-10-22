@@ -2,7 +2,7 @@
 
 **What is measured.** Whether AURORA's milestone audit, given only the final deliverables of a research
 run, finds the failures annotated in that run, and how often its findings are real (paper: Table 1
-"Milestone", Figure 3b, Appendix C).
+"Milestone", Figure 3b, appendix "Evaluation Details").
 
 **Protocol.** 52 deliverable packages from 8 agent models (`task.md`, `agent_report.md`, `decision.json`,
 `code/`, `PACKAGE_INFO.md`; no trajectory, no labels).  The auditor (Claude Sonnet 5.5, the paper's

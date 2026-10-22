@@ -1,4 +1,4 @@
-"""Headline metrics of the milestone-auditor evaluation (Table 1 "Milestone" column, Figure 3b, Appendix C).
+"""Headline metrics of the milestone-auditor evaluation (Table 1 "Milestone" column, Figure 3b, appendix "Evaluation Details").
 
 Offline and free: reads only the judge output of auditor.score (and, for the timing line, the
 audit summaries next to it when present).

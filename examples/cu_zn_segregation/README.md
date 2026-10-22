@@ -1,7 +1,7 @@
 # Case study: Zn segregation in Cu-Zn catalysts
 
-The configuration of the materials-science campaign described in Section 4 of
-the paper. The objective and the quality gates the domain experts used are in
+The configuration of the materials-science campaign of the paper's end-to-end
+case study. The objective and the quality gates the domain experts used are in
 [`objective.md`](objective.md), which is passed to the agents as an input.
 
 **This is a long, expensive campaign.** It runs plane-wave DFT; a full run

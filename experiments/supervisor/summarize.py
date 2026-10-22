@@ -1,4 +1,4 @@
-"""Headline metrics of the live-auditor evaluation (Table 1 "Live" column, Figure 3, Appendix C).
+"""Headline metrics of the live-auditor evaluation (Table 1 "Live" column, Figure 3, appendix "Evaluation Details").
 
 Offline and free: reads only the judge output of supervisor.score.
 
