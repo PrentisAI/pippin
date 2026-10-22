@@ -98,6 +98,7 @@ RULES: dict[tuple[str, str], str] = {
     ("POST", P + "/literature/upload"): "edit",
     ("PUT", P + "/literature/rule"): "edit",
     ("PUT", P + "/literature/papers/{paper_id}/version"): "edit",
+    ("POST", P + "/literature/resolve"): "view",
     ("GET", P + "/files/raw"): "view",
     # each person's library (what it shows of projects is filtered to what they may see)
     ("GET", "/api/library"): "any",

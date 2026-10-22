@@ -257,6 +257,10 @@ export const api = {
     remove: (cid: string, pid: string) => request<ProjectLiterature>(`/campaigns/${cid}/literature/papers/${pid}`, del),
     decide: (cid: string, refId: string, action: 'replace' | 'remove' | 'have' | 'reopen', paper_id = '') =>
       request<ProjectLiterature>(`/campaigns/${cid}/literature/refs/${refId}`, post({ action, paper_id })),
+    /** What the citations in a text point to. */
+    resolve: (cid: string, keys: string[], refs: string[]) =>
+      request<{ keys: Record<string, import('../components/Cite').CiteInfo>; refs: Record<string, import('../components/Cite').CiteInfo> }>(
+        `/campaigns/${cid}/literature/resolve`, post({ keys, refs })),
     recheck: (cid: string, refId: string) =>
       request<{ status: string; literature: ProjectLiterature }>(`/campaigns/${cid}/literature/refs/${refId}/recheck`, post()),
     importBib: (cid: string, bibtex: string) =>

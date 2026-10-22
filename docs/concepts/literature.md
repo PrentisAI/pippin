@@ -65,7 +65,26 @@ and says the claims a flagged paper supports are unsupported. Searching costs
 one short model call per turn; the indexes themselves are free.
 
 **Screening.** Screening searches for the closest prior work to the proposal
-and judges novelty against those papers (`literature.screening_search`).
+(and looks at the project's own papers on the subject) and judges novelty
+against those papers (`literature.screening_search`). It names the (at most
+three) closest papers and says, for each, how the proposal differs. The
+experiment's stream shows this as a card: the proposal, its novelty score, the
+closest prior work with how it differs, and, while the run waits for the
+decision after screening, **Start the experiment** and **Change it**.
+
+**Citations in the console.** Wherever agents write (the round table's turns,
+the stream, the front desk's answers), a citation shows as a chip: `Behrens
+2012 ✓` for a real paper, `Smith 2024 ?` for one that could not be found. Click
+it for the paper (abstract, where it was used, **Open PDF**) or, for one that was
+not found, why, the closest real paper and **Use the real one instead**. A turn
+that cites a paper that could not be found says so underneath, with **Fix it in
+Literature**.
+
+**Seed papers.** When you give the front desk a paper (from the Library's feed,
+or **+ → From the Library** in the project chat), it can propose a run that
+starts from it: ideation develops ideas from the paper and every phase reads it.
+The proposal card shows the seeds; they join the project's literature, marked
+*seed*.
 
 **Writing.** The writer gets the verified papers the run cited and cites them by
 key. Every reference in the report is then checked again. The report's

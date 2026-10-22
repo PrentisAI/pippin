@@ -3114,3 +3114,43 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 .camp-item.locked { opacity: .78; }
 .camp-item.locked .camp-meta { white-space: normal; }
 .skill-badge.pending { background: var(--amber-dim); color: var(--amber); }
+
+/* ---------------------------------------------------------------- citations as chips */
+.cite { display: inline-flex; align-items: center; gap: 2px; font: inherit; font-size: .92em; line-height: 1.35; padding: 0 6px; margin: 0 1px;
+  border-radius: 9px; border: 1px solid var(--border); background: var(--bg-raised); color: var(--fg-bright); cursor: pointer; white-space: nowrap; vertical-align: baseline; }
+.cite.v { border-color: var(--green-border); background: var(--green-dim); color: var(--green); }
+.cite.u { border-color: var(--amber-border); background: var(--amber-dim); color: var(--amber); }
+.cite.p { color: var(--fg-muted); }
+.cite.removed { cursor: default; text-decoration: line-through; color: var(--fg-dim); background: transparent; border-style: dashed; }
+.cite:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cite-pop { position: fixed; z-index: 400; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 14px 36px rgba(0,0,0,.24); padding: 12px 14px; display: flex; flex-direction: column; gap: 7px; font-size: 12.5px; line-height: 1.55; max-height: 70vh; overflow-y: auto; }
+.cite-pop-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.cite-pop-title { color: var(--fg-bright); font-weight: 550; font-size: 13.5px; line-height: 1.35; }
+.cite-pop-abs { color: var(--fg); }
+.cite-pop-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.cite-pop-actions a.btn-sm { text-decoration: none; display: inline-flex; align-items: center; }
+.meeting-flag { margin-top: 6px; padding: 7px 10px; border-radius: 7px; background: var(--amber-dim); font-size: 11.5px; line-height: 1.5; color: var(--fg); }
+.meeting-flag-head { color: var(--amber); font-weight: 600; }
+.tl-link { display: inline-block; margin-top: 4px; font-size: 11px !important; }
+
+/* screening's verdict */
+.screen-card { flex: 1; border: 1px solid var(--border); border-radius: 11px; background: var(--bg-raised); padding: 13px 15px; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; line-height: 1.55; min-width: 0; }
+.screen-card.rejected { border-style: dashed; }
+.screen-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+.screen-eyebrow { font-size: 10px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--fg-dim); }
+.screen-title { font-size: 15px; font-weight: 600; color: var(--fg-bright); line-height: 1.35; text-wrap: balance; }
+.screen-novelty { text-align: right; flex-shrink: 0; }
+.screen-score { font-family: var(--mono, ui-monospace, Menlo, monospace); font-size: 20px; color: var(--fg-bright); font-variant-numeric: tabular-nums; }
+.screen-score span { font-size: 12px; color: var(--fg-dim); }
+.screen-axes { font-size: 11.5px; color: var(--fg-muted); }
+.screen-prior { display: flex; flex-direction: column; gap: 2px; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle); }
+.screen-prior:last-of-type { border-bottom: none; }
+.screen-prior-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.screen-prior-title { color: var(--fg-bright); }
+.screen-prior-diff { color: var(--fg); }
+.screen-why summary { cursor: pointer; font-size: 11.5px; color: var(--fg-dim); }
+.screen-why > div { margin-top: 4px; white-space: pre-wrap; }
+.screen-change { display: flex; flex-direction: column; gap: 6px; }
+.screen-change textarea { font: inherit; font-size: 12.5px; padding: 7px 9px; border-radius: 7px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); resize: vertical; }
+.screen-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border-top: 1px solid var(--border-subtle); padding-top: 9px; }

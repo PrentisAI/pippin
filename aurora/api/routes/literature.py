@@ -296,6 +296,58 @@ async def decide_ref(campaign_id: str, ref_id: str, body: RefDecision) -> dict[s
     return _literature(campaign_id)
 
 
+class Resolve(BaseModel):
+    keys: list[str] = []          # [Key] citations
+    refs: list[str] = []          # [ref: ...] citations, the text inside the brackets
+
+
+@project_router.post(L + "/resolve")
+async def resolve_citations(campaign_id: str, body: Resolve) -> dict[str, Any]:
+    """What the citations in a text point to: for each key, the paper; for each [ref: ...], whether it
+    was found, what it was replaced with, or the nearest real paper."""
+    from aurora.literature.check import parse_ref_tag
+    from aurora.literature.records import title_similarity
+    _project(campaign_id)
+    known = library.known_to(campaign_id)
+    in_project = {i["paper_id"] for i in library.items(campaign_id)}
+    uses, _ = _uses_by(campaign_id)
+    pdfs = _pdfs(campaign_id)
+
+    def view(entry: dict[str, Any]) -> dict[str, Any]:
+        pid = entry["paper_id"]
+        return {**paper_view(entry), "status": "verified", "in_project": pid in in_project,
+                "used_in": uses.get(pid, []), "pdf_file": pdfs.get(entry["key"], "")}
+
+    keys: dict[str, Any] = {}
+    for k in body.keys[:200]:
+        entry = library.paper(k)
+        keys[k] = view(entry) if entry and entry["paper_id"] in known else {"status": "unknown", "key": k}
+    refs: dict[str, Any] = {}
+    for raw in body.refs[:100]:
+        ref = parse_ref_tag(raw)
+        out: dict[str, Any] = {"label": ref.title or ref.label(), "status": "unchecked"}
+        row = library.known_ref(campaign_id, ref.to_dict())
+        if row is not None:
+            out.update(status=row["status"], ref_id=row["ref_id"], reason=row["reason"], resolution=row["resolution"])
+            if row["resolution"] == "replaced" and row["paper_id"] and (e := library.paper(row["paper_id"])):
+                out["replaced_with"] = view(e)
+            if row["closest"]:
+                c = library.upsert_paper(Paper.from_dict(row["closest"]))
+                out["closest"] = view(c)
+        else:   # verified when it was checked: the paper it named
+            for pid in known:
+                e = library.paper(pid)
+                if e is None:
+                    continue
+                p = e["paper"]
+                if (ref.doi and p.doi == ref.doi) or (ref.arxiv_id and p.arxiv_id == ref.arxiv_id) or \
+                        (ref.title and title_similarity(ref.title, p.title) >= 0.93):
+                    out = {**view(e), "label": ref.title or ref.label()}
+                    break
+        refs[raw] = out
+    return {"keys": keys, "refs": refs}
+
+
 @project_router.post(L + "/refs/{ref_id}/recheck")
 async def recheck_ref(campaign_id: str, ref_id: str) -> dict[str, Any]:
     """Check a flagged reference again (an index was down, or it was just published)."""

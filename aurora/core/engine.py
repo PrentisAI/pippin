@@ -270,6 +270,8 @@ class ResearchEngine:
         self.compute: Any = None
         # `aurora papers` for the research agents (aurora.literature.agent_service.PaperService)
         self.papers: Any = None
+        # the indexes that answered the screening's search for prior work
+        self._prior_reached: set[str] = set()
         # the project's literature (aurora.literature.service.ProjectLiterature); made on first use
         self._literature: Any = None
         # the round table while it meets (a live meeting takes the researcher's remarks)
@@ -1767,8 +1769,16 @@ Be specific: cite file names and concrete observations.
                 for e in await self.literature.search(q, by="Screening", context="Screening · closest prior work",
                                                       limit=self._config.literature.results_per_query):
                     seen.setdefault(e["paper_id"], e)
+                from aurora.literature.library import library
+                self._prior_reached |= set((library.search(self.literature.last_search_id) or {}).get("reached") or [])
             except Exception:
                 logger.warning("Searching prior work failed", exc_info=True)
+        # the project's own papers on the subject count as prior work too (the researcher's PDFs, say)
+        from aurora.literature.records import fold
+        words = set(fold(proposal.title).split()) - {"the", "of", "and", "for", "in", "a", "an", "on", "with"}
+        for e in self.literature.items():
+            if len(words & set(fold(e["paper"].title).split())) >= 3:
+                seen.setdefault(e["paper_id"], e)
         cited = [k for k in proposal.references]
         if not seen and not cited:
             return ""
@@ -1834,6 +1844,7 @@ Be specific: cite file names and concrete observations.
             )
             score = await screener.screen(proposal, prior_work=prior)
         await self._cite(score.explanation, by="Screening", place="Screening")
+        closest = self._closest_work(score)
 
         proposal = proposal.model_copy(
             update={
@@ -1847,8 +1858,35 @@ Be specific: cite file names and concrete observations.
             proposal_id=proposal.proposal_id,
             selected=proposal.selected,
             score=score.composite,
+            title=proposal.title,
+            novelty=score.novelty, feasibility=score.feasibility, significance=score.significance,
+            explanation=score.explanation[:3000],
+            closest=closest,
+            indexes=sorted(self._prior_reached),
         )
         return proposal
+
+    def _closest_work(self, score: IdeaScore) -> list[dict[str, Any]]:
+        """The closest prior work screening named, as real papers (keys that name no paper are left out)."""
+        if self.literature is None:
+            return []
+        from aurora.literature.library import library
+        known = library.known_to(self.literature.campaign_id)
+        own = {i["paper_id"] for i in library.items(self.literature.campaign_id)
+               if i["source"] in ("zotero", "person", "feed", "bibtex")}
+        out = []
+        for c in score.closest[:3]:
+            key = str(c.get("key", "")).strip().strip("[]")
+            entry = library.paper(key) if key else None
+            if entry is None or entry["paper_id"] not in known:
+                continue
+            p = entry["paper"]
+            self.literature._cited(entry["paper_id"], by="Screening", place="Screening")
+            out.append({"key": entry["key"], "title": p.title, "byline": p.byline(), "year": p.year,
+                        "differs": str(c.get("differs", "")).strip()[:600],
+                        # one of the project's own papers (the researcher's, not one the agents found)
+                        "mine": entry["paper_id"] in own})
+        return out
 
     async def _run_screening_agent(
         self, proposal: RoundtableProposal, prior_work: str = ""
@@ -1871,8 +1909,13 @@ Be specific: cite file names and concrete observations.
             f"  {score_path}\n\n"
             f"The JSON must have this structure:\n"
             f'{{"novelty": 0-10, "feasibility": 0-10, "significance": 0-10, '
-            f'"composite": 0-10, "explanation": "..."}}\n\n'
-            f"You may explore the working environment to assess feasibility."
+            f'"composite": 0-10, "explanation": "...", '
+            f'"closest": [{{"key": "Key21", "differs": "one sentence: what this proposal does that the paper does not"}}]}}\n'
+            + ("In \"closest\", name the (at most three) papers from the closest prior work above that come nearest "
+               "to the proposal, closest first, by their keys, each with one concrete sentence on how the proposal "
+               "differs (scale, data, method, question). Use only keys from that list.\n\n" if prior_work
+               else "Leave \"closest\" empty.\n\n")
+            + "You may explore the working environment to assess feasibility."
         )
 
         result = await self._run_agent_session(

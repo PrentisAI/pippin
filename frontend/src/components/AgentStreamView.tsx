@@ -1,8 +1,9 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { api, describeError } from '../api/client'
 import { clip, formatCost, formatDuration } from '../format'
 import { GATE_SOURCE_LABELS, phaseLabel, PHASES, type SuggestionOutcome } from '../types'
 import { turnKey, type StreamEvent } from '../types/chat'
+import { CiteProvider, CiteText, useFlagged } from './Cite'
 import { ScopePicker, type ScopeValue } from './SkillScope'
 
 interface AgentStreamViewProps {
@@ -39,6 +40,8 @@ interface Described {
   badge?: string
   /** Further lines (summaries, recommendations, error messages). */
   detail?: string
+  /** A button that opens one of the project's tabs (the Literature page). */
+  link?: [string, string]
 }
 
 const DECIDED_BY_LABELS: Record<string, string> = {
@@ -325,8 +328,9 @@ function describeEvent(event: StreamEvent): Described {
     }
     case 'reference_flagged': {
       const what = d.status === 'mismatch' ? 'its identifier names another paper' : d.status === 'unchecked' ? 'could not be checked yet' : 'not found in any index'
-      return system('warning', `${str(d.by)} cited “${clip(str(d.label), 120)}”: ${what}`,
-        [str(d.reason), d.closest_key ? `Closest real paper: [${str(d.closest_key)}]` : '', 'Decide on the project’s Literature page.'].filter(Boolean).join('\n'))
+      return {...system('warning', `${str(d.by)} cited “${clip(str(d.label), 120)}”: ${what}`,
+        [str(d.reason), d.closest_key ? `Closest real paper: [${str(d.closest_key)}]` : '',
+          'What it supports is treated as unsupported.'].filter(Boolean).join('\n')), link: ['Fix it in Literature', 'literature']}
     }
 
     default:
@@ -344,6 +348,7 @@ type TimelineRow =
   | { kind: 'system'; event: StreamEvent; info: Described }
   | { kind: 'skill'; event: StreamEvent }
   | { kind: 'meeting'; event: StreamEvent }
+  | { kind: 'screening'; event: StreamEvent; index: number }
   | { kind: 'event-row'; ts: number; agentEvents: StreamEvent[]; oversightEvents: StreamEvent[]; isLatest: boolean; hasAlert: boolean }
 
 function buildTimeline(events: StreamEvent[]): TimelineRow[] {
@@ -363,8 +368,14 @@ function buildTimeline(events: StreamEvent[]): TimelineRow[] {
     oversightBatch = []
   }
 
-  for (const evt of events) {
+  for (const [index, evt] of events.entries()) {
     const ts = evt.timestamp || 0
+
+    if (evt.event_type === 'screening_complete' && evt.data?.title) {
+      flush(false)
+      rows.push({ kind: 'screening', event: evt, index })
+      continue
+    }
 
     if (evt.event_type === 'phase_started') {
       flush(false)
@@ -521,8 +532,8 @@ function AgentBlock({ events }: { events: StreamEvent[] }) {
           const info = describeEvent(e)
           return (
             <div key={`o-${i}`} className={`agent-text tone-${info.tone}`}>
-              {info.text}
-              {info.detail && <div className="tl-detail">{info.detail}</div>}
+              <CiteText text={info.text} />
+              {info.detail && <div className="tl-detail"><CiteText text={info.detail} /></div>}
             </div>
           )
         })}
@@ -547,15 +558,99 @@ function OversightCard({ event }: { event: StreamEvent }) {
   )
 }
 
-function SystemEventRow({ info }: { info: Described }) {
+function openTab(campaignId: string, tab: string) {
+  window.dispatchEvent(new CustomEvent('aurora:open-project-tab', { detail: { campaignId, tab } }))
+}
+
+function SystemEventRow({ info, campaignId }: { info: Described; campaignId: string }) {
   const icon = TONE_ICONS[info.tone]
   return (
     <div className="tl-stage-row">
       <div className={`sys-event tl-sys tone-${info.tone}`}>
         <div className={`ev-icon ${icon.cls}`}>{icon.char}</div>
         <div className="tl-sys-body">
-          <span>{info.text}</span>
-          {info.detail && <div className="tl-detail">{info.detail}</div>}
+          <span><CiteText text={info.text} /></span>
+          {info.detail && <div className="tl-detail"><CiteText text={info.detail} /></div>}
+          {info.link && <button className="link-btn tl-link" onClick={() => openTab(campaignId, info.link![1])}>{info.link[0]}</button>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Screening's verdict on the proposal: novelty, the closest prior work and how the proposal differs,
+ *  and, while the run waits for it, the decision to start or change it. */
+function ScreeningCard({ event, index, events, campaignId, experimentId }: {
+  event: StreamEvent; index: number; events: StreamEvent[]; campaignId: string; experimentId: string
+}) {
+  const d = event.data ?? {}
+  const [changing, setChanging] = useState(false)
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const closest = Array.isArray(d.closest) ? (d.closest as Record<string, unknown>[]) : []
+  const indexes = Array.isArray(d.indexes) ? (d.indexes as string[]) : []
+  // the decision waiting right after screening (until the next phase starts)
+  const after: StreamEvent[] = []
+  for (const e of events.slice(index + 1)) {
+    if (e.event_type === 'phase_started') break
+    after.push(e)
+  }
+  const resolved = new Set(after.filter((e) => e.event_type === 'human_gate_resolved').map((e) => str(e.data?.gate_id)))
+  const gate = [...after].reverse().find((e) => e.event_type === 'human_gate_opened' && !resolved.has(str(e.data?.gate_id)))
+  const next = events.slice(index + 1).find((e) => e.event_type === 'phase_started')
+  const decide = async (action: 'continue' | 'instruct', message = '') => {
+    if (!gate) return
+    setBusy(true)
+    setError(null)
+    try { await api.experiments.decide(campaignId, experimentId, action, message, str(gate.data?.gate_id)); setChanging(false) }
+    catch (e) { setError(describeError(e)) } finally { setBusy(false) }
+  }
+  const num = (v: unknown) => typeof v === 'number' ? (Math.round(v * 10) / 10).toString() : '–'
+  return (
+    <div className="tl-stage-row">
+      <div className={`screen-card${d.selected ? '' : ' rejected'}`}>
+        <div className="screen-head">
+          <div>
+            <div className="screen-eyebrow">Proposal · after screening</div>
+            <div className="screen-title">{str(d.title)}</div>
+          </div>
+          <div className="screen-novelty">
+            <div className="screen-eyebrow">Novelty</div>
+            <div className="screen-score">{num(d.novelty)}<span> / 10</span></div>
+          </div>
+        </div>
+        <div className="screen-axes">Feasibility {num(d.feasibility)} · significance {num(d.significance)} · overall {num(d.score)}
+          {d.selected ? '' : ' · below the bar: ideation tries again'}</div>
+        {closest.length > 0 && (
+          <>
+            <div className="screen-eyebrow">Closest prior work, and how this differs</div>
+            {closest.map((c) => (
+              <div key={str(c.key)} className="screen-prior">
+                <div className="screen-prior-head"><CiteText text={`[${str(c.key)}]`} /><span className="screen-prior-title">{str(c.title)}</span>
+                  <span className="lit-sub">{str(c.byline)}{c.mine ? ' · your paper' : ''}</span></div>
+                {c.differs ? <div className="screen-prior-diff">{str(c.differs)}</div> : null}
+              </div>
+            ))}
+            <div className="lit-sub">Novelty is scored against these papers, found in {indexes.length ? `${indexes.length} index${indexes.length === 1 ? '' : 'es'}` : 'the indexes'} and this project’s Literature.</div>
+          </>
+        )}
+        {d.explanation ? <details className="screen-why"><summary>Why these scores</summary><div><CiteText text={str(d.explanation)} /></div></details> : null}
+        {error && <div className="modal-error">{error}</div>}
+        {changing && (
+          <form className="screen-change" onSubmit={(e) => { e.preventDefault(); if (text.trim()) decide('instruct', text.trim()) }}>
+            <textarea autoFocus rows={2} placeholder="What should change? Planning follows what you write." value={text} onChange={(e) => setText(e.target.value)} />
+            <div className="bs-row"><button className="btn-sm btn-approve" disabled={busy || !text.trim()}>Send</button>
+              <button type="button" className="btn-sm" onClick={() => setChanging(false)}>Cancel</button></div>
+          </form>
+        )}
+        <div className="screen-actions">
+          {gate && !changing && <>
+            <button className="btn-sm btn-approve" disabled={busy} onClick={() => decide('continue')}>Start the experiment</button>
+            <button className="btn-sm" disabled={busy} onClick={() => setChanging(true)}>Change it</button>
+          </>}
+          {!gate && next && <span className="lit-sub">{str(next.data?.phase) === 'planning' ? 'Planning started from it.' : `Then: ${phaseLabel(str(next.data?.phase)) || str(next.data?.phase)}.`}</span>}
+          <button className="btn-sm lit-btn" onClick={() => openTab(campaignId, 'literature')}>All references</button>
         </div>
       </div>
     </div>
@@ -612,14 +707,31 @@ function MeetingTurn({ event, live = false }: { event: StreamEvent; live?: boole
             : d.thinking ? <LiveText text={str(d.thinking)} className="meeting-body thinking" />
             : <div className="meeting-wait">{d.kind === 'presentation' ? 'Looking into the literature…' : 'Preparing…'}</div>
         ) : open ? (
-          <div className="meeting-body">{text}</div>
+          <div className="meeting-body"><CiteText text={text} /></div>
         ) : (
-          <div className="meeting-summary">{summary}{d.citations ? <span className="meeting-cites"> · {String(d.citations)} sources</span> : null}</div>
+          <div className="meeting-summary"><CiteText text={summary} />{d.citations ? <span className="meeting-cites"> · {String(d.citations)} sources</span> : null}</div>
         )}
+        {!live && <FlaggedNote text={text} />}
       </div>
     </div>
   )
 }
+
+/** Under a turn: the references in it that could not be found. */
+function FlaggedNote({ text }: { text: string }) {
+  const flagged = useFlagged(text)
+  const ctxCampaign = useContext(StreamCampaign)
+  if (!flagged.length) return null
+  return (
+    <div className="meeting-flag">
+      <span className="meeting-flag-head">? {flagged.map((f) => `“${clip(f, 60)}”`).join(', ')} could not be found.</span>{' '}
+      The meeting was told before the chair decided, and what {flagged.length > 1 ? 'they support is' : 'it supports is'} treated as unsupported.{' '}
+      <button className="link-btn" onClick={() => openTab(ctxCampaign, 'literature')}>Fix it in Literature</button>
+    </div>
+  )
+}
+
+const StreamCampaign = createContext('')
 
 type SkillOutcome =
   | { state: 'open' }
@@ -710,7 +822,7 @@ function SkillSuggestionCard({ event, campaignId, experimentId, answer }: {
   }
 
   if (outcome.state === 'dismissed') {
-    return <SystemEventRow info={{ lane: 'system', tone: 'muted', text: `Skill suggestion dismissed: ${str(d.name)}` }} />
+    return <SystemEventRow campaignId={campaignId} info={{ lane: 'system', tone: 'muted', text: `Skill suggestion dismissed: ${str(d.name)}` }} />
   }
 
   return (
@@ -851,6 +963,7 @@ export function AgentStreamView({ events, live = [], campaignId, experimentId }:
   }
 
   return (
+    <StreamCampaign.Provider value={campaignId}><CiteProvider key={campaignId} campaignId={campaignId}>
     <div ref={wrapRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
       {/* Column headers */}
       <div className="tl-col-headers" style={{ gridTemplateColumns: gridCols }}>
@@ -893,9 +1006,11 @@ export function AgentStreamView({ events, live = [], campaignId, experimentId }:
                   </div>
                 )
               case 'system':
-                return <SystemEventRow key={i} info={row.info} />
+                return <SystemEventRow key={i} info={row.info} campaignId={campaignId} />
               case 'meeting':
                 return <MeetingTurn key={i} event={row.event} />
+              case 'screening':
+                return <ScreeningCard key={i} event={row.event} index={row.index} events={events} campaignId={campaignId} experimentId={experimentId} />
               case 'skill':
                 return (
                   <SkillSuggestionCard
@@ -929,6 +1044,7 @@ export function AgentStreamView({ events, live = [], campaignId, experimentId }:
         </div>
       </div>
     </div>
+    </CiteProvider></StreamCampaign.Provider>
   )
 }
 

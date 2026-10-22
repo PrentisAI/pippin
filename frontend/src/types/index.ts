@@ -189,6 +189,8 @@ export interface Proposal {
   kind: 'custom'
   params: {
     instruction: string; name?: string; inputs?: string[]; model?: string; ideation_mode?: IdeationMode; based_on?: string[]
+    /** Papers the run starts from (keys in the project's literature). */
+    seed_papers?: string[]
     /** Settings the front desk put in from the conversation (the card starts from them). */
     autonomy_mode?: AutonomyMode; models?: Record<string, string>; cpus?: number; memory_gb?: number; max_parallel_jobs?: number
   }

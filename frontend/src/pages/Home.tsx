@@ -15,6 +15,7 @@ import { ShareDialog } from '../components/ShareDialog'
 import { TeamView } from '../components/TeamView'
 import { LiteratureView, RULE_HINTS, RULE_LABELS, RuleSelect } from '../components/LiteratureView'
 import { LibraryView } from '../components/LibraryView'
+import { CiteProvider, CiteText } from '../components/Cite'
 import { BrainstormView } from '../components/brainstorm/BrainstormView'
 import { AccountButton } from '../components/AccountMenu'
 import { useAuth } from '../auth'
@@ -754,6 +755,7 @@ function ChatArea({
   ]
 
   return (
+    <CiteProvider key={campaignId} campaignId={campaignId}>
     <div className="camp-content">
       {/* Context bar */}
       <div className="context-bar">
@@ -843,7 +845,7 @@ function ChatArea({
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 {msg.library && msg.library.length > 0 && <LibraryRefCards refs={msg.library} />}
-                {(msg.text || (!msg.attachments?.length && !msg.library?.length)) && <div className={`msg-bubble ${isUser ? 'user' : 'bot'}`}>{msg.text}</div>}
+                {(msg.text || (!msg.attachments?.length && !msg.library?.length)) && <div className={`msg-bubble ${isUser ? 'user' : 'bot'}`}>{isUser ? msg.text : <CiteText text={msg.text} />}</div>}
                 {msg.attachments && msg.attachments.length > 0 && <SentAttachments paths={msg.attachments} />}
                 {msg.proposal && isProjectTab && (
                   <ProposalCard
@@ -946,6 +948,7 @@ function ChatArea({
       </div>
       </>}
     </div>
+    </CiteProvider>
   )
 }
 
@@ -1806,6 +1809,10 @@ function ProposalCard({
         <ProjectFilesDialog campaignId={campaignId} mode="pick" initial={inputs}
           onPick={(picked) => setInputs([...inputs.filter((x) => !x.startsWith('project:')), ...picked])}
           onClose={() => setPickingInputs(false)} />
+      )}
+      {(proposal.params.seed_papers?.length ?? 0) > 0 && (
+        <div className="proposal-meta">Starts from: <CiteText text={proposal.params.seed_papers!.map((k) => `[${k}]`).join(' ')} />
+          <span className="proposal-hint">ideation develops ideas from these papers; every phase reads them</span></div>
       )}
       {basedOn.length > 0 && (
         <div className="proposal-meta">Builds on: {basedOn.join(', ')} <span className="proposal-hint">their reports and findings go to the agents</span></div>

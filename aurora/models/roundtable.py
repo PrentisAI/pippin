@@ -58,6 +58,11 @@ class IdeaScore(BaseModel):
         default="",
         description="Rationale for the scores.",
     )
+    closest: list[dict[str, str]] = Field(
+        default_factory=list,
+        description="The closest prior work, at most three: [{key, differs}], each with one sentence on how "
+                    "the proposal differs from it (keys from the prior work given).",
+    )
 
 
 class RoundtableProposal(BaseModel):

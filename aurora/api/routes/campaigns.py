@@ -1190,6 +1190,35 @@ class ChatBody(BaseModel):
     library: list[dict[str, str]] = []
 
 
+def _seed_keys(campaign_id: str, keys: list[Any]) -> list[str]:
+    """The keys of real papers (found in the indexes, so stored in the library); a made-up key is dropped."""
+    from aurora.literature.library import library
+    out = []
+    for k in keys:
+        entry = library.paper(str(k).strip().strip("[]"))
+        if entry and entry["key"] not in out:
+            out.append(entry["key"])
+    return out[:10]
+
+
+def _seed_block(campaign_id: str, keys: list[str]) -> str:
+    """The seed papers, as the run's agents read them in its brief (and recorded as its seeds)."""
+    if not keys:
+        return ""
+    from aurora.api.routes.literature import _who
+    from aurora.literature.library import library
+    from aurora.literature.service import paper_card
+    entries = [e for e in (library.paper(k) for k in keys) if e]
+    for e in entries:          # the seeds join the project's literature
+        library.add_item(campaign_id, e["paper_id"], source="person", added_by=_who())
+        library.record_use(campaign_id, "seed", paper_id=e["paper_id"], by=_who())
+    notes = library.notes(campaign_id, [e["paper_id"] for e in entries])
+    cards = "\n".join(paper_card({**e, "notes": notes.get(e["paper_id"], [])}, abstract_words=150) for e in entries)
+    return ("\n\n## Seed papers\nThe researcher brought these papers from their Library to start from. Develop the "
+            "ideas from them (what they leave open, what to test on this project's data), cite them by key, and read "
+            "them before planning (`aurora papers show <Key>`, `aurora papers pdf <Key>`).\n\n" + cards)
+
+
 def _with_library(text: str, refs: list[dict[str, str]]) -> tuple[str, list[dict[str, Any]]]:
     """The message with the Library items it carries, and how they show in the conversation."""
     from aurora.api.routes.feed import library_ref, ref_text
@@ -1209,7 +1238,11 @@ def _with_library(text: str, refs: list[dict[str, str]]) -> tuple[str, list[dict
                           "label": "Paper", "ok": True, "by": entry["paper"].byline() if entry else ""})
     if not read:
         return text, []
-    return f"{text}\n\n[From the researcher's Library, read it before answering:\n\n" + "\n\n".join(read) + "]", shown
+    return (f"{text}\n\n[From the researcher's Library, read it before answering:\n\n" + "\n\n".join(read)
+            + "\n\nIf it calls for an experiment, offer concrete options (testing it on this project's data, "
+            "explaining a disagreement with an earlier run, ...), and propose the one the researcher picks with "
+            "propose_experiment. A paper with a key can also seed a run: propose_experiment with seed_papers=[its key] "
+            "and ideation develops ideas from it.]"), shown
 
 
 def _with_attachments(text: str, attachments: list[str], where: str) -> str:
@@ -1549,6 +1582,9 @@ def _project_frontdesk(campaign: CampaignState) -> Any:
         based_on = [r for r in (params.get("based_on") or []) if r in campaign.experiments]
         extra = {k: params[k] for k in ("autonomy_mode", "models", "cpus", "memory_gb", "max_parallel_jobs")
                  if params.get(k) not in (None, "", {}, [])}
+        seeds = _seed_keys(campaign.campaign_id, params.get("seed_papers") or [])
+        if seeds:
+            extra["seed_papers"] = seeds
         proposal = ExperimentProposal(
             {"instruction": instruction, "name": params.get("name", ""), "based_on": based_on, **extra,
              "inputs": params.get("inputs", []), "model": params.get("model", ""),
@@ -1582,6 +1618,10 @@ def _project_frontdesk(campaign: CampaignState) -> Any:
             "based_on": {"type": "array", "items": {"type": "string"},
                          "description": "IDs of earlier runs of this project the experiment builds on; their "
                                         "reports and findings are given to its agents"},
+            "seed_papers": {"type": "array", "items": {"type": "string"},
+                            "description": "keys of papers in the project's literature the run starts from (a "
+                                           "paper the researcher brought from the Library): ideation develops "
+                                           "ideas from them and every phase reads them"},
             "max_cost_usd": {"type": ["number", "null"], "description": "cost limit in US$; null for none. "
                              "Only when the researcher asked for a budget; otherwise leave it out"},
             "autonomy_mode": {"type": "string", "enum": ["supervised", "autonomous"]},
@@ -1678,8 +1718,9 @@ async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProp
         raise HTTPException(409, "Proposal already confirmed")
     p = proposal.params
     memory_mb = body.memory_mb or (int(float(p["memory_gb"]) * 1024) if p.get("memory_gb") else None)
+    seeds = _seed_keys(campaign_id, p.get("seed_papers") or [])
     req = StartExperimentRequest(
-        instruction=p["instruction"], name=p.get("name", ""),
+        instruction=p["instruction"] + _seed_block(campaign_id, seeds), name=p.get("name", ""),
         inputs=body.inputs if body.inputs is not None else p.get("inputs", []),
         model=body.model or p.get("model", ""),
         skip_phases=body.skip_phases if body.skip_phases is not None else proposal.suggested_skip,

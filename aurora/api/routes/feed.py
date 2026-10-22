@@ -291,6 +291,11 @@ def ref_text(ref: dict[str, Any], user_id: str) -> str | None:
         ranks = feed_store.ranks([it["item_id"]])[it["item_id"]]
         if ranks:
             lines.append(f"Why the feed picked it: {ranks[0]['why']}")
+        if it["paper"]:
+            from aurora.literature.library import library
+            from aurora.literature.records import Paper
+            entry = library.upsert_paper(Paper.from_dict(it["paper"]))
+            lines.append(f"Its key in the literature: [{entry['key']}]")
         return "\n".join(lines)
     if ref.get("kind") == "paper":
         from aurora.literature.library import library
@@ -298,7 +303,8 @@ def ref_text(ref: dict[str, Any], user_id: str) -> str | None:
         if entry is None:
             return None
         p = entry["paper"]
-        return f"Paper [{entry['key']}]: {p.title}\nBy: {p.byline()}\n" + (f"Abstract: {p.abstract[:2500]}" if p.abstract else "")
+        return (f"Paper [{entry['key']}] (its key in the literature): {p.title}\nBy: {p.byline()}\n"
+                + (f"Abstract: {p.abstract[:2500]}" if p.abstract else ""))
     return None
 
 
