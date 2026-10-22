@@ -43,15 +43,49 @@ notifications:
 | `run_finished` | an experiment completed | yes |
 | `run_failed` | it failed, or stopped on its own (a budget ran out, a gate timed out on *stop*); not when you stopped it | yes |
 | `budget_warning` | it has used `budget_warning_at` (80 %) of its cost or time budget, once | yes |
+| `estimate_exceeded` | it cost or took more than the upper end of its [estimate](results.md#estimate-before-a-run), then twice that | yes |
 | `agent_reply` | the research agent answered an instruction you sent | no |
 | `skill_suggestion` | a skill was proposed and waits for your review | no |
-| `compute_job` | one of its [cluster jobs](cluster-jobs.md) ended | no |
+| `compute_job` | one of its [GPU jobs](cluster-jobs.md) ended | no |
 
 Each message names the experiment, says what happened in a few lines and links
-to the experiment in the console, where you decide. The same message is not sent
-twice within a minute. The decision itself is made in the console; nothing in a
-message acts on the experiment, so a link preview in a chat app cannot approve
-anything.
+to the experiment in the console. The same message is not sent twice within a
+minute.
+
+## Answering a decision from the message
+
+A `decision_needed` message also carries two links, **Approve and continue** and
+**Stop the experiment** (buttons in Feishu; links in WeCom, Slack and Server酱;
+an `actions` list for a webhook). Opening one shows a small page with the
+decision and its details and a single button that confirms it; only pressing
+that button acts. So a chat app that opens links to make a preview cannot
+approve anything.
+
+- A link stands for the person the message was sent to (whoever started the
+  experiment) and still needs their right to answer the run's decisions: in a
+  project where another person answers them, the link says so and does nothing.
+- It is signed with a key only the server has (`AURORA_HOME/action.key`) and
+  expires after a day. Once the decision is made (from either place), the link
+  says *already decided*.
+- To answer otherwise (with an instruction, say), open the experiment.
+- The links need the console's address (`console_url`, below), and the console
+  must be reachable from the phone that opens them. Turn them off with
+  *Approve/Stop links* in the settings (`notifications.action_links: false`).
+
+## Quiet hours
+
+Set **Quiet hours** (from, until; the server's clock, may span midnight) and
+messages that come in between are held. When the quiet hours end, you get one
+message listing what was held, each with its link. Kinds ticked under
+*Decisions still come through* (`quiet_except`, e.g. `decision_needed`) are
+sent at once even then. Each person has their own quiet hours.
+
+```yaml
+notifications:
+  quiet_start: "23:00"
+  quiet_end: "08:00"
+  quiet_except: [decision_needed]
+```
 
 **Links.** They use *Console address in links* (`notifications.console_url`), or
 else the address the console serves on. If you reach the console through an SSH
@@ -72,9 +106,16 @@ The generic webhook receives a JSON POST:
   "time": 1792400000.0,
   "project_id": "p_20261019_16dc60",
   "project": "Citi Bike",
-  "experiment_id": "20261019-025018_citi-bike"
+  "experiment_id": "20261019-025018_citi-bike",
+  "actions": [
+    {"label": "Approve and continue", "url": "http://localhost:8100/a/eyJj..."},
+    {"label": "Stop the experiment", "url": "http://localhost:8100/a/eyJj..."}
+  ]
 }
 ```
+
+`actions` is empty except for decisions. A held-messages digest arrives with
+`"event": "held"`.
 
 The *Send a test* button sends `"event": "test"`.
 

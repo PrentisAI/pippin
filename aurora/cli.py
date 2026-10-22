@@ -457,6 +457,9 @@ def build_parser() -> argparse.ArgumentParser:
     papers = sub.add_parser("papers", add_help=False,
                             help="search the literature and check references (used by a running experiment's agents)")
     papers.add_argument("papers_args", nargs="*")
+    results = sub.add_parser("results", add_help=False,
+                             help="record results and their provenance (used by a running experiment's agents)")
+    results.add_argument("results_args", nargs="*")
     return parser
 
 
@@ -470,6 +473,9 @@ def main(argv: list[str] | None = None) -> None:
     if argv[:1] == ["papers"]:   # the agents' literature command (aurora.literature.agent_service)
         from aurora.literature.papers_client import main as papers_main
         sys.exit(papers_main(argv[1:]))
+    if argv[:1] == ["results"]:  # the agents' result ledger (aurora.results.agent_service)
+        from aurora.results.results_client import main as results_main
+        sys.exit(results_main(argv[1:]))
     load_dotenv()
     parser = build_parser()
     args = parser.parse_args(argv)

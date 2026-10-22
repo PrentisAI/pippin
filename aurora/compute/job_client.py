@@ -119,12 +119,14 @@ def run(args: argparse.Namespace) -> int:
         if not jobs:
             print("No cluster jobs yet.")
         else:
-            print(f"{'id':>3}  {'name':<20} {'slurm':>8}  {'state':<28} gpus  {'ran':>7}  output")
+            ident = "pid" if answer.get("backend") == "SSH" else "slurm"
+            print(f"{'id':>3}  {'name':<20} {ident:>8}  {'state':<28} gpus  {'ran':>7}  output")
             for job in jobs:
                 print(line(job))
             print(f"GPU hours used: {answer.get('gpu_hours', 0)}")
         if answer.get("slurm_error"):
-            print(f"Asking SLURM failed ({answer['slurm_error']}); these states may be out of date.")
+            where = "the GPU machine" if answer.get("backend") == "SSH" else "SLURM"
+            print(f"Asking {where} failed ({answer['slurm_error']}); these states may be out of date.")
     elif op == "logs":
         print(answer.get("text") or answer.get("message", ""))
     elif op == "await":

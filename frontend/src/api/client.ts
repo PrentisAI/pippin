@@ -1,4 +1,4 @@
-import type { FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -208,7 +208,7 @@ export const api = {
       request<{ saved: boolean; editable: EditableSetting[] }>('/settings', { method: 'PUT', body: JSON.stringify({ changes, reset }) }),
     notifications: () => request<NotificationSettings>('/settings/notifications'),
     /** Replace the notification settings; a channel without `target` keeps its saved one. */
-    saveNotifications: (body: { console_url: string; budget_warning_at: number; channels: NotifyChannel[] }) =>
+    saveNotifications: (body: { console_url: string; budget_warning_at: number; channels: NotifyChannel[]; quiet_start?: string; quiet_end?: string; quiet_except?: string[]; action_links?: boolean }) =>
       request<NotificationSettings>('/settings/notifications', { method: 'PUT', body: JSON.stringify(body) }),
     testNotification: (channel: NotifyChannel) =>
       request<{ ok: boolean; error: string }>('/settings/notifications/test', { method: 'POST', body: JSON.stringify(channel) }),
@@ -217,6 +217,8 @@ export const api = {
   compute: {
     jobs: (campaignId: string, expId: string) =>
       request<ClusterJobs>(`/campaigns/${campaignId}/experiments/${expId}/compute`),
+    gpus: (campaignId: string, expId: string) =>
+      request<GpuUsage>(`/campaigns/${campaignId}/experiments/${expId}/compute/gpus`),
     cancel: (campaignId: string, expId: string, job: number) =>
       request<{ message: string }>(`/campaigns/${campaignId}/experiments/${expId}/compute/${job}/cancel`, { method: 'POST' }),
   },
@@ -349,6 +351,32 @@ export const api = {
     revoke: (campaignId: string) => request<ReportLink>(`/campaigns/${campaignId}/link`, del),
   },
   others: () => request<OtherProject[]>('/campaigns/others'),
+  setup: {
+    get: () => request<SetupStatus>('/setup'),
+    dismiss: () => request<{ ok: boolean }>('/setup/dismiss', post()),
+    setKey: (key: string) => request<SetupStatus>('/setup/key', put({ key })),
+    pull: () => request<SetupStatus>('/setup/pull', post()),
+    demo: () => request<{ campaign_id: string; experiment_id: string }>('/demo', post()),
+  },
+  results: {
+    report: (cid: string, exp: string, version?: number) =>
+      request<RunReport>(`/campaigns/${cid}/experiments/${exp}/report${version ? `?version=${version}` : ''}`),
+    list: (cid: string, exp: string) => request<{ results: RunResult[] }>(`/campaigns/${cid}/experiments/${exp}/results`),
+    exportUrl: (cid: string, exp: string, what: 'report' | 'workspace') => `${BASE_URL}/campaigns/${cid}/experiments/${exp}/export?what=${what}`,
+    reproduceUrl: (cid: string, exp: string) => `${BASE_URL}/campaigns/${cid}/experiments/${exp}/reproduce.sh`,
+    overleaf: (cid: string, exp: string) =>
+      request<{ url: string; token: { set: boolean; hint: string } }>(`/campaigns/${cid}/experiments/${exp}/overleaf`),
+    pushOverleaf: (cid: string, exp: string, body: { url?: string; token?: string; folder?: string }) =>
+      request<{ ok: boolean; message: string; url: string; token: { set: boolean; hint: string } }>(
+        `/campaigns/${cid}/experiments/${exp}/overleaf`, post(body)),
+    compare: (cid: string, runs: string[]) => request<RunComparison>(`/campaigns/${cid}/compare?runs=${runs.join(',')}`),
+    forkpoints: (cid: string, exp: string) => request<ForkPoints>(`/campaigns/${cid}/experiments/${exp}/forkpoints`),
+    fork: (cid: string, exp: string, body: { point: string; name?: string; guidance?: string; direction?: string; models?: Record<string, string>; max_cost_usd?: number | null }) =>
+      request<{ experiment_id: string; forked_from: { run_id: string; point: string; inherited_cost_usd: number } }>(
+        `/campaigns/${cid}/experiments/${exp}/fork`, post(body)),
+    estimate: (cid: string, body: { skip_phases: string[]; ideation_mode?: string; models?: Record<string, string>; model?: string; max_parallel_jobs?: number }) =>
+      request<RunEstimate>(`/campaigns/${cid}/estimate`, post(body)),
+  },
   zotero: {
     get: () => request<ZoteroStatus>('/zotero'),
     connect: (method: 'web' | 'local', api_key = '') => request<ZoteroStatus>('/zotero/connect', post({ method, api_key })),
@@ -382,6 +410,7 @@ export const api = {
       memory_mb?: number
       max_parallel_jobs?: number
       inputs?: string[]
+      estimate?: { cost: [number, number]; hours: [number, number] }
     }) =>
       request<{ status: string; experiment_id: string; skip_phases: string[]; active_phases: string[] }>(
         `/campaigns/${campaignId}/proposals/${proposalId}/confirm`,

@@ -363,7 +363,8 @@ class TerminalIteration:
         table = "\n".join(job_client.line(j.view()) for j in jobs)
         parts = [f"[Cluster jobs] {head}\n\n{table}"]
         if compute.slurm_error:
-            parts.append(f"Asking SLURM failed ({compute.slurm_error}); these states may be out of date.")
+            parts.append(f"Asking {'SLURM' if compute.kind == 'SLURM' else 'the GPU machine'} failed "
+                         f"({compute.slurm_error}); these states may be out of date.")
         if wrote:
             parts.append("The researcher wrote:\n\n" + "\n\n".join(self._pending_messages))
             self._pending_messages.clear()

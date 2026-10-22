@@ -332,6 +332,7 @@ function NotificationsSection() {
   const [saved, setSaved] = useState<NotificationSettings | null>(null)
   const [channels, setChannels] = useState<NotifyChannel[]>([])
   const [consoleUrl, setConsoleUrl] = useState('')
+  const [quiet, setQuiet] = useState({ start: '', end: '', except: [] as string[], links: true })
   const [adding, setAdding] = useState<NotifyChannel | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
@@ -340,6 +341,7 @@ function NotificationsSection() {
     setSaved(n)
     setChannels(n.channels)
     setConsoleUrl(n.console_url)
+    setQuiet({ start: n.quiet_start ?? '', end: n.quiet_end ?? '', except: n.quiet_except ?? [], links: n.action_links ?? true })
   }
   useEffect(() => {
     api.settings.notifications().then(reset).catch((err) => setMessage({ tone: 'error', text: describeError(err) }))
@@ -348,6 +350,8 @@ function NotificationsSection() {
 
   const defaults = saved.events.filter((e) => e.default).map((e) => e.key)
   const dirty = consoleUrl !== saved.console_url || JSON.stringify(channels) !== JSON.stringify(saved.channels)
+    || quiet.start !== (saved.quiet_start ?? '') || quiet.end !== (saved.quiet_end ?? '') || quiet.links !== (saved.action_links ?? true)
+    || JSON.stringify(quiet.except) !== JSON.stringify(saved.quiet_except ?? [])
   const update = (id: string, patch: Partial<NotifyChannel>) =>
     setChannels((list) => list.map((c) => (c.id === id ? { ...c, ...patch } : c)))
 
@@ -355,7 +359,8 @@ function NotificationsSection() {
     setBusy(true)
     setMessage(null)
     try {
-      reset(await api.settings.saveNotifications({ console_url: consoleUrl, budget_warning_at: saved.budget_warning_at, channels: list }))
+      reset(await api.settings.saveNotifications({ console_url: consoleUrl, budget_warning_at: saved.budget_warning_at, channels: list,
+        quiet_start: quiet.start, quiet_end: quiet.end, quiet_except: quiet.except, action_links: quiet.links }))
       setMessage({ tone: 'ok', text: 'Saved. Running experiments use these settings too.' })
     } catch (err) {
       setMessage({ tone: 'error', text: describeError(err) })
@@ -446,6 +451,23 @@ function NotificationsSection() {
             onChange={(e) => setConsoleUrl(e.target.value)} />
         </label>
       </div>
+      <div className="settings-field" title="Messages in these hours are held and sent together when they end">
+        <span className="settings-label">Quiet hours</span>
+        <div className="notify-quiet">
+          <input aria-label="Quiet from" placeholder="22:00" value={quiet.start} onChange={(e) => setQuiet({ ...quiet, start: e.target.value })} />
+          <span>to</span>
+          <input aria-label="Quiet until" placeholder="08:00" value={quiet.end} onChange={(e) => setQuiet({ ...quiet, end: e.target.value })} />
+        </div>
+        <label className="notify-check"><input type="checkbox" checked={quiet.except.includes('decision_needed')}
+          onChange={(e) => setQuiet({ ...quiet, except: e.target.checked ? [...quiet.except, 'decision_needed'] : quiet.except.filter((x) => x !== 'decision_needed') })} />
+          Decisions still come through</label>
+        <div className="panel-hint" style={{ padding: 0 }}>What arrives in quiet hours is held and sent as one message when they end. A run waiting
+          for a decision goes on by itself after the time set under Decisions.</div>
+      </div>
+      <label className="notify-check" title="The links open a page that asks to confirm; group chats: anyone in the chat could use them">
+        <input type="checkbox" checked={quiet.links} onChange={(e) => setQuiet({ ...quiet, links: e.target.checked })} />
+        “Approve” and “Stop” links in decision messages{!consoleUrl && !saved.console_url_default ? ' (needs the console address below)' : ''}
+      </label>
       {dirty && (
         <div className="notify-actions">
           <button className="btn-sm" disabled={busy} onClick={() => reset(saved)}>Discard</button>

@@ -119,6 +119,8 @@ export interface ExperimentSummary {
   frontdesk_enabled?: boolean
   /** Its cost limit (US$; null: none). */
   max_cost_usd?: number | null
+  /** What it was estimated to cost and take, if it was started from a card that showed an estimate. */
+  estimate?: { cost: [number, number]; hours: [number, number] } | null
   /** Who started it (their key pays; their channels are notified). */
   started_by?: string
 }
@@ -402,6 +404,12 @@ export interface NotificationSettings {
   budget_warning_at: number
   channels: NotifyChannel[]
   events: { key: string; label: string; default: boolean }[]
+  /** Quiet hours (HH:MM, the server's time): messages are held and sent together afterwards. */
+  quiet_start: string
+  quiet_end: string
+  quiet_except: string[]
+  /** "Approve" and "Stop" links in decision messages. */
+  action_links: boolean
 }
 
 export interface ClusterJob {
@@ -427,6 +435,10 @@ export interface ClusterJob {
   /** Its output, as the agents see it (/app/...). */
   log: string
   dir: string
+  /** "slurm" or "ssh" (a GPU machine over SSH: slurm_id is then the process ID there). */
+  backend?: string
+  /** ssh: the GPUs it was given. */
+  gpu_ids?: string
 }
 
 export interface ClusterJobs {
@@ -434,6 +446,30 @@ export interface ClusterJobs {
   live: boolean
   jobs: ClusterJob[]
   gpu_hours: number
+  /** "SLURM" or "SSH" while the experiment runs. */
+  backend?: string
+  slurm_error?: string
+}
+
+export interface GpuUsage {
+  backend: string
+  host?: string
+  live: boolean
+  gpus: {
+    index: number
+    name: string
+    util: number | null
+    mem_used_mb: number | null
+    mem_total_mb: number | null
+    node: string
+    jobs: { id: number; name: string }[]
+    /** ssh: held by another experiment of this console. */
+    other_experiment?: boolean
+    /** ssh: in use by someone else (its memory is taken). */
+    busy?: boolean
+  }[]
+  errors: string[]
+  at?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -952,3 +988,81 @@ export interface ReportLink {
 }
 
 export interface OtherProject { campaign_id: string; name: string; owner: string; owner_email: string }
+
+// ---------------------------------------------------------------------------- results and reports
+
+export interface ResultFile { path: string; exists: boolean; size?: number; sha256?: string; snapshot?: string; note?: string }
+
+/** A number the agents recorded, with what produced it. */
+export interface RunResult {
+  id: string
+  name: string
+  value: number | string
+  unit: string
+  uncertainty: number | null
+  description: string
+  command: string
+  job: string
+  by: string
+  inputs: ResultFile[]
+  outputs: ResultFile[]
+  script: ResultFile | null
+  at: number
+  supersedes?: string
+}
+
+export interface RunOverview {
+  run_id: string
+  name: string
+  status: string
+  phase: string
+  instruction: string
+  started_at: number | null
+  finished_at: number | null
+  wall_seconds: number
+  cost_usd: number
+  models: Record<string, string>
+  settings: { skip_phases: string[]; ideation_mode: string; autonomy: string; budget_usd: number | null; image: string; cpus: number | null; memory_mb: number | null }
+  proposal: { title?: string; hypothesis?: string; scores?: Record<string, number | null> }
+  claims: { statement: string; status: string; confidence: number | null }[]
+  results: RunResult[]
+  results_all: number
+  report: string | null
+  cluster_jobs: number
+  forked_from: { run_id: string; name?: string; point: string } | null
+}
+
+export interface RunReport {
+  overview: RunOverview
+  versions: number[]
+  version?: number
+  path?: string
+  html: string
+  title: string
+  figures: { src: string; url: string; path: string }[]
+  environment: boolean
+}
+
+export interface RunComparison {
+  runs: RunOverview[]
+  results: { name: string; values: ({ id: string; value: number | string; unit: string; uncertainty: number | null; shown: string } | null)[] }[]
+  all_runs: { run_id: string; name: string; status: string; started_at: number }[]
+}
+
+/** What a run will likely cost and take, before it starts. */
+export interface RunEstimate {
+  cost: [number, number]
+  cost_mid: number
+  hours: [number, number]
+  basis: string
+  note: string
+  similar: number
+  per_phase: { phase: string; cost: [number, number]; minutes: [number, number]; jobs?: [number, number] }[]
+  oversight: [number, number]
+}
+
+export interface ForkPoint { id: string; label: string; phase: string; completed_jobs: string[]; round: number; cost_usd: number; at: number; files: number; bytes: number; skipped: string[] }
+export interface ForkPoints { points: ForkPoint[]; ideas: { id: string; seat: string; model: string; headline: string; text: string }[]; chosen: string; running: boolean }
+
+export interface SetupCheck { key: string; label: string; required: boolean; ok: boolean; detail: string; fix: string; action?: string }
+export interface SetupStatus { checks: SetupCheck[]; ready: boolean; dismissed: boolean; local: boolean }

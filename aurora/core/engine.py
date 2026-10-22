@@ -270,6 +270,11 @@ class ResearchEngine:
         self.compute: Any = None
         # `aurora papers` for the research agents (aurora.literature.agent_service.PaperService)
         self.papers: Any = None
+        # `aurora results`: the numbers the agents record, with their provenance
+        self.results: Any = None
+        self._results_ledger: Any = None
+        # which "over the estimate" notices were sent (cost:1.0, time:2.0, ...)
+        self._estimate_warned: set[str] = set()
         # the indexes that answered the screening's search for prior work
         self._prior_reached: set[str] = set()
         # the project's literature (aurora.literature.service.ProjectLiterature); made on first use
@@ -350,6 +355,7 @@ class ResearchEngine:
                     await self._restore_container_files()
                 await self._start_compute()
                 await self._start_papers()
+                await self._start_results()
             if not finished:            # with or without a container
                 await self._copy_inputs()
 
@@ -369,6 +375,10 @@ class ResearchEngine:
                 skip.add(CampaignPhase.IDEATION.value)
             elif resume:
                 proposal = self._load_latest_proposal()
+            if checkpoint and checkpoint.metadata.get("fork_direction"):
+                # a fork that takes another direction (another idea of the meeting, or the researcher's own)
+                proposal = await self._adopt_researcher_proposal(str(checkpoint.metadata["fork_direction"]))
+                await self._publish("fork_direction", title=proposal.title)
             if proposal is None and CampaignPhase.IDEATION.value in skip:
                 # no ideation: the objective itself is the direction to pursue
                 proposal = self._objective_proposal()
@@ -396,6 +406,11 @@ class ResearchEngine:
             # instruction from a human gate (or a screening rejection), passed to the next phase
             guidance = (checkpoint.metadata.get("guidance", "") if checkpoint
                         and start_phase == CampaignPhase.IDEATION else "")
+            # a fork: what the researcher wants done differently from here on
+            if checkpoint and checkpoint.metadata.get("fork_guidance"):
+                guidance = "\n\n".join(x for x in (guidance, "This run is a fork of an earlier one, from this point "
+                                                     "on. The researcher wants this done differently: "
+                                                     + str(checkpoint.metadata["fork_guidance"])) if x)
             # the researcher chose a direction and asked for ideation but not screening on it
             skip_screening = bool(checkpoint.metadata.get("skip_screening")) if checkpoint else False
 
@@ -575,6 +590,8 @@ class ResearchEngine:
                 self._save_checkpoint(following, research_cycle,
                                       proposal_id=proposal.proposal_id if proposal else None,
                                       plan_id=plan.plan_id if plan else None, metadata=meta())
+                if following != CampaignPhase.COMPLETED:
+                    await self._save_forkpoint(f"after {current.value}", following.value, research_cycle)
                 current = following
 
             summary = (f"Campaign completed with {len(all_iterations)} research jobs and "
@@ -611,7 +628,16 @@ class ResearchEngine:
             if self.papers is not None:
                 with contextlib.suppress(Exception):
                     await self.papers.stop()
+            if self.results is not None:
+                with contextlib.suppress(Exception):
+                    await self.results.stop()
             if self._execution_backend is not None:
+                if self._workspace and getattr(self._execution_backend, "container_id", None):
+                    # the packages the agents installed, for reproduce.sh
+                    with contextlib.suppress(Exception):
+                        await self._execution_backend.exec_command(
+                            "mkdir -p /app/.aurora && { python3 --version; python3 -m pip freeze 2>/dev/null; } "
+                            "> /app/.aurora/environment.txt", timeout=120)
                 if self._workspace:
                     dest = self._workspace.campaign_dir / "workspace"
                     try:
@@ -1540,6 +1566,7 @@ Be specific: cite file names and concrete observations.
         result = await session.run(full_system, user_message)
         self.cost_usd += float(result.get("cost_usd") or 0.0)
         self._record_spent()
+        await self._warn_estimate()
         if resumed and result.get("error") and not result.get("turns"):
             # the old session could not be continued (e.g. another machine): start over, but
             # point the agent at what the interrupted attempt left behind
@@ -2316,6 +2343,10 @@ Be specific: cite file names and concrete observations.
                     self._save_checkpoint(CampaignPhase.RESEARCH, self._current_round, plan_id=plan.plan_id,
                                           completed_jobs=dag.completed_job_ids(), iteration=len(results),
                                           current_iteration_id=result.iteration_id)
+                    done = dag.completed_job_ids()
+                    if result.job_result and result.job_result.success and len(done) < len(plan.jobs):
+                        await self._save_forkpoint(f"after job {job.job_id} ({len(done)} of {len(plan.jobs)})",
+                                                   CampaignPhase.RESEARCH.value, self._current_round, done)
                 if self._stop_requested:
                     raise CampaignStopped(self._stop_requested)
             await self._hooks.fire(HookPoint.PERIODIC, HookContext(
@@ -2353,6 +2384,7 @@ Be specific: cite file names and concrete observations.
                     logger.warning("Budget reached during research: %s", exc)
                     self.request_stop(str(exc), by_user=False)
             await self._warn_budget()
+            await self._warn_estimate()
             self._update_frontdesk_status(cost_usd=self._spent())
             self._record_spent()
 
@@ -2375,6 +2407,29 @@ Be specific: cite file names and concrete observations.
                                 detail=f"{detail} used. The experiment stops when the budget runs out; "
                                        f"you can raise it in the console.")
 
+    async def _warn_estimate(self) -> None:
+        """When the run costs or takes more than the upper end of its estimate, and again at twice it."""
+        import time as _time
+        b = self._config.budget
+        if not self._started_at or not (b.estimate_usd or b.estimate_hours):
+            return
+        checks = []
+        if b.estimate_usd and len(b.estimate_usd) == 2 and b.estimate_usd[1] > 0:
+            checks.append(("cost", self._spent(), b.estimate_usd, lambda x: f"${x:.2f}"))
+        if b.estimate_hours and len(b.estimate_hours) == 2 and b.estimate_hours[1] > 0:
+            checks.append(("time", (_time.time() - self._started_at) / 3600, b.estimate_hours, lambda x: f"{x:.1f} h"))
+        for what, now, (low, high), fmt in checks:
+            for level in (1.0, 2.0):
+                key = f"{what}:{level}"
+                if now > high * level and key not in self._estimate_warned:
+                    self._estimate_warned.add(key)
+                    await self._publish("estimate_exceeded", what=what, now=round(now, 3), estimate=[low, high],
+                                        level=level, detail=(
+                                            f"It has {'cost' if what == 'cost' else 'taken'} {fmt(now)}, "
+                                            + ("more than" if level == 1.0 else "twice")
+                                            + f" the {fmt(high)} the upper estimate allowed ({fmt(low)}–{fmt(high)}). "
+                                            "It goes on; stop it or raise its budget in the console if needed."))
+
     def _setup_notifier(self) -> None:
         """Notifications from this campaign's events (the web console may have set its own notifier)."""
         if self.notifier is None:
@@ -2385,21 +2440,27 @@ Be specific: cite file names and concrete observations.
         self._bus.subscribe_all(self.notifier.on_event)
 
     async def _start_compute(self) -> None:
-        """Cluster jobs for the research agents (compute.slurm), if enabled."""
-        slurm = self._config.compute.slurm
-        if not slurm.enabled or self.compute is not None:
+        """Jobs for the research agents on a SLURM cluster (compute.slurm) or a GPU machine over
+        SSH (compute.ssh), if one is enabled."""
+        compute = self._config.compute
+        if not compute.enabled or self.compute is not None:
             return
         backend = self._execution_backend
         sb = self._config.sandbox
         if not (sb.docker and sb.mount_workspace and getattr(backend, "container_id", None)):
-            logger.warning("compute.slurm needs the Docker container with mount_workspace; cluster jobs are off")
+            logger.warning("GPU jobs (compute.%s) need the Docker container with mount_workspace; they are off",
+                           "slurm" if compute.slurm.enabled else "ssh")
             return
-        from aurora.compute.slurm import SlurmCompute
-        self.compute = SlurmCompute(slurm, campaign_dir=self._workspace.campaign_dir,
-                                    workspace_dir=self._workspace.campaign_dir / "workspace",
-                                    image=sb.image, backend=backend, publish=self._publish)
+        kwargs = dict(campaign_dir=self._workspace.campaign_dir, workspace_dir=self._workspace.campaign_dir / "workspace",
+                      image=sb.image, backend=backend, publish=self._publish)
+        if compute.ssh.enabled:
+            from aurora.compute.ssh import SSHCompute
+            self.compute = SSHCompute(compute.ssh, **kwargs)
+        else:
+            from aurora.compute.slurm import SlurmCompute
+            self.compute = SlurmCompute(compute.slurm, **kwargs)
         await self.compute.start()
-        logger.info("Cluster jobs on (socket %s)", self.compute.socket_path)
+        logger.info("%s jobs on (socket %s)", self.compute.kind, self.compute.socket_path)
 
     async def _start_papers(self) -> None:
         """`aurora papers` for the research agents, when the literature is on."""
@@ -2420,34 +2481,61 @@ Be specific: cite file names and concrete observations.
             with contextlib.suppress(Exception):
                 await backend.exec_command(install_wrapper_command(), timeout=60)
 
+    async def _start_results(self) -> None:
+        """`aurora results` for the agents (a real run: the mock demo has no agents to ask)."""
+        if self.results is not None or self._config.mock_mode or self.results_ledger is None:
+            return
+        from aurora.compute.slurm import install_wrapper_command, socket_dir_for
+        from aurora.results.agent_service import ResultService
+        self.results = ResultService(self.results_ledger, socket_dir=socket_dir_for(self._workspace.campaign_dir),
+                                     publish=self._publish)
+        await self.results.start()
+        backend = self._execution_backend
+        if getattr(backend, "agent_env", None) and getattr(backend, "container_id", None):
+            with contextlib.suppress(Exception):
+                await backend.exec_command(install_wrapper_command(), timeout=60)
+
     def _phase_extras(self, phase_name: str) -> dict[str, Any]:
-        """`aurora papers` for the phases' own sessions (they run on the host), not for audits."""
-        if self.papers is None or phase_name == "audit":
+        """`aurora papers` and `aurora results` for the phases' own sessions (on the host), not for audits."""
+        if phase_name == "audit":
             return {}
-        return {"extra_tools": list(self.papers.allowed_tools), "extra_env": self.papers.agent_env(),
-                "extra_prompt": self.papers.agent_prompt()}
+        out: dict[str, Any] = {"extra_tools": [], "extra_env": {}, "extra_prompt": ""}
+        for service in (self.papers, self.results):
+            if service is None:
+                continue
+            out["extra_tools"] += service.allowed_tools
+            env = service.agent_env()
+            if "PATH" in out["extra_env"]:
+                env.pop("PATH", None)
+            out["extra_env"].update(env)
+            out["extra_prompt"] += service.agent_prompt()
+        return out if out["extra_tools"] else {}
 
     def _compute_mounts(self) -> list[str]:
         """The sockets' directory and the clients (`aurora job`, `aurora papers`), for agents inside the container."""
         if not self._config.sandbox.mount_workspace:
             return []
-        jobs = self._config.compute.slurm.enabled
+        jobs = self._config.compute.enabled
         papers = self._config.literature.enabled and not self._config.mock_mode
-        if not (jobs or papers):
+        results = not self._config.mock_mode
+        if not (jobs or papers or results):
             return []
         from aurora.compute.slurm import CLIENT_PATH, CONTAINER_CLIENT, CONTAINER_SOCKET_DIR, socket_dir_for
         from aurora.literature.agent_service import CLIENT_PATH as PAPERS_CLIENT
         from aurora.literature.agent_service import CONTAINER_CLIENT as PAPERS_IN_CONTAINER
+        from aurora.results.agent_service import CLIENT_PATH as RESULTS_CLIENT
+        from aurora.results.agent_service import CONTAINER_CLIENT as RESULTS_IN_CONTAINER
         sockets = socket_dir_for(self._workspace.campaign_dir)
         sockets.mkdir(parents=True, exist_ok=True)
         return [f"{sockets}:{CONTAINER_SOCKET_DIR}",
                 *([f"{CLIENT_PATH}:{CONTAINER_CLIENT}:ro"] if jobs else []),
-                *([f"{PAPERS_CLIENT}:{PAPERS_IN_CONTAINER}:ro"] if papers else [])]
+                *([f"{PAPERS_CLIENT}:{PAPERS_IN_CONTAINER}:ro"] if papers else []),
+                *([f"{RESULTS_CLIENT}:{RESULTS_IN_CONTAINER}:ro"] if results else [])]
 
     def _agent_extras(self) -> dict[str, Any]:
         inside = bool(getattr(self._execution_backend, "agent_env", None))   # agents in the container
         out: dict[str, Any] = {"extra_tools": [], "extra_env": {}, "extra_prompt": ""}
-        for service in (self.compute, self.papers):
+        for service in (self.compute, self.papers, self.results):
             if service is None:
                 continue
             if not inside:
@@ -2457,7 +2545,7 @@ Be specific: cite file names and concrete observations.
                 env = {k: v for k, v in env.items() if k != "PATH"}
             out["extra_env"].update(env)
             out["extra_prompt"] += service.agent_prompt(in_container=inside)
-        return out if (self.compute is not None or self.papers is not None) else {}
+        return out if any(s is not None for s in (self.compute, self.papers, self.results)) else {}
 
     def _campaign_brief(self, proposal: RoundtableProposal | None) -> str:
         lines = [f"## Research objective\n\n{self._config.objective}"]
@@ -2911,14 +2999,28 @@ Be specific: cite file names and concrete observations.
             logger.warning("The analysis did not update the mental model")
 
     def _results_summary(self) -> str:
-        """What the research jobs reported, for analysis and writing."""
+        """What the research jobs reported, and the recorded results, for analysis and writing."""
         artifacts = self._store.load() if self._store else None
+        table = self.results_ledger.table() if self.results_ledger is not None else ""
+        recorded = ("## Recorded results (cite each number with its ID, e.g. {R3})\n" + table) if table else ""
         if artifacts is None or not artifacts.observations:
-            return "## Research jobs\n(no results recorded)"
+            return "## Research jobs\n(no results recorded)" + (f"\n\n{recorded}" if recorded else "")
         lines = ["## Research jobs and what they reported"]
         for o in artifacts.observations[-20:]:
             lines.append(f"### {o.source_job_id} ({o.observation_id})\n{o.description[:3000]}")
+        if recorded:
+            lines.append(recorded)
         return "\n\n".join(lines)
+
+    @property
+    def results_ledger(self) -> Any:
+        """The run's recorded results (aurora.results.ledger), or None before the workspace exists."""
+        if self._workspace is None:
+            return None
+        if self._results_ledger is None:
+            from aurora.results.ledger import ResultsLedger
+            self._results_ledger = ResultsLedger(self._workspace.campaign_dir)
+        return self._results_ledger
 
     def _understanding_text(self) -> str:
         """The campaign's current understanding: mental model, findings and open questions."""
@@ -2962,6 +3064,7 @@ Be specific: cite file names and concrete observations.
             ms_path = str(self._workspace.manuscript_path(version))
         elif Path(ms_path).exists():
             await self._reference_list(Path(ms_path))
+            await self._check_result_refs(Path(ms_path))
 
         await self._publish(
             "writing_complete",
@@ -2982,6 +3085,19 @@ Be specific: cite file names and concrete observations.
                 "indexes). Cite them as [Key]. Do not cite other papers unless you are sure they exist: every "
                 "reference in the report is checked, and the reference list is added for you from the keys you "
                 "cite (do not write your own).\n\n" + "\n".join(paper_card(e, abstract_words=40) for e in entries))
+
+    async def _check_result_refs(self, ms_path: Path) -> None:
+        """Which recorded results the report cites, and IDs it gives that name no result."""
+        if self.results_ledger is None:
+            return
+        from aurora.results.ledger import result_refs
+        refs = result_refs(ms_path.read_text(errors="replace"))
+        known = {r["id"] for r in self.results_ledger.all()}
+        current = {r["id"] for r in self.results_ledger.all(current=True)}
+        await self._publish("report_results_checked", cited=[r for r in refs if r in known],
+                            unknown=[r for r in refs if r not in known],
+                            superseded=[r for r in refs if r in known and r not in current],
+                            recorded=len(current))
 
     async def _reference_list(self, ms_path: Path) -> None:
         """Check the report's references and append its reference list (and references.bib)."""
@@ -3048,8 +3164,14 @@ Be specific: cite file names and concrete observations.
             "under /app, and in the campaign directory) and the analysis verdicts. Report what was found "
             "with its evidence and uncertainty; include refuted hypotheses and open questions; do not "
             "claim more than the evidence supports.\n\n"
+            "Cite every number with the ID of its recorded result right after it, e.g. \"an elasticity of "
+            "-0.42 {R3}\" (the IDs are listed above; `aurora results show R3` gives a result's provenance). "
+            "Readers click the ID to see the script, command and files that produced the number, so a number "
+            "without an ID is one nobody can check: give one for every number that comes from this campaign. "
+            "If a number you need was not recorded, say how it was obtained.\n\n"
             f"Save the report as Markdown to: {ms_path}\n"
-            "Copy the figures you use next to it and link them with relative paths."
+            "Copy the figures you use next to it and link them with relative paths.\n"
+            "Begin the report with a title line (# Title), then a short summary of what was done and found."
         )
 
         result = await self._run_agent_session(
@@ -3224,6 +3346,20 @@ Be specific: cite file names and concrete observations.
         self._workspace.atomic_write_json(
             self._workspace.campaign_dir / "checkpoint.json", cp
         )
+
+    async def _save_forkpoint(self, label: str, phase: str, round_: int, completed_jobs: list[str] | None = None) -> None:
+        """A point a new run can be forked from (state and a workspace snapshot); never fails the run."""
+        if self._workspace is None:
+            return
+        try:
+            await self._sync_container_files()
+            from aurora.core import forkpoints
+            point = await asyncio.to_thread(forkpoints.save, self._workspace.campaign_dir, label=label, phase=phase,
+                                            completed_jobs=completed_jobs, cost_usd=self._spent(), round_=round_)
+            await self._publish("forkpoint_saved", id=point["id"], label=label, files=point["files"],
+                                skipped=len(point["skipped"]))
+        except Exception:
+            logger.warning("Could not keep a fork point (%s)", label, exc_info=True)
 
     def _load_checkpoint(self) -> Checkpoint | None:
         if self._workspace is None:

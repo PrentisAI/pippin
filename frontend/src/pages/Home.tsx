@@ -16,6 +16,10 @@ import { TeamView } from '../components/TeamView'
 import { LiteratureView, RULE_HINTS, RULE_LABELS, RuleSelect } from '../components/LiteratureView'
 import { LibraryView } from '../components/LibraryView'
 import { CiteProvider, CiteText } from '../components/Cite'
+import { SetupCard, TEMPLATES } from '../components/Welcome'
+import { CompareView } from '../components/results/CompareView'
+import { ReportView } from '../components/results/ReportView'
+import { ForkDialog } from '../components/results/ForkDialog'
 import { BrainstormView } from '../components/brainstorm/BrainstormView'
 import { AccountButton } from '../components/AccountMenu'
 import { useAuth } from '../auth'
@@ -46,6 +50,7 @@ import {
   type Skill,
   type LibraryRef,
   type OtherProject,
+  type RunEstimate,
 } from '../types'
 import { turnKey, type StreamEvent } from '../types/chat'
 
@@ -439,18 +444,36 @@ function SidebarPanel({
 // Welcome View
 // ---------------------------------------------------------------------------
 
-function WelcomeView({ onSend }: { onSend: (text: string) => Promise<void> }) {
+function WelcomeView({ onSend, onOpenRun }: { onSend: (text: string) => Promise<void>; onOpenRun: (cid: string, runId: string) => void }) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [template, setTemplate] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const demo = async () => {
+    setError(null)
+    try { const r = await api.setup.demo(); onOpenRun(r.campaign_id, r.experiment_id) } catch (e) { setError(`Could not start the demo: ${describeError(e)}`) }
+  }
+  const applyTemplate = (id: string) => {
+    const t = TEMPLATES.find((x) => x.id === id)
+    if (!t) return
+    setTemplate(id)
+    setInput(t.text)
+    window.setTimeout(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.focus()
+      const start = t.text.indexOf('[')
+      if (start >= 0) el.setSelectionRange(start, t.text.indexOf(']', start) + 1)
+    }, 0)
+  }
 
   useEffect(() => { textareaRef.current?.focus() }, [])
 
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px'
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 260) + 'px'
     }
   }, [input])
 
@@ -472,6 +495,7 @@ function WelcomeView({ onSend }: { onSend: (text: string) => Promise<void> }) {
       <div className="welcome-inner">
         <h1>What would you like to research?</h1>
         <p>Describe your research goal, and I'll set up a project for you.</p>
+        <SetupCard onDemo={demo} />
         <div className="input-wrap">
           <textarea
             ref={textareaRef}
@@ -488,9 +512,12 @@ function WelcomeView({ onSend }: { onSend: (text: string) => Promise<void> }) {
           </button>
         </div>
         <ErrorBanner message={error} onDismiss={() => setError(null)} />
-        <div className="hint-chips">
-          {['Compare two methods on my dataset', 'Reproduce a result from a paper', 'Investigate why training diverges'].map((hint) => (
-            <button key={hint} className="hint-chip" onClick={() => setInput(hint)}>{hint}</button>
+        {template && input.includes('[') && <div className="welcome-hint">Fill in the parts in [brackets] (the first is selected), then send. The front desk asks about anything unclear before it proposes a run.</div>}
+        <div className="templates" role="group" aria-label="Start from a template">
+          {TEMPLATES.map((t) => (
+            <button key={t.id} className={`template${template === t.id ? ' on' : ''}`} onClick={() => applyTemplate(t.id)}>
+              <b>{t.title}</b><span>{t.blurb}</span><span className="lit-sub">{t.phases}</span>
+            </button>
           ))}
         </div>
       </div>
@@ -626,7 +653,7 @@ function ChatArea({
 
   const fetchHistory = useCallback(async () => {
     try {
-      if (activeTab === 'literature') return
+      if (activeTab === 'literature' || activeTab === 'compare') return
       if (!isProjectTab) {
         const history = await api.expChat.history(campaignId, activeTab)
         setMessages(history)
@@ -795,9 +822,23 @@ function ChatArea({
           <span className="tab-dot" style={{ background: activeTab === 'literature' ? 'var(--accent)' : 'var(--green)' }} />
           Literature
         </div>
+        {experiments.length > 1 && (
+          <div className={`context-tab${activeTab === 'compare' ? ' active' : ''}`}
+            onClick={() => {
+              if (!experimentId) { setActiveTab('compare'); return }
+              // the project's own chat view opens on the comparison (this view goes away)
+              const box = projectMailbox[campaignId] ??= { refs: [] }
+              box.tab = 'compare'
+              onSelectExperiment(null)
+            }}>
+            <span className="tab-dot" style={{ background: activeTab === 'compare' ? 'var(--accent)' : 'var(--fg-dim)' }} />
+            Compare
+          </div>
+        )}
       </div>
 
-      {activeTab === 'literature' ? <LiteratureView campaignId={campaignId} /> : <>
+      {activeTab === 'compare' ? <CompareView campaignId={campaignId} onOpenRun={(id) => { setActiveTab(id); onSelectExperiment(id) }} />
+        : activeTab === 'literature' ? <LiteratureView campaignId={campaignId} /> : <>
       {/* Chat messages (files can be dropped here) */}
       {chatPickers.inputs}
       {pickLibrary && <LibraryPicker onPick={(r) => setLibRefs((prev) => prev.some((p) => (p.item_id ?? p.paper_id) === (r.item_id ?? r.paper_id)) ? prev : [...prev, r])} onClose={() => setPickLibrary(false)} />}
@@ -1091,12 +1132,9 @@ function ExperimentView({
   // cluster job events: the Jobs panel appears with the first one and reloads on each
   const jobEvents = useMemo(() => events.filter((e) => e.event_type.startsWith('compute_job')).length, [events])
 
-  const handleOpenReport = () => {
-    if (!run?.report) return
-    setRightPanel('files')
-    setStreamCollapsed(false)
-    setOpenRequest({ path: run.report })
-  }
+  const [showReport, setShowReport] = useState(false)
+  const [forking, setForking] = useState(false)
+  const handleOpenReport = () => setShowReport(true)
 
   const isActive = isActiveStatus(run?.status)
   const [now, setNow] = useState(() => Date.now() / 1000)
@@ -1138,7 +1176,7 @@ function ExperimentView({
           <div className="stat-value mono">{formatDuration(elapsed)}</div>
         </div>
         <BudgetStat campaignId={campaignId} experimentId={experimentId} cost={run?.cost_usd}
-          budget={run?.max_cost_usd} onChanged={fetchRun} />
+          budget={run?.max_cost_usd} estimate={run?.estimate ?? null} onChanged={fetchRun} />
         <div className="stat">
           <div className="stat-label">Model</div>
           <div className="stat-value">{run?.model?.split('/').pop() || '—'}</div>
@@ -1178,9 +1216,10 @@ function ExperimentView({
           />
         )}
         <div className="exp-controls">
-          {run?.report && (
-            <button className="exp-ctrl-btn rerun" title={run.report} onClick={handleOpenReport}>
-              <FilesSvg /> Report
+          {run && (
+            <button className="exp-ctrl-btn rerun" title={run.report ? 'The report, its results and where each came from' : 'Results so far (no report yet)'}
+              onClick={handleOpenReport}>
+              <FilesSvg /> {run.report ? 'Report' : 'Results'}
             </button>
           )}
           {isActive && (
@@ -1196,6 +1235,12 @@ function ExperimentView({
           {run && !isActive && (
             <button className="exp-ctrl-btn rerun" title="Start a new experiment with the same settings" onClick={handleRerun}>
               <RerunSvg /> Re-run
+            </button>
+          )}
+          {run && (
+            <button className="exp-ctrl-btn rerun" title="Start a new run from a phase or a job of this one, doing something differently"
+              onClick={() => setForking(true)}>
+              <RerunSvg /> Fork…
             </button>
           )}
         </div>
@@ -1219,6 +1264,9 @@ function ExperimentView({
 
       {/* Dual-column body */}
       <div className="exp-body" style={{ position: 'relative' }}>
+        {showReport && <ReportView campaignId={campaignId} runId={experimentId} onClose={() => setShowReport(false)} />}
+        {forking && <ForkDialog campaignId={campaignId} runId={experimentId} runName={run?.task_name || experimentId}
+          onClose={() => setForking(false)} onForked={(id) => { setForking(false); onSelectExperiment(id) }} />}
         {/* Front desk chat (center) */}
         <div className="fd-col">
           <ChatArea
@@ -1663,6 +1711,15 @@ function PhasePipelineSelector({
 // Proposal Card: an experiment the front desk drafted, to confirm and start
 // ---------------------------------------------------------------------------
 
+function money(x: number): string {
+  return x >= 10 ? `$${x.toFixed(0)}` : x >= 1 ? `$${x.toFixed(1)}` : `$${x.toFixed(2)}`
+}
+
+function hoursText([h0, h1]: [number, number]): string {
+  const fmt = (h: number) => h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : `${h.toFixed(h < 10 ? 1 : 0)} h`
+  return h1 < 1 ? `${Math.max(1, Math.round(h0 * 60))}–${Math.max(1, Math.round(h1 * 60))} min` : `${fmt(h0)}–${fmt(h1)}`
+}
+
 function ProposalCard({
   proposal,
   campaignId,
@@ -1696,6 +1753,22 @@ function ProposalCard({
   const [started, setStarted] = useState<ConfirmedSettings | null>(proposal.confirmed_settings ?? null)
   const [error, setError] = useState<string | null>(null)
   const [showInstruction, setShowInstruction] = useState(false)
+  // what a run with these settings will likely cost and take (refreshed as the settings change)
+  const [estimate, setEstimate] = useState<RunEstimate | null>(null)
+  const [showPhases, setShowPhases] = useState(false)
+  const estimateKey = JSON.stringify([skipPhases, ideationMode, advanced.models, advanced.parallel, proposal.params.model])
+  useEffect(() => {
+    if (confirmed) return
+    const t = window.setTimeout(() => {
+      const parallel = advanced.parallel?.trim() ? Number(advanced.parallel) : undefined
+      api.results.estimate(campaignId, {
+        skip_phases: skipPhases, ideation_mode: ideationMode, models: advanced.models as Record<string, string>,
+        model: proposal.params.model ?? '', ...(parallel ? { max_parallel_jobs: parallel } : {}),
+      }).then(setEstimate).catch(() => setEstimate(null))
+    }, 300)
+    return () => window.clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estimateKey, campaignId, confirmed])
 
   const handleConfirm = async () => {
     setConfirming(true)
@@ -1728,6 +1801,7 @@ function ProposalCard({
         ...(cpus !== null ? { cpus } : {}),
         ...(memoryGb !== null ? { memory_mb: Math.round(memoryGb * 1024) } : {}),
         ...(parallel !== null ? { max_parallel_jobs: parallel } : {}),
+        ...(estimate ? { estimate: { cost: estimate.cost, hours: estimate.hours } } : {}),
         inputs,
       })
       setStarted({
@@ -1869,6 +1943,28 @@ function ProposalCard({
         <span className="proposal-hint">the experiment stops cleanly when it is reached</span>
       </label>
 
+      {estimate && (
+        <div className="proposal-meta proposal-estimate">
+          <span>Estimate:</span>
+          <b>{money(estimate.cost[0])}–{money(estimate.cost[1])}</b>
+          <span>· {hoursText(estimate.hours)}</span>
+          <span className="proposal-hint">{estimate.basis}. {estimate.note}</span>
+          <button className="link-btn" onClick={() => setShowPhases(!showPhases)}>{showPhases ? 'hide' : 'by phase'}</button>
+          {budget.trim() !== '' && Number(budget) > 0 && Number(budget) < estimate.cost[0] && (
+            <span className="proposal-warn">The budget is below the low end of the estimate: the run will likely stop before it ends.</span>
+          )}
+          {showPhases && (
+            <table className="proposal-estimate-table"><tbody>
+              {estimate.per_phase.map((p) => (
+                <tr key={p.phase}><td>{phaseLabel(p.phase as Phase) || p.phase}{p.jobs ? ` (${p.jobs[0]}–${p.jobs[1]} jobs)` : ''}</td>
+                  <td>{money(p.cost[0])}–{money(p.cost[1])}</td><td>{p.minutes[0]}–{p.minutes[1]} min</td></tr>
+              ))}
+              {estimate.oversight[1] > 0 && <tr><td>Auditors</td><td>{money(estimate.oversight[0])}–{money(estimate.oversight[1])}</td><td /></tr>}
+            </tbody></table>
+          )}
+        </div>
+      )}
+
       {error && <div className="error-banner" style={{ margin: '0 0 8px' }}>Could not start the experiment: {error}</div>}
 
       <div className="proposal-actions">
@@ -1956,6 +2052,11 @@ export default function Home() {
     const open = (e: Event) => { setBsSpace((e as CustomEvent<string>).detail); setPage('brainstorm') }
     window.addEventListener('aurora:open-brainstorm', open)
     return () => window.removeEventListener('aurora:open-brainstorm', open)
+  }, [])
+  useEffect(() => {
+    const panel = (e: Event) => setActivePanel((e as CustomEvent<string>).detail)
+    window.addEventListener('aurora:open-panel', panel)
+    return () => window.removeEventListener('aurora:open-panel', panel)
   }, [])
   const [sharing, setSharing] = useState<CampaignSummary | null>(null)
 
@@ -2231,7 +2332,7 @@ export default function Home() {
           onOpenLibrary={() => setPage('library')} />}
         {view === 'library' && <LibraryView onOpenProject={(cid) => { setPage(null); selectCampaign(cid) }} />}
         {view === 'welcome' && (
-          <WelcomeView onSend={handleNewProject} />
+          <WelcomeView onSend={handleNewProject} onOpenRun={openRun} />
         )}
 
         {view === 'campaign' && activeCampaignId && (
@@ -2278,7 +2379,8 @@ export default function Home() {
 // Cost and budget of an experiment; the budget can be changed at any time
 // ---------------------------------------------------------------------------
 
-function BudgetStat({ campaignId, experimentId, cost, budget, onChanged }: {
+function BudgetStat({ campaignId, experimentId, cost, budget, estimate, onChanged }: {
+  estimate?: { cost: [number, number]; hours: [number, number] } | null
   campaignId: string
   experimentId: string
   cost?: number
@@ -2321,6 +2423,9 @@ function BudgetStat({ campaignId, experimentId, cost, budget, onChanged }: {
         title="Click to change the budget (it applies at once)">
         {formatCost(cost)}<span className="stat-sub"> / {budget != null ? formatCost(budget) : 'no limit'}</span>
       </div>
+      {estimate && <div className={`stat-est${(cost ?? 0) > estimate.cost[1] ? ' over' : ''}`}
+        title={`Estimated before it started: ${money(estimate.cost[0])}–${money(estimate.cost[1])}, ${hoursText(estimate.hours)}`}>
+        est. {money(estimate.cost[0])}–{money(estimate.cost[1])}{(cost ?? 0) > estimate.cost[1] ? ' · over' : ''}</div>}
       {editing && (
         <div className="resources-pop">
           <label>Budget (US$) <input type="number" min="1" step="1" value={text} placeholder="no limit"

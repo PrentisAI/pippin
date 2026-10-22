@@ -16,7 +16,7 @@ from aurora.auth.store import auth_store
 
 PROVIDERS = ("openrouter",)
 # other services a person connects (not model providers): their keys are kept the same way
-SERVICES = ("zotero", "x")
+SERVICES = ("zotero", "x", "overleaf")
 
 
 def _fernet() -> Fernet:

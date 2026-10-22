@@ -45,11 +45,12 @@ ACTIVE = {"PENDING", "CONFIGURING", "RUNNING", "COMPLETING", "SUSPENDED", "REQUE
 CLIENT_PATH = Path(job_client.__file__).resolve()
 CONTAINER_SOCKET_DIR = "/aurora/run"
 CONTAINER_CLIENT = "/aurora/lib/aurora_job.py"
-# `aurora` inside the container: `aurora job ...` and `aurora papers ...` (whichever clients are mounted)
+# `aurora` inside the container: `aurora job`, `aurora papers`, `aurora results` (whichever clients are mounted)
 _WRAPPER = ("#!/bin/sh\n"
             "command -v python3 >/dev/null 2>&1 || { echo \"aurora $1: python3 is missing in this image\" >&2; exit 1; }\n"
             "case \"$1\" in\n"
             "  papers) exec python3 /aurora/lib/aurora_papers.py \"$@\" ;;\n"
+            "  results) exec python3 /aurora/lib/aurora_results.py \"$@\" ;;\n"
             f"  *) exec python3 {CONTAINER_CLIENT} \"$@\" ;;\n"
             "esac\n")
 
@@ -57,7 +58,8 @@ _WRAPPER = ("#!/bin/sh\n"
 def install_wrapper_command() -> str:
     """The shell command that installs `aurora` in the container (run once a client is mounted)."""
     wrapper = base64.b64encode(_WRAPPER.encode()).decode()
-    return (f"( [ -f {CONTAINER_CLIENT} ] || [ -f /aurora/lib/aurora_papers.py ] ) && echo {wrapper} | base64 -d "
+    return (f"( [ -f {CONTAINER_CLIENT} ] || [ -f /aurora/lib/aurora_papers.py ] || [ -f /aurora/lib/aurora_results.py ] )"
+            f" && echo {wrapper} | base64 -d "
             "> /usr/local/bin/aurora && chmod 755 /usr/local/bin/aurora")
 
 
@@ -127,6 +129,9 @@ class ClusterJob:
     started_at: float | None = None
     ended_at: float | None = None
     elapsed_seconds: int = 0
+    backend: str = "slurm"       # "slurm" or "ssh"
+    gpu_ids: str = ""            # ssh: the GPUs it was given (CUDA_VISIBLE_DEVICES)
+    out: str = "slurm.out"       # its output file, in its folder
 
     @property
     def active(self) -> bool:
@@ -138,7 +143,7 @@ class ClusterJob:
 
     def view(self) -> dict[str, Any]:
         return {**asdict(self), "active": self.active, "gpu_hours": round(self.gpu_hours, 3),
-                "log": f"/app/{self.dir}/slurm.out"}
+                "log": f"/app/{self.dir}/{self.out}"}
 
 
 class SlurmCompute:
@@ -149,6 +154,8 @@ class SlurmCompute:
     the container (to make the workspace writable for jobs, which run as the cluster user);
     *publish* reports job events.
     """
+
+    kind = "SLURM"
 
     def __init__(self, config: SlurmConfig, *, campaign_dir: Path, workspace_dir: Path, image: str,
                  backend: Any = None, publish: Callable[..., Awaitable[None]] | None = None) -> None:
@@ -301,9 +308,7 @@ class SlurmCompute:
         gpus = int(gpus)
         if not 0 <= gpus <= c.max_gpus_per_job:
             raise ValueError(f"--gpus must be 0 to {c.max_gpus_per_job}")
-        partition = partition or c.partition
-        if partition and partition != c.partition and partition not in c.partitions:
-            raise ValueError(f"partition {partition!r} not allowed; use one of {[c.partition, *c.partitions]}")
+        partition = self._partition(partition)
         # no time given: the default, but never more than the most allowed
         seconds = parse_time(time_limit) if time_limit else min(parse_time(c.default_time), parse_time(c.max_time))
         if seconds > parse_time(c.max_time):
@@ -328,6 +333,7 @@ class SlurmCompute:
                              time_limit=format_time(seconds), partition=partition,
                              dir=f".aurora/jobs/{n}-{name}")
             job.job_name = f"{c.job_name_prefix}-{self.tag}-{n}-{name}"
+            self._new_job(job)
             self.jobs.append(job)
             self._save()
         try:
@@ -338,22 +344,35 @@ class SlurmCompute:
             job.state, job.reason, job.ended_at = "FAILED", f"not submitted: {exc}", time.time()
             self._save()
             raise RuntimeError(f"could not submit: {exc}") from exc
-        job.state = "PENDING"
+        if job.state == "SUBMITTING":
+            job.state = "PENDING"
         self._save()
         await self._emit("compute_job_submitted", job)
         self._wake()
-        return {"job": job.view(), "message": (
-            f"Submitted job {job.id} ({job.name}) as SLURM job {job.slurm_id}: {gpus} GPU(s), "
-            f"{cpus} CPUs, {mem_gb} GB, up to {job.time_limit}. Output: /app/{job.dir}/slurm.out")}
+        return {"job": job.view(), "message": self._submitted(job)}
+
+    def _partition(self, partition: str) -> str:
+        c = self.config
+        partition = partition or c.partition
+        if partition and partition != c.partition and partition not in c.partitions:
+            raise ValueError(f"partition {partition!r} not allowed; use one of {[c.partition, *c.partitions]}")
+        return partition
+
+    def _new_job(self, job: ClusterJob) -> None:
+        """Set what the backend records in a new job (before it is submitted)."""
+
+    def _submitted(self, job: ClusterJob) -> str:
+        return (f"Submitted job {job.id} ({job.name}) as SLURM job {job.slurm_id}: {job.gpus} GPU(s), "
+                f"{job.cpus} CPUs, {job.mem_gb} GB, up to {job.time_limit}. Output: /app/{job.dir}/{job.out}")
 
     async def status(self, job: Any = None) -> dict[str, Any]:
         jobs = [self._job(job)] if job not in (None, "") else self.jobs
-        return {"jobs": [j.view() for j in jobs], "slurm_error": self.slurm_error,
+        return {"jobs": [j.view() for j in jobs], "slurm_error": self.slurm_error, "backend": self.kind,
                 "gpu_hours": round(sum(j.gpu_hours for j in self.jobs), 3)}
 
     async def logs(self, job: Any, tail: int = 200) -> dict[str, Any]:
         j = self._job(job)
-        path = self.workspace_dir / j.dir / "slurm.out"
+        path = self.workspace_dir / j.dir / j.out
         if not path.exists():
             return {"job": j.view(), "text": "", "message": "no output yet"}
         lines = path.read_text(errors="replace").splitlines()
@@ -365,7 +384,7 @@ class SlurmCompute:
         if not j.active:
             return {"job": j.view(), "message": f"job {j.id} has already ended ({j.state})"}
         await self._cancel(j, reason)
-        return {"job": j.view(), "message": f"cancelling job {j.id} (SLURM {j.slurm_id})"}
+        return {"job": j.view(), "message": f"cancelling job {j.id} ({self.kind} {j.slurm_id or 'not started'})"}
 
     async def wait(self, job: Any, minutes: float = 5) -> dict[str, Any]:
         j = self._job(job)
@@ -480,7 +499,7 @@ class SlurmCompute:
     async def _poll_loop(self) -> None:
         self._wakeup = asyncio.Event()
         while True:
-            if any(j.active and j.slurm_id for j in self.jobs):
+            if self._following():
                 try:
                     await self._poll()
                 except Exception:
@@ -488,6 +507,9 @@ class SlurmCompute:
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._wakeup.wait(), _POLL_SECONDS)
             self._wakeup.clear()
+
+    def _following(self) -> bool:
+        return any(j.active and j.slurm_id for j in self.jobs)
 
     def _wake(self) -> None:
         wakeup = getattr(self, "_wakeup", None)
@@ -548,6 +570,23 @@ class SlurmCompute:
         if fields.get("Reason") and fields["Reason"] != "None":
             job.reason = job.reason or fields["Reason"]
         await self._emit("compute_job_ended", job)
+
+    # ------------------------------------------------------------------ GPU usage
+
+    async def gpu_usage(self) -> dict[str, Any]:
+        """What the GPUs of the running jobs are doing (nvidia-smi on their nodes)."""
+        out: list[dict[str, Any]] = []
+        errors: list[str] = []
+        for job in [j for j in self.jobs if j.state == "RUNNING" and j.gpus and j.slurm_id]:
+            code, text, err = await self._slurm("srun", f"--jobid={job.slurm_id}", "--overlap", "--ntasks=1",
+                                                "nvidia-smi", f"--query-gpu={GPU_QUERY}",
+                                                "--format=csv,noheader,nounits", timeout=30)
+            if code != 0:
+                errors.append(f"job {job.id}: {(err or text).strip()[-200:] or 'nvidia-smi failed'}")
+                continue
+            for gpu in parse_gpus(text):
+                out.append({**gpu, "node": job.node, "jobs": [{"id": job.id, "name": job.name}]})
+        return {"backend": self.kind, "gpus": out, "errors": errors, "at": time.time()}
 
     # ------------------------------------------------------------------ image and files
 
@@ -612,6 +651,26 @@ class SlurmCompute:
     async def _emit(self, name: str, job: ClusterJob) -> None:
         if self._publish is not None:
             await self._publish(name, **job.view())
+
+
+GPU_QUERY = "index,name,utilization.gpu,memory.used,memory.total,uuid"
+
+
+def parse_gpus(text: str) -> list[dict[str, Any]]:
+    """nvidia-smi --query-gpu=GPU_QUERY --format=csv,noheader,nounits, as records."""
+    def num(x: str) -> float | None:
+        try:
+            return float(x)
+        except ValueError:            # "[N/A]"
+            return None
+    gpus = []
+    for line in text.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 5 or not parts[0].isdigit():
+            continue
+        gpus.append({"index": int(parts[0]), "name": parts[1], "util": num(parts[2]), "mem_used_mb": num(parts[3]),
+                     "mem_total_mb": num(parts[4]), "uuid": parts[5] if len(parts) > 5 else ""})
+    return gpus
 
 
 def saved_jobs(campaign_dir: Path) -> list[ClusterJob]:

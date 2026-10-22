@@ -86,7 +86,7 @@ Skills added here are global: every new campaign can use them.
 ## `aurora job` and `aurora papers`
 
 These two are for the agents of a running experiment, not for you: `aurora job`
-submits and follows cluster jobs (see [Cluster jobs](cluster-jobs.md)), and
+submits and follows cluster jobs (see [GPU jobs](cluster-jobs.md)), and
 `aurora papers` searches the literature, checks references, shows a paper and
 downloads its PDF (see [Literature](../concepts/literature.md#during-a-run)).
 They talk to the experiment over a socket that only its agents are given.

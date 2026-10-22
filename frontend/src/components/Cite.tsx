@@ -250,3 +250,24 @@ export function useFlagged(text: string): string[] {
     ...keys.filter(([, i]) => i?.status === 'unknown').map(([k]) => k),
   ]
 }
+
+/** The popover of a [Key] citation shown outside CiteText (in server-rendered HTML). */
+export function KeyPopover({ k, anchor, onClose }: { k: string; anchor: DOMRect; onClose: () => void }) {
+  const ctx = useContext(CiteContext)
+  useEffect(() => { ctx?.want([k], []) }, [ctx, k])
+  const info = ctx?.keys[k]
+  return createPortal(<CitePopover info={info ?? { status: 'unchecked', key: k }} body={k} anchor={anchor} onClose={onClose} />, document.body)
+}
+
+/** What these keys point to, once looked up: a label (e.g. "Behrens 2012") and whether the paper is real. */
+export function useKeyLabels(keys: string[]): Record<string, { label: string; ok: boolean | null }> {
+  const ctx = useContext(CiteContext)
+  const joined = keys.join(',')
+  useEffect(() => { if (joined) ctx?.want(joined.split(','), []) }, [ctx, joined])
+  const out: Record<string, { label: string; ok: boolean | null }> = {}
+  for (const k of keys) {
+    const info = ctx?.keys[k]
+    out[k] = { label: surnameYear(info, k), ok: info ? info.status === 'verified' : null }
+  }
+  return out
+}

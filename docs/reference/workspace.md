@@ -19,8 +19,18 @@ phases/
   analysis/round_N/      verdict.json and the session transcript
   writing/               draft_N.md: the report
 workspace/               the container's /app, copied out when the campaign ends
+  .aurora/environment.txt  the Python version and `pip freeze` of the container at the end
+  .aurora/jobs/<id>-<name>/  a GPU job's command (run.sh), output (slurm.out or job.out), exit_code
+results.jsonl            every recorded result (R1, R2, ...) with its script, command, files, job
+provenance/R<n>/         the script of result R<n> as it was when it was recorded
+cost.json                the cost so far (a resumed or forked run counts it against its budget)
+forkpoints/NNN/          a fork point: state files, workspace.tar.gz and point.json
+fork.json                (a forked run) the run and point it was forked from, and the guidance
 .claude/skills/          the skills the agent sessions could use
 ```
+
+See [Results, reports and runs](../guide/results.md) for the results, the
+fork points and what is made from them.
 
 ## Formats
 

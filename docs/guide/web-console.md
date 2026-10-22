@@ -6,6 +6,25 @@ aurora serve              # then open http://localhost:8000
 
 ![Web console](../assets/web-console.png)
 
+## The first time
+
+The start page first shows **Setup**: what a run needs and whether it is there
+(a model key, Claude Code, Docker) and what helps (the container image pulled,
+GPU jobs, notifications, an OpenAlex key), each with how to fix it. Without
+accounts you can paste the OpenRouter key there (it is checked with OpenRouter
+and saved in `AURORA_HOME/.env`, readable only by the console's user) and pull
+the image with one click. The card hides once everything needed is there, or
+when you dismiss it.
+
+**Try a demo** starts a project with a run of scripted models and simulated
+tools: every phase, a decision, a report, in about a minute, with no key, no
+Docker and no cost. It shows what a run looks like before you spend anything.
+
+Below the box, **templates** start the most common kinds of work: *Analyse a
+dataset*, *Compare methods*, *Reproduce a paper*, *Explore an open question*,
+*Run a simulation study*. A template fills in a brief with [brackets] to
+replace (the first one is selected) and says which phases it will likely use.
+
 ## Projects and experiments
 
 A **project** groups related experiments and has its own chat. Type what you
@@ -33,7 +52,14 @@ An **experiment** is one campaign. Its page shows
   files go straight into the running container;
 - the **cost** so far;
 - the container's **CPU and memory limits** (*Container*): click to change them,
-  at once while the experiment runs, or for its resume or re-run.
+  at once while the experiment runs, or for its resume or re-run;
+- **Report**, once there is one: every number traced to the script that computed
+  it, downloads, a script that reproduces it, and *Put into Overleaf*; **Fork...**
+  starts a new run from any phase or job of this one; a project with several
+  runs has a **Compare** tab. See [Results, reports and runs](results.md).
+
+The proposal card also shows what the run will likely cost and take
+([Estimate](results.md#estimate-before-a-run)).
 
 ## Talking to an experiment
 
@@ -145,9 +171,11 @@ The bar on the left also opens:
   It also shows the environment: whether the API key is set (never the key),
   Docker and Claude Code, the machine's CPUs, memory and free disk.
   *Notifications* sets where messages go when a decision waits for you or an
-  experiment ends ([Notifications](notifications.md)); *Cluster jobs* lets the
-  research agents submit SLURM jobs ([Cluster jobs](cluster-jobs.md)), whose
-  states appear under **Jobs** on the experiment's right bar.
+  experiment ends ([Notifications](notifications.md)), with quiet hours and
+  links that answer a decision from the message; *Cluster jobs* lets the
+  research agents submit SLURM jobs and *GPU machine (SSH)* run jobs on a GPU
+  server over SSH ([GPU jobs](cluster-jobs.md)); their states and what the GPUs
+  are doing appear under **Jobs** on the experiment's right bar.
 
 ## Changing settings in conversation
 

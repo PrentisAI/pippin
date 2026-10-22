@@ -147,6 +147,8 @@ Hard limits; the campaign stops when one is reached.
 |---|---|---|---|
 | `budget.max_hours` | float | `24` | Wall-clock limit of the whole campaign. |
 | `budget.max_cost_usd` | float | None | `null` | Limit on the API cost reported by the agent sessions. None: no limit. |
+| `budget.estimate_usd` | list[float] | None | `null` | What the run was estimated to cost, [low, high] (set by the console). The run notifies when it costs more than the upper end, and again at twice it. |
+| `budget.estimate_hours` | list[float] | None | `null` | What the run was estimated to take, [low, high] hours (set by the console). |
 
 ## `notifications`
 
@@ -157,10 +159,14 @@ Messages to you when something needs you or a run ends, so you need not watch th
 | `notifications.console_url` | str | `""` | The web console's address as you open it (e.g. http://localhost:8100); notifications link to the experiment there. Empty: the address it serves on. |
 | `notifications.channels` | list[NotifyChannel] | `[]` |  |
 | `notifications.budget_warning_at` | float | `0.8` | Share of an experiment's cost or time budget at which budget_warning is sent. |
+| `notifications.quiet_start` | str | `""` | Quiet hours from (HH:MM, the server's time); empty: none. Messages are held and sent together when they end. |
+| `notifications.quiet_end` | str | `""` | Quiet hours until (HH:MM). |
+| `notifications.quiet_except` | list[str] | `[]` | Kinds sent even in quiet hours (e.g. decision_needed). |
+| `notifications.action_links` | bool | `true` | Put "Approve" and "Stop" links into decision messages (they open a confirmation page; the console address must be set). |
 
 ## `compute`
 
-Compute beyond the experiment's container.
+Compute beyond the experiment's container: a SLURM cluster or a GPU machine over SSH.
 
 ## `compute.slurm`
 
@@ -186,6 +192,33 @@ Research agents submit heavy work (training, long runs) as SLURM jobs.
 | `compute.slurm.extra_args` | list[str] | `[]` | More #SBATCH options, e.g. ['--exclude=node3']. |
 | `compute.slurm.cancel_on_finish` | bool | `true` | Cancel an experiment's jobs still queued or running when it ends. |
 | `compute.slurm.check_in_minutes` | list[float] | `[10, 10, 10, 20, 30, 45, 60]` | An agent waiting for its jobs (aurora job await) is shown their state after these intervals, one after the other, the last repeating; it is woken at once when they end. |
+
+## `compute.ssh`
+
+Research agents run heavy work on a GPU machine reached over SSH (no scheduler there).
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `compute.ssh.enabled` | bool | `false` | Let research agents run jobs on a GPU machine over SSH. |
+| `compute.ssh.host` | str | `""` | The machine, as ssh reaches it: a Host from ~/.ssh/config or user@address. |
+| `compute.ssh.ssh_options` | list[str] | `[]` | More ssh options, e.g. ['-p', '2222', '-i', '~/.ssh/gpu_key']. |
+| `compute.ssh.remote_dir` | str | `"aurora-jobs"` | Where experiments' workspaces are kept on the machine (relative: in the home directory). |
+| `compute.ssh.docker` | bool | `true` | Run jobs in Docker on the machine (needs Docker with GPU support there). |
+| `compute.ssh.image` | str | `""` | Image jobs run in. Empty: the experiment's own image (sent over with docker save when the machine does not have it). |
+| `compute.ssh.setup` | str | `""` | Shell commands run before every job, e.g. 'source ~/miniconda3/bin/activate ml'. |
+| `compute.ssh.gpus` | list[int] | `[]` | GPUs jobs may use (nvidia-smi indices). Empty: all of them. |
+| `compute.ssh.busy_memory_mb` | int | `2000` | A GPU using more memory than this is taken to be busy (someone else's work). |
+| `compute.ssh.sync_exclude` | list[str] | `[".git", "__pycache__", ".ipynb_checkpoints"]` | Workspace paths not copied either way (rsync patterns). |
+| `compute.ssh.job_name_prefix` | str | `"aurora"` | Start of every job's name (and container name). |
+| `compute.ssh.max_gpus_per_job` | int | `8` | Most GPUs one job may ask for. |
+| `compute.ssh.max_jobs` | int | `4` | Jobs of one experiment waiting or running at once. |
+| `compute.ssh.cpus_per_gpu` | int | `8` | CPUs a job gets per GPU (Docker only). |
+| `compute.ssh.mem_per_gpu_gb` | int | `64` | Memory a job gets per GPU (GB, Docker only). |
+| `compute.ssh.default_time` | str | `"04:00:00"` | Time limit of a job that names none. |
+| `compute.ssh.max_time` | str | `"24:00:00"` | Longest time limit a job may ask for. |
+| `compute.ssh.max_gpu_hours` | float | None | `null` | GPU hours one experiment may use in all. None: no limit. |
+| `compute.ssh.cancel_on_finish` | bool | `true` | Stop an experiment's jobs still waiting or running when it ends. |
+| `compute.ssh.check_in_minutes` | list[float] | `[10, 10, 10, 20, 30, 45, 60]` | As compute.slurm.check_in_minutes. |
 
 ## `workspace`
 

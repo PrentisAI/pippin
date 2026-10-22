@@ -58,9 +58,21 @@ RULES: dict[tuple[str, str], str] = {
     ("POST", E + "/chat/send"): "run",          # the front desk relays instructions to the agents
     ("GET", E + "/chat/history"): "view",
     ("GET", E + "/compute"): "view",
+    ("GET", E + "/compute/gpus"): "view",
     ("POST", E + "/compute/{job}/cancel"): "run",
     ("WS", E + "/ws"): "view",
     ("GET", E + "/workspace/tree"): "view",
+    # a run's report and results, taking them away, and comparing runs
+    ("GET", E + "/report"): "view",
+    ("GET", E + "/results"): "view",
+    ("GET", E + "/export"): "view",
+    ("GET", E + "/reproduce.sh"): "view",
+    ("GET", E + "/overleaf"): "view",
+    ("POST", E + "/overleaf"): "view",
+    ("GET", P + "/compare"): "view",
+    ("GET", E + "/forkpoints"): "view",
+    ("POST", E + "/fork"): "run",
+    ("POST", P + "/estimate"): "view",
     ("GET", E + "/workspace/file"): "view",
     ("GET", E + "/workspace/raw"): "view",
     ("PUT", E + "/workspace/file"): "edit",
@@ -186,6 +198,12 @@ RULES: dict[tuple[str, str], str] = {
     # search and analytics (filtered to what the user may see)
     ("GET", "/api/search"): "any",
     ("GET", "/api/analytics"): "any",
+    # the first minutes: what is missing, a key without accounts, the image, a demo
+    ("GET", "/api/setup"): "any",
+    ("POST", "/api/setup/dismiss"): "any",
+    ("PUT", "/api/setup/key"): "admin",
+    ("POST", "/api/setup/pull"): "admin",
+    ("POST", "/api/demo"): "member",
     # the signed-in user
     ("GET", "/api/me"): "any",
     ("PUT", "/api/me"): "any",

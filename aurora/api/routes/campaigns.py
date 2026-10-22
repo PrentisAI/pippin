@@ -201,7 +201,20 @@ class ExperimentRunState:
             "started_by": _person_name(self.started_by),
             "max_cost_usd": (self.engine._config.budget.max_cost_usd if self.engine is not None
                              else self._saved_budget()),
+            "estimate": self._estimate(),
         }
+
+    def _estimate(self) -> dict[str, Any] | None:
+        """What the run was estimated to cost and take, when it was started from a card that showed it."""
+        if self.engine is not None:
+            b = self.engine._config.budget
+            return {"cost": b.estimate_usd, "hours": b.estimate_hours} if b.estimate_usd else None
+        try:
+            row = store.get_experiment(self.run_id) or {}
+            est = (json.loads(row.get("config_json") or "{}").get("request") or {}).get("estimate")
+            return est if est and est.get("cost") else None
+        except Exception:
+            return None
 
     def _saved_budget(self) -> float | None:
         try:
@@ -442,13 +455,18 @@ async def quick_create_campaign(req: QuickCreateRequest) -> dict[str, Any]:
 
 @campaign_router.post("/")
 async def create_campaign(req: CreateCampaignRequest) -> dict[str, Any]:
+    return await create_quick_project(req.name, req.objective, summary=True)
+
+
+async def create_quick_project(name: str, objective: str, *, summary: bool = False) -> dict[str, Any]:
+    """A new project owned by the asking person."""
     campaign_id = f"p_{time.strftime('%Y%m%d')}_{uuid.uuid4().hex[:6]}"
-    campaign = CampaignState(campaign_id, req.name, req.objective)
+    campaign = CampaignState(campaign_id, name, objective)
     _campaigns[campaign_id] = campaign
     campaign.note("Project created")
-    store.save_campaign(campaign_id, req.name, req.objective, campaign.created_at, campaign.updated_at)
+    store.save_campaign(campaign_id, name, objective, campaign.created_at, campaign.updated_at)
     _own(campaign_id)
-    return campaign.to_summary()
+    return campaign.to_summary() if summary else {"campaign_id": campaign_id, "name": name, "objective": objective}
 
 
 @campaign_router.get("/")
@@ -626,6 +644,8 @@ class StartExperimentRequest(BaseModel):
     max_parallel_jobs: int | None = None   # agent.max_parallel_jobs
     based_on: list[str] = []           # runs of the project this experiment builds on
     frontdesk: bool | None = None      # human.frontdesk
+    estimate: dict[str, Any] | None = None  # what it was estimated to cost and take ({cost: [lo, hi], hours: [lo, hi]})
+    sandbox_docker: bool | None = None  # sandbox.docker (the demo runs without a container)
 
 
 def default_skip_phases(instruction: str) -> list[str]:
@@ -677,8 +697,13 @@ def _experiment_config(campaign: CampaignState, run_id: str, req: StartExperimen
     # an explicit null in the request means no cost limit
     max_cost = req.max_cost_usd if "max_cost_usd" in req.model_fields_set else default_max_cost()
     raw.setdefault("budget", {})["max_cost_usd"] = max_cost
+    if req.estimate and isinstance(req.estimate.get("cost"), list) and isinstance(req.estimate.get("hours"), list):
+        raw["budget"]["estimate_usd"] = [float(x) for x in req.estimate["cost"][:2]]
+        raw["budget"]["estimate_hours"] = [float(x) for x in req.estimate["hours"][:2]]
     if req.mock_mode is not None:
         raw["mock_mode"] = req.mock_mode
+    if req.sandbox_docker is not None:
+        raw["sandbox"] = {**raw.get("sandbox", {}), "docker": req.sandbox_docker}
     return AuroraConfig.model_validate(raw)
 
 
@@ -701,10 +726,53 @@ def console_url() -> str:
 def _notifier(campaign: CampaignState, run: ExperimentRunState) -> Any:
     from aurora.notify import Notifier
     base = console_url()
+
+    def actions(event: Any) -> list[tuple[str, str]]:
+        """Signed links that answer the decision from the message (only with the console's address)."""
+        from aurora.human import actions as act
+        gate = event.data.get("gate_id") or ""
+        if not base or not gate:
+            return []
+        options = event.data.get("options") or ["continue", "stop"]
+        return [(act.LABELS[a], f"{base}/a/{act.make(campaign.campaign_id, run.run_id, gate, a, run.started_by or 'local')}")
+                for a in ("continue", "stop") if a in options]
+
+    def hold(item: dict[str, Any]) -> None:
+        """Quiet hours: keep it for the person; the console sends what was held when they end."""
+        from aurora.auth.store import auth_store
+        uid = run.started_by or "local"
+        held = auth_store.get_pref(uid, "notify_held") or []
+        held.append(item)
+        auth_store.set_pref(uid, "notify_held", held[-200:])
     return Notifier(lambda: live_notifications(run.started_by), run_name=run.task_name,
                     link=f"{base}/campaigns/{campaign.campaign_id}/experiments/{run.run_id}" if base else "",
                     extra={"project_id": campaign.campaign_id, "project": campaign.name,
-                           "experiment_id": run.run_id})
+                           "experiment_id": run.run_id}, actions=actions, hold=hold)
+
+
+async def send_held_notifications() -> int:
+    """Send each person what was held during their quiet hours, once those have ended; how many people."""
+    from aurora.auth.store import auth_store
+    from aurora.notify import deliver, held_digest, in_quiet_hours
+    users = [u["user_id"] for u in auth_store.list_users()] or ["local"]
+    sent = 0
+    for uid in users:
+        held = auth_store.get_pref(uid, "notify_held") or []
+        if not held:
+            continue
+        cfg = live_notifications(uid)
+        if in_quiet_hours(cfg):
+            continue
+        auth_store.set_pref(uid, "notify_held", [])
+        kinds = {h["kind"] for h in held}
+        title, text = held_digest(held)
+        for c in cfg.channels:
+            if c.enabled and kinds & set(c.events):
+                error = await deliver(c, "held", title, text, console_url())
+                if error:
+                    logger.warning("Sending held notifications to %s failed: %s", c.name or c.type, error)
+        sent += 1
+    return sent
 
 
 async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any, *, resume: bool = False) -> None:
@@ -793,7 +861,8 @@ async def _start(campaign: CampaignState, req: StartExperimentRequest, *, run_id
     slug = re.sub(r"[^a-z0-9]+", "-", (req.name or req.instruction[:40]).lower()).strip("-")[:30] or "experiment"
     # the random part keeps two runs started in the same second apart
     run_id = run_id or f"{time.strftime('%Y%m%d-%H%M%S')}_{slug}-{uuid.uuid4().hex[:4]}"
-    _require_key()
+    if not req.mock_mode:          # scripted models need no key
+        _require_key()
     previous = campaign.experiments.get(run_id)
     try:
         config = _experiment_config(campaign, run_id, req)
@@ -884,6 +953,16 @@ async def experiment_cluster_jobs(campaign_id: str, exp_id: str) -> dict[str, An
     jobs = saved_jobs(run.campaign_dir)
     return {"enabled": bool(jobs), "live": False, "jobs": [j.view() for j in jobs],
             "gpu_hours": round(sum(j.gpu_hours for j in jobs), 3)}
+
+
+@campaign_router.get("/{campaign_id}/experiments/{exp_id}/compute/gpus")
+async def experiment_gpu_usage(campaign_id: str, exp_id: str) -> dict[str, Any]:
+    """What the GPUs of the experiment's jobs are doing (nvidia-smi on the nodes or the machine)."""
+    run = _get_run(campaign_id, exp_id)
+    compute = run.engine.compute if run.engine is not None else None
+    if compute is None:
+        return {"backend": "", "gpus": [], "errors": [], "live": False}
+    return {**await compute.gpu_usage(), "live": True}
 
 
 @campaign_router.post("/{campaign_id}/experiments/{exp_id}/compute/{job}/cancel")
@@ -1705,6 +1784,7 @@ class ConfirmProposalBody(BaseModel):
     memory_mb: int | None = None
     max_parallel_jobs: int | None = None
     inputs: list[str] | None = None     # files for the agents (project:<path> for the project's files)
+    estimate: dict[str, Any] | None = None   # the estimate the card showed ({cost: [lo, hi], hours: [lo, hi]})
 
 
 @campaign_router.post("/{campaign_id}/proposals/{proposal_id}/confirm")
@@ -1732,7 +1812,8 @@ async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProp
         autonomy_mode=body.autonomy_mode or p.get("autonomy_mode", ""),
         cpus=body.cpus or p.get("cpus"), memory_mb=memory_mb,
         max_parallel_jobs=body.max_parallel_jobs or p.get("max_parallel_jobs"), based_on=p.get("based_on") or [],
-        max_cost_usd=body.max_cost_usd if "max_cost_usd" in body.model_fields_set else proposal.max_cost_usd)
+        max_cost_usd=body.max_cost_usd if "max_cost_usd" in body.model_fields_set else proposal.max_cost_usd,
+        estimate=body.estimate)
     result = await _start(campaign, req)
     proposal.confirmed = True
     run = campaign.experiments.get(result["experiment_id"])
@@ -2072,6 +2153,8 @@ def _notification_settings() -> dict[str, Any]:
     return {
         "console_url": cfg.console_url, "console_url_default": os.environ.get("AURORA_CONSOLE_URL", ""),
         "budget_warning_at": cfg.budget_warning_at,
+        "quiet_start": cfg.quiet_start, "quiet_end": cfg.quiet_end, "quiet_except": cfg.quiet_except,
+        "action_links": cfg.action_links,
         "channels": [{"id": c.id, "type": c.type, "name": c.name, "target_hint": _hint(c.target),
                       "events": c.events, "enabled": c.enabled} for c in cfg.channels],
         "events": [{"key": k, "label": v, "default": k in DEFAULT_NOTIFY_EVENTS} for k, v in NOTIFY_EVENTS.items()],
@@ -2091,6 +2174,10 @@ class NotificationsBody(BaseModel):
     console_url: str = ""
     budget_warning_at: float = 0.8
     channels: list[ChannelBody] = []
+    quiet_start: str = ""
+    quiet_end: str = ""
+    quiet_except: list[str] = []
+    action_links: bool = True
 
 
 def _channels(bodies: list[ChannelBody]) -> list[Any]:
@@ -2119,8 +2206,14 @@ async def update_notification_settings(req: NotificationsBody) -> dict[str, Any]
     from aurora.api.console_settings import load_overlay, save_overlay
     from aurora.config import NotificationsConfig
     try:
+        from aurora.notify import _minutes
+        for t in (req.quiet_start, req.quiet_end):
+            if t.strip() and _minutes(t) is None:
+                raise ValueError(f"quiet hours look like 22:00, not {t!r}")
         cfg = NotificationsConfig(console_url=req.console_url.strip().rstrip("/"),
-                                  budget_warning_at=req.budget_warning_at, channels=_channels(req.channels))
+                                  budget_warning_at=req.budget_warning_at, channels=_channels(req.channels),
+                                  quiet_start=req.quiet_start.strip(), quiet_end=req.quiet_end.strip(),
+                                  quiet_except=req.quiet_except, action_links=req.action_links)
     except Exception as exc:
         raise HTTPException(400, f"invalid notification settings: {exc}") from exc
     if _me() != "local":                      # each person's own channels

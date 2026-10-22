@@ -389,8 +389,9 @@ NOTIFY_EVENTS: dict[str, str] = {
     "agent_reply": "The research agent answered your instruction",
     "skill_suggestion": "A skill was proposed for the library",
     "compute_job": "A cluster job of an experiment ended",
+    "estimate_exceeded": "An experiment costs or takes much more than estimated",
 }
-DEFAULT_NOTIFY_EVENTS = ["decision_needed", "run_finished", "run_failed", "budget_warning"]
+DEFAULT_NOTIFY_EVENTS = ["decision_needed", "run_finished", "run_failed", "budget_warning", "estimate_exceeded"]
 
 
 class NotifyChannel(_Section):
@@ -431,6 +432,14 @@ class NotificationsConfig(_Section):
         default=0.8, gt=0, le=1,
         description="Share of an experiment's cost or time budget at which budget_warning is sent.",
     )
+    quiet_start: str = Field(default="", description="Quiet hours from (HH:MM, the server's time); empty: none. "
+                                                     "Messages are held and sent together when they end.")
+    quiet_end: str = Field(default="", description="Quiet hours until (HH:MM).")
+    quiet_except: list[str] = Field(default_factory=list, description="Kinds sent even in quiet hours "
+                                                                      "(e.g. decision_needed).")
+    action_links: bool = Field(default=True, description="Put \"Approve\" and \"Stop\" links into decision "
+                                                        "messages (they open a confirmation page; the console "
+                                                        "address must be set).")
 
 
 class SlurmConfig(_Section):
@@ -491,10 +500,87 @@ class SlurmConfig(_Section):
         return self
 
 
+class SSHComputeConfig(_Section):
+    """Research agents run heavy work on a GPU machine reached over SSH (no scheduler there).
+
+    The experiment's workspace is copied to the machine (rsync) before a job starts and the job's
+    results are copied back when it ends.  A job gets GPUs nobody is using; when there are not
+    enough it waits.  It runs in Docker on that machine (the experiment's image, sent over when the
+    machine does not have it) or, with ``docker: false``, directly in the copied workspace.
+    """
+
+    enabled: bool = Field(default=False, description="Let research agents run jobs on a GPU machine over SSH.")
+    host: str = Field(default="", description="The machine, as ssh reaches it: a Host from ~/.ssh/config or user@address.")
+    ssh_options: list[str] = Field(
+        default_factory=list, description="More ssh options, e.g. ['-p', '2222', '-i', '~/.ssh/gpu_key'].",
+    )
+    remote_dir: str = Field(
+        default="aurora-jobs",
+        description="Where experiments' workspaces are kept on the machine (relative: in the home directory).",
+    )
+    docker: bool = Field(default=True, description="Run jobs in Docker on the machine (needs Docker with GPU support there).")
+    image: str = Field(
+        default="",
+        description="Image jobs run in. Empty: the experiment's own image (sent over with docker save when the "
+                    "machine does not have it).",
+    )
+    setup: str = Field(
+        default="",
+        description="Shell commands run before every job, e.g. 'source ~/miniconda3/bin/activate ml'.",
+    )
+    gpus: list[int] = Field(
+        default_factory=list, description="GPUs jobs may use (nvidia-smi indices). Empty: all of them.",
+    )
+    busy_memory_mb: int = Field(
+        default=2000, ge=0,
+        description="A GPU using more memory than this is taken to be busy (someone else's work).",
+    )
+    sync_exclude: list[str] = Field(
+        default_factory=lambda: [".git", "__pycache__", ".ipynb_checkpoints"],
+        description="Workspace paths not copied either way (rsync patterns).",
+    )
+    job_name_prefix: str = Field(default="aurora", description="Start of every job's name (and container name).")
+    max_gpus_per_job: int = Field(default=8, ge=0, description="Most GPUs one job may ask for.")
+    max_jobs: int = Field(default=4, ge=1, description="Jobs of one experiment waiting or running at once.")
+    cpus_per_gpu: int = Field(default=8, ge=1, description="CPUs a job gets per GPU (Docker only).")
+    mem_per_gpu_gb: int = Field(default=64, ge=1, description="Memory a job gets per GPU (GB, Docker only).")
+    default_time: str = Field(default="04:00:00", description="Time limit of a job that names none.")
+    max_time: str = Field(default="24:00:00", description="Longest time limit a job may ask for.")
+    max_gpu_hours: float | None = Field(
+        default=None, gt=0, description="GPU hours one experiment may use in all. None: no limit.",
+    )
+    cancel_on_finish: bool = Field(
+        default=True, description="Stop an experiment's jobs still waiting or running when it ends.",
+    )
+    check_in_minutes: list[float] = Field(
+        default_factory=lambda: [10, 10, 10, 20, 30, 45, 60],
+        description="As compute.slurm.check_in_minutes.",
+    )
+
+    @model_validator(mode="after")
+    def _check(self) -> SSHComputeConfig:
+        if self.enabled and not self.host:
+            raise ValueError("compute.ssh.host is needed when compute.ssh is enabled")
+        if not self.check_in_minutes or any(m <= 0 for m in self.check_in_minutes):
+            raise ValueError("check_in_minutes needs at least one interval, each above 0")
+        return self
+
+
 class ComputeConfig(_Section):
-    """Compute beyond the experiment's container."""
+    """Compute beyond the experiment's container: a SLURM cluster or a GPU machine over SSH."""
 
     slurm: SlurmConfig = Field(default_factory=SlurmConfig)
+    ssh: SSHComputeConfig = Field(default_factory=SSHComputeConfig)
+
+    @model_validator(mode="after")
+    def _one(self) -> ComputeConfig:
+        if self.slurm.enabled and self.ssh.enabled:
+            raise ValueError("enable either compute.slurm or compute.ssh, not both")
+        return self
+
+    @property
+    def enabled(self) -> bool:
+        return self.slurm.enabled or self.ssh.enabled
 
 
 class SandboxConfig(_Section):
@@ -582,6 +668,11 @@ class BudgetConfig(_Section):
         default=None, gt=0,
         description="Limit on the API cost reported by the agent sessions. None: no limit.",
     )
+    estimate_usd: list[float] | None = Field(
+        default=None, description="What the run was estimated to cost, [low, high] (set by the console). "
+                                  "The run notifies when it costs more than the upper end, and again at twice it.")
+    estimate_hours: list[float] | None = Field(
+        default=None, description="What the run was estimated to take, [low, high] hours (set by the console).")
 
 
 class WorkspaceConfig(_Section):

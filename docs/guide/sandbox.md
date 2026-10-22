@@ -16,7 +16,7 @@ permission system (`--permission-mode dontAsk` with an allow-list):
 | run shell commands as `docker exec` into *their* container | run shell commands on the host, or `docker run`/`cp`/anything else |
 | search and fetch the web | — |
 
-With [cluster jobs](cluster-jobs.md) on, the agents may also run `aurora job`
+With [GPU jobs](cluster-jobs.md) on, the agents may also run `aurora job`
 on the host, which only passes their requests to the experiment's job manager.
 Anything not on the allow-list is refused without asking. Inputs you list under
 `inputs` are copied to `/app/inputs`; the agents do not see the original paths.

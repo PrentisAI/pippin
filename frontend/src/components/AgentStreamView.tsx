@@ -123,7 +123,10 @@ function describeEvent(event: StreamEvent): Described {
     case 'budget_warning':
       return system('warning', `Budget ${Math.round(Number(d.share) * 100)}% used`, str(d.detail) || undefined)
     case 'compute_job_submitted':
-      return system('info', `Cluster job ${String(d.id)} (${str(d.name)}) submitted as SLURM ${str(d.slurm_id)}: `
+      return system('info', `Cluster job ${String(d.id)} (${str(d.name)}) `
+        + (d.backend === 'ssh'
+          ? (d.slurm_id ? `started on ${str(d.node)}${d.gpu_ids ? ` (GPU ${str(d.gpu_ids)})` : ''}: ` : `waiting for GPUs on ${str(d.node)}: `)
+          : `submitted as SLURM ${str(d.slurm_id)}: `)
         + `${String(d.gpus)} GPU, up to ${str(d.time_limit)}`, str(d.command) || undefined)
     case 'compute_job_update':
       return system('info', `Cluster job ${String(d.id)} (${str(d.name)}): ${str(d.state).toLowerCase()}`
