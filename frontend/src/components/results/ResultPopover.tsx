@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api, describeError } from '../../api/client'
 import type { RunResult } from '../../types'
+import { noteTraced } from '../../onboarding/store'
 
 export function showValue(r: Pick<RunResult, 'value' | 'unit' | 'uncertainty'>): string {
   const v = typeof r.value === 'number' ? Number(r.value.toPrecision(6)).toString() : String(r.value)
@@ -27,6 +28,7 @@ export function ResultPopover({ result, campaignId, runId, anchor, onClose, supe
     document.addEventListener('keydown', esc)
     return () => { window.clearTimeout(t); document.removeEventListener('mousedown', out); document.removeEventListener('keydown', esc) }
   }, [onClose])
+  useEffect(() => { noteTraced() }, [])
   const width = Math.min(500, window.innerWidth - 32)
   const left = Math.max(16, Math.min(anchor.left, window.innerWidth - width - 16))
   const below = anchor.bottom + 8 + 360 < window.innerHeight

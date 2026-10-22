@@ -5,7 +5,20 @@
 AURORA needs Python 3.11 or newer.
 
 ```bash
-pip install aurora-research          # or, from a clone: pip install -e .
+pip install -e .                     # from a clone (pip install aurora-research once it is on PyPI)
+aurora quickstart                    # check this machine, set the key, see the demo, open the console
+```
+
+`aurora quickstart` walks through the next steps in the terminal: it checks
+Python, Claude Code and Docker (and offers to pull the container image), asks for
+your OpenRouter key (checked with OpenRouter and saved in `~/.aurora/.env`,
+readable only by you), runs the offline demo, and starts the web console, where
+a welcome takes it from there. Every question can be answered no; `-y` answers
+yes to all of them and `--no-serve` stops before the console.
+
+To try only the pipeline first:
+
+```bash
 aurora demo                          # offline run with scripted mock models
 ```
 

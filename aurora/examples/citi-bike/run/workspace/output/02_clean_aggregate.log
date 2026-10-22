@@ -1,0 +1,30 @@
+[    0.0s] finding duplicate ride_id candidates via hash
+[    3.7s] dup hash candidates: 0
+[   13.5s] base rows: 79410195
+[   22.6s] flagged table built
+[   23.4s] cleaning_summary.csv written
+   scope                   rule                                     description  rows_removed_independent  rows_removed_sequential  pct_of_raw_independent  pct_of_raw_sequential
+0    all                     R1      missing/unparseable started_at or ended_at                       0.0                        0                0.000000               0.000000
+1    all                     R2      duplicate ride_id (extra copies; one kept)                       0.0                        0                0.000000               0.000000
+2    all                     R3                                 duration <= 0 s                     643.0                      643                0.000810               0.000810
+3    all                     R4  duration < 60 s (very short; sensitivity rule)                     825.0                      182                0.001039               0.000229
+4    all                     R5                                 duration > 24 h                   37576.0                    37576                0.047319               0.047319
+5    all                     R6       started_at outside 2023-01-01..2024-12-31                     276.0                      195                0.000348               0.000246
+6    all                     R7           member_casual not in {member, casual}                       0.0                        0                0.000000               0.000000
+7    all          TOTAL_REMOVED                           all rules, sequential                       NaN                    38596                     NaN               0.048603
+8    all               RAW_ROWS                                   rows in input                       NaN                 79410195                     NaN             100.000000
+9    all             CLEAN_ROWS                    rows kept (primary analysis)                       NaN                 79371599                     NaN              99.951397
+10   all  CLEAN_ROWS_INCL_SHORT    rows kept if R4 is not applied (sensitivity)                       NaN                 79371781                     NaN              99.951626
+[   23.7s] cleaning_per_month.csv written
+[   26.6s] monthly/daily/hourly tables written
+[   37.1s] duration set ['y', 'u', 'r'] done
+[   41.3s] duration set ['y', 'u'] done
+[   45.3s] duration set ['y', 'r'] done
+[   51.4s] duration set ['y'] done
+[   57.0s] duration set ['u', 'r'] done
+[   63.5s] duration set ['u'] done
+[   70.0s] duration set ['r'] done
+[   76.4s] duration set ALL done
+[   76.5s] duration_by_type.csv written
+[   85.1s] bike_type_and_user_mix.csv written
+[   87.5s] anomalies.md + checks.json written; ALL DONE

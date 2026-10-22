@@ -1,0 +1,34 @@
+scope,rule,description,rows_removed_independent,rows_removed_sequential,pct_of_raw_independent,pct_of_raw_sequential
+all,R1,missing/unparseable started_at or ended_at,0.0,0,0.0,0.0
+all,R2,duplicate ride_id (extra copies; one kept),0.0,0,0.0,0.0
+all,R3,duration <= 0 s,643.0,643,0.0008097197091632882,0.0008097197091632882
+all,R4,duration < 60 s (very short; sensitivity rule),825.0,182,0.0010389094246651832,0.00022918971550189493
+all,R5,duration > 24 h,37576.0,37576,0.04731886126208354,0.04731886126208354
+all,R6,started_at outside 2023-01-01..2024-12-31,276.0,195,0.00034756242570617034,0.000245560409466316
+all,R7,"member_casual not in {member, casual}",0.0,0,0.0,0.0
+all,TOTAL_REMOVED,"all rules, sequential",,38596,,0.048603331096215036
+all,RAW_ROWS,rows in input,,79410195,,100.0
+all,CLEAN_ROWS,rows kept (primary analysis),,79371599,,99.95139666890378
+all,CLEAN_ROWS_INCL_SHORT,rows kept if R4 is not applied (sensitivity),,79371781,,99.95162585861928
+2023,R1,missing/unparseable started_at or ended_at,0.0,0,0.0,0.0
+2023,R2,duplicate ride_id (extra copies; one kept),0.0,0,0.0,0.0
+2023,R3,duration <= 0 s,324.0,324,0.0009228932383999014,0.0009228932383999014
+2023,R4,duration < 60 s (very short; sensitivity rule),395.0,71,0.0011251321887900032,0.00020223895039010183
+2023,R5,duration > 24 h,26640.0,26640,0.075882332935103,0.075882332935103
+2023,R6,started_at outside 2023-01-01..2024-12-31,276.0,195,0.0007861683141925086,0.0005554450045925333
+2023,R7,"member_casual not in {member, casual}",0.0,0,0.0,0.0
+2023,TOTAL_REMOVED,"all rules, sequential",,27230,,0.07756291012848554
+2023,RAW_ROWS,rows in input,,35106986,,100.0
+2023,CLEAN_ROWS,rows kept (primary analysis),,35079756,,99.92243708987151
+2023,CLEAN_ROWS_INCL_SHORT,rows kept if R4 is not applied (sensitivity),,35079827,,99.9226393288219
+2024,R1,missing/unparseable started_at or ended_at,0.0,0,0.0,0.0
+2024,R2,duplicate ride_id (extra copies; one kept),0.0,0,0.0,0.0
+2024,R3,duration <= 0 s,319.0,319,0.000720038135386536,0.000720038135386536
+2024,R4,duration < 60 s (very short; sensitivity rule),430.0,111,0.000970584320426992,0.0002505461850404561
+2024,R5,duration > 24 h,10936.0,10936,0.02468444215858043,0.02468444215858043
+2024,R6,started_at outside 2023-01-01..2024-12-31,0.0,0,0.0,0.0
+2024,R7,"member_casual not in {member, casual}",0.0,0,0.0,0.0
+2024,TOTAL_REMOVED,"all rules, sequential",,11366,,0.025655026479007425
+2024,RAW_ROWS,rows in input,,44303209,,100.0
+2024,CLEAN_ROWS,rows kept (primary analysis),,44291843,,99.974344973521
+2024,CLEAN_ROWS_INCL_SHORT,rows kept if R4 is not applied (sensitivity),,44291954,,99.97459551970603

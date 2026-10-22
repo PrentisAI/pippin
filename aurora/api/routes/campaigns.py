@@ -36,6 +36,7 @@ from pydantic import BaseModel
 
 from aurora.api.persistence import LazyStore
 from aurora.config import PHASES
+from aurora.examples import is_example
 
 logger = logging.getLogger(__name__)
 
@@ -68,12 +69,17 @@ def base_config() -> dict[str, Any]:
     """What new experiments start from: the server's base config with the console's settings over it.
 
     With accounts, the API key is the asking person's (theirs, else the team's if the team allows):
-    model calls a person causes are paid by them, never by the server's key by accident."""
+    model calls a person causes are paid by them, never by the server's key by accident.  Their own
+    defaults (chosen in the welcome wizard: how hands-on, the budget) come over the console's."""
     from aurora.api.console_settings import deep_merge, load_overlay
     data = deep_merge(server_config(), load_overlay())
     from aurora.auth.guard import current_user
     user = current_user()
     if not user.is_local:
+        from aurora.auth.store import auth_store
+        mine = auth_store.get_pref(user.user_id, "defaults")
+        if isinstance(mine, dict):
+            data = deep_merge(data, mine)
         from aurora.auth.secrets import key_for
         key, _ = key_for(user)
         data["api_key"] = key or NO_KEY
@@ -353,6 +359,7 @@ class CampaignState:
             "experiment_count": len(exps), "active_experiments": active,
             "completed_experiments": len(exps) - active,
             "needs_attention": any(e.status == "awaiting_human" for e in exps),
+            "example": is_example(self.campaign_id),
         }
 
     def note(self, text: str) -> None:
@@ -473,8 +480,11 @@ async def create_quick_project(name: str, objective: str, *, summary: bool = Fal
 async def list_campaigns() -> list[dict[str, Any]]:
     """The projects the asking user may see."""
     from aurora.auth.guard import current_user, visible
+    from aurora.auth.store import auth_store
     me = current_user()
     ids = visible(me, [row["campaign_id"] for row in store.list_campaigns()])
+    if auth_store.get_pref(me.user_id, "examples_hidden"):
+        ids = [cid for cid in ids if not is_example(cid)]
     results = [{**_ensure_campaign(cid).to_summary(), "sharing": _sharing(cid, me)} for cid in ids]
     return sorted(results, key=lambda c: c["updated_at"], reverse=True)
 
@@ -1068,6 +1078,9 @@ async def submit_decision(campaign_id: str, exp_id: str, req: DecisionRequest) -
         raise HTTPException(400, str(exc)) from exc
     if not resolved:
         raise HTTPException(409, f"Gate {gate_id} is not open")
+    from aurora.auth.guard import current_user
+    from aurora.auth.store import auth_store
+    auth_store.set_pref(current_user().user_id, "onboarding_decided", True)   # the getting-started checklist
     return {"ok": True, "decision_id": gate_id, "action": action}
 
 

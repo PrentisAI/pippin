@@ -1,0 +1,22 @@
+{
+  "raw_rows": 79410195,
+  "sequential_removed_sum": 38596,
+  "clean_rows": 79371599,
+  "seq_plus_clean_equals_raw": true,
+  "per_month_raw_sum_equals_raw": true,
+  "monthly_equals_sum_daily": true,
+  "daily_equals_sum_hourly": true,
+  "daily_total_trips_equals_clean_rows": true,
+  "distinct_dates_daily": 731,
+  "distinct_dates_by_year": {
+    "2023": 365,
+    "2024": 366
+  },
+  "date_min": "2023-01-01",
+  "date_max": "2024-12-31",
+  "hourly_rows": 35088,
+  "hourly_rows_expected": 35088,
+  "monthly_total_trips_equals_clean_rows": true,
+  "clean_started_at_min": "2023-01-01 00:00:13.021000",
+  "clean_started_at_max": "2024-12-31 23:57:46.390000"
+}

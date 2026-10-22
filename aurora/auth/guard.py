@@ -204,6 +204,18 @@ RULES: dict[tuple[str, str], str] = {
     ("PUT", "/api/setup/key"): "admin",
     ("POST", "/api/setup/pull"): "admin",
     ("POST", "/api/demo"): "member",
+    # the welcome wizard, the checklist, tours and tips (each person's own), the examples, help
+    ("GET", "/api/onboarding"): "any",
+    ("PUT", "/api/onboarding"): "any",
+    ("PUT", "/api/onboarding/defaults"): "any",
+    ("GET", "/api/examples"): "any",
+    ("POST", "/api/examples/{example_id}/duplicate"): "member",
+    ("POST", "/api/examples/{example_id}/install"): "admin",
+    ("DELETE", "/api/examples/{example_id}"): "admin",
+    ("GET", "/api/help/docs"): "any",
+    ("GET", "/api/help/docs/{path:path}"): "any",
+    ("GET", "/api/help/assets/{name}"): "any",
+    ("POST", "/api/help/ask"): "any",
     # the signed-in user
     ("GET", "/api/me"): "any",
     ("PUT", "/api/me"): "any",
@@ -258,6 +270,9 @@ def user_of(conn: HTTPConnection) -> User | None:
 
 
 def rights(user: User, campaign_id: str) -> frozenset[str]:
+    from aurora.examples import is_example
+    if is_example(campaign_id):          # examples that come with AURORA: everyone may look, nobody may change them
+        return frozenset({"view"})
     if user.is_local:
         return frozenset(PERMS)
     return project_rights(user, auth_store.project_access(campaign_id), auth_store.members(campaign_id),

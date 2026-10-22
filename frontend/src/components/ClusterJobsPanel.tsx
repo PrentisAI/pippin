@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, describeError } from '../api/client'
 import { formatDuration } from '../format'
 import type { ClusterJobs, GpuUsage } from '../types'
+import { FirstTip } from '../onboarding/FirstTip'
 
 /** The experiment's GPU jobs (on a SLURM cluster or a GPU machine over SSH): state, resources,
  *  output, what their GPUs are doing; cancel one. */
@@ -58,6 +59,10 @@ export function ClusterJobsPanel({ campaignId, expId, tick, onOpenLog }: {
 
   return (
     <div className="jobs-panel">
+      <FirstTip id="jobs" doc="guide/cluster-jobs.md">
+        <b>GPU jobs.</b> The agent sent work to GPUs. Each job’s state, resources and output are here, and what its GPUs are
+        doing; while a job runs the agent can wait without model calls.
+      </FirstTip>
       <div className="jobs-header">
         <span>{ssh ? 'GPU jobs' : 'Cluster jobs'}</span>
         {data && <span className="jobs-total">{data.gpu_hours.toFixed(1)} GPU hours</span>}

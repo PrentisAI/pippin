@@ -38,3 +38,30 @@ def load_dotenv(path: str | Path | None = None) -> Path | None:
                     os.environ.setdefault(key.strip(), val.strip().strip("'\""))
         return env_file
     return None
+
+
+KEY_PATTERN = r"sk-or-[A-Za-z0-9_\-]{20,}"
+
+
+def check_openrouter_key(key: str, timeout: float = 15) -> bool | None:
+    """Whether OpenRouter accepts *key*: True, False, or None when it could not be asked (offline)."""
+    import httpx
+    try:
+        r = httpx.get("https://openrouter.ai/api/v1/key", headers={"Authorization": f"Bearer {key}"}, timeout=timeout)
+    except httpx.HTTPError:
+        return None
+    return r.status_code not in (401, 403)
+
+
+def save_openrouter_key(key: str) -> Path:
+    """Write the key into ``AURORA_HOME/.env`` (readable only by this user) and set it for this process."""
+    from aurora.paths import aurora_home
+    path = aurora_home() / ".env"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [ln for ln in (path.read_text().splitlines() if path.exists() else [])
+             if not ln.startswith("OPENROUTER_API_KEY=")]
+    lines.append(f"OPENROUTER_API_KEY={key}")
+    path.write_text("\n".join(lines) + "\n")
+    os.chmod(path, 0o600)
+    os.environ["OPENROUTER_API_KEY"] = key
+    return path

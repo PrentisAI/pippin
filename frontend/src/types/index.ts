@@ -54,6 +54,8 @@ export interface CampaignSummary {
   needs_attention: boolean
   /** How it is shared (null: the console has no accounts). */
   sharing?: ProjectSharing | null
+  /** An example that comes with AURORA: read-only for everyone. */
+  example?: boolean
 }
 
 export interface ProjectSharing {
@@ -1066,3 +1068,53 @@ export interface ForkPoints { points: ForkPoint[]; ideas: { id: string; seat: st
 
 export interface SetupCheck { key: string; label: string; required: boolean; ok: boolean; detail: string; fix: string; action?: string }
 export interface SetupStatus { checks: SetupCheck[]; ready: boolean; dismissed: boolean; local: boolean }
+
+// ---------------------------------------------------------------------------
+// The first minutes: welcome wizard, checklist, tours, tips, examples, help
+// ---------------------------------------------------------------------------
+
+export interface ChecklistItem {
+  key: string
+  label: string
+  hint: string
+  done: boolean
+  /** key | tour:<chapter> | demo | start | brainstorm | library | team | settings:<section> | doc:<path> */
+  action: string
+}
+
+export type WizardStep = 'welcome' | 'connect' | 'prefs' | 'start'
+
+export interface Onboarding {
+  wizard: { done: boolean; step: WizardStep }
+  field: string
+  autonomy: 'supervised' | 'autonomous'
+  max_cost_usd: number | null
+  tours: string[]
+  tips_seen: string[]
+  examples_hidden: boolean
+  accounts: boolean
+  admin: boolean
+  name: string
+  checklist: ChecklistItem[]
+}
+
+export interface ExampleCard {
+  id: string
+  kind: 'real run' | 'scripted'
+  title: string
+  field: string
+  blurb: string
+  shows: string[]
+  facts: string
+  campaign_id?: string
+  run_id?: string
+  installed: boolean
+  removed: boolean
+}
+
+export interface HelpPage { path: string; title: string; section: string }
+export interface HelpAnswer {
+  answer: string
+  note: string
+  sources: { n: number; path: string; page: string; heading: string; excerpt: string }[]
+}

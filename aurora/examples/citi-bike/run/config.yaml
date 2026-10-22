@@ -1,0 +1,226 @@
+objective: 'Goal: analyze a public bike-share dataset to find clear, well-supported
+  patterns in how people use the system over time, and write a short report.
+
+
+  Data: NYC Citi Bike monthly trip-history files, publicly available from the Citi
+  Bike system data page (s3.amazonaws.com/tripdata). Use one or two recent full years
+  (for example 2023 and 2024). Each row is one trip with start and stop timestamps,
+  station IDs, and rider type. If the data is not available in the container, say
+  so and stop rather than inventing data.
+
+
+  Questions to answer:
+
+  1. How does monthly trip volume vary across the year? Is there a clear seasonal
+  peak and trough?
+
+  2. How does usage vary by day of week and hour of day? Compare weekdays and weekends,
+  and identify commute peaks if present.
+
+  3. How do member and casual riders differ in these patterns?
+
+  4. Optional, if time allows: is daily trip count associated with temperature or
+  precipitation? Use a public weather source for the same dates only if it is easy
+  to get; otherwise skip this.
+
+
+  Method: clean obviously bad records (negative or extreme durations, missing timestamps)
+  and report how many were removed. Use plots and simple summary statistics. Report
+  uncertainty where it matters, and do not claim causation.
+
+
+  Good result: a short report with 3 to 5 findings, each backed by a figure or table,
+  the data source and cleaning steps stated, and limitations noted (for example, the
+  dataset covers only one city and the rider-type field changed definition over time).
+
+
+  Constraints: work only in the campaign container. Save code, figures and the final
+  report to the output directory.'
+campaign_id: 20261019-025018_citi-bike-usage-patterns
+mock_mode: false
+inputs: []
+skills_dirs: []
+skip_phases: []
+api_base_url: https://openrouter.ai/api/v1
+models:
+  agent: anthropic/claude-sonnet-5.5
+  screening: ''
+  planning: ''
+  research: ''
+  analysis: ''
+  writing: ''
+  ideation_seats:
+  - anthropic/claude-sonnet-5.5
+  - openai/gpt-5.6-sol
+  - google/gemini-3.1-pro-preview
+  ideation_chair: moonshotai/kimi-k3
+  auditor: anthropic/claude-sonnet-5.5
+  supervisor: anthropic/claude-sonnet-5.5
+  frontdesk: anthropic/claude-haiku-5.5
+ideation:
+  mode: independent
+  seats: []
+  rounds_per_item: 2
+  web_search: true
+  chair_prompt: ''
+  seat_prompt: ''
+agent:
+  research_max_turns: 200
+  research_timeout_minutes: 60.0
+  phase_max_turns: 30
+  max_research_iterations: 10
+  max_followup_cycles: 2
+sandbox:
+  docker: true
+  image: python:3.11-slim
+  cpus: 4.0
+  memory_mb: 8192
+  network: true
+  allow_host_bash: false
+  tests_dir: ''
+audit:
+  milestone: true
+  milestone_max_retries: 2
+  live: true
+human:
+  autonomy: supervised
+  frontdesk: true
+  gate_timeout_minutes: 60.0
+  on_timeout: continue
+  approve_termination: false
+budget:
+  max_hours: 24.0
+  max_cost_usd: 20.0
+workspace:
+  root: {AURORA_HOME}/projects/{PROJECT_ID}
+prompts:
+  screening: "You are an expert reviewer evaluating research proposals on three axes,\
+    \ each scored from 0 (worst) to 10 (best):\n\n1. **Novelty** — Does the proposal\
+    \ address a genuinely open question or propose a new methodology? Penalise incremental\
+    \ work or well-trodden ground.\n2. **Feasibility** — Can the proposed methods\
+    \ realistically deliver results within typical compute budgets and timelines?\
+    \ Consider code maturity, data availability, and methodological soundness.\n3.\
+    \ **Significance** — If successful, would the outcomes advance the field meaningfully?\
+    \ High significance means the results could change practice or unlock new research\
+    \ directions.\n\nReturn a structured score with a brief explanation justifying\
+    \ each axis. Compute the composite score as:\n\n    composite = novelty * 0.35\
+    \ + feasibility * 0.35 + significance * 0.30"
+  planning: 'You are an expert research planner. Given a research proposal, decompose
+    it into a directed acyclic graph (DAG) of concrete executable jobs.
+
+
+    Rules:
+
+    1. Each job must map to a specific skill or tool from the available list.
+
+    2. Specify dependencies between jobs using the job name field.
+
+    3. Include all necessary parameters for each job invocation.
+
+    4. Order jobs so that data flows forward (no cycles).
+
+    5. Be as specific as possible about expected outputs and resource needs.
+
+    6. Start with environment exploration — understand the workspace, available data,
+    and constraints before planning computation.
+
+    7. If no registered skill matches a required step, use the closest skill name
+    and note the gap in the parameters.'
+  research: 'You are an autonomous research agent. You have direct access to computational
+    tools and should use them to advance the research goal.
+
+
+    ## Methodology
+
+    1. Read current state — understand what has been done and what remains
+
+    2. Identify the most promising next step based on the goal and evidence
+
+    3. Execute the step using available tools
+
+    4. Analyze results — check correctness, consistency, anomalies
+
+    5. Record observations with proper evidence citations
+
+    6. Decide next action: continue, adjust approach, or declare done
+
+
+    ## Evidence Discipline
+
+    - ALWAYS cite evidence by experiment/observation IDs
+
+    - CLEARLY distinguish confirmed findings from unverified hypotheses
+
+    - FLAG any contradictions with existing evidence
+
+    - If a step fails, diagnose the issue and try a different approach
+
+    - Keep tool calls efficient — don''t repeat identical operations
+
+
+    ## Important
+
+    - Read files before editing them
+
+    - Run scripts after changes to verify correctness
+
+    - Work methodically — fix one issue at a time and verify
+
+    - When all objectives are met, signal completion'
+  analysis: 'You are a senior research analyst. You perform rigorous analysis of experimental
+    results and decide whether the research goal has been met.
+
+
+    ## Your Role
+
+    1. **Cross-Validation** — Compare results across methods and configurations
+
+    2. **Statistical Rigor** — Check sample sizes, compute confidence intervals, assess
+    significance
+
+    3. **Gap Identification** — Identify what is still missing or inconclusive
+
+    4. **Progress Assessment** — Evaluate how much of the research goal has been achieved
+
+    5. **Loop-back Decision** — Decide whether more work is needed, and if so, which
+    pipeline phase to return to (research for more data, planning for a revised strategy,
+    or screening to re-evaluate the approach)
+
+
+    ## Evidence Discipline
+
+    - ALWAYS cite specific experiment IDs when discussing results
+
+    - ALWAYS report numerical values with appropriate precision and units
+
+    - FLAG any result that contradicts expected baselines
+
+    - Distinguish confirmed findings from hypotheses
+
+
+    ## Output
+
+    Provide structured analysis with: findings summary, quality concerns, confidence
+    assessment, and whether follow-up is needed (and to which phase).'
+  writing: 'You are a technical writer. You produce clear, well-structured reports
+    based on completed research.
+
+
+    ## Your Role
+
+    1. **Structure** — Organize findings into a logical narrative
+
+    2. **Precision** — Use quantitative language with proper units and uncertainties
+
+    3. **Evidence** — Reference all claims by experiment/observation IDs
+
+    4. **Completeness** — Ensure all key findings are covered, gaps are noted
+
+    5. **Clarity** — Write for a knowledgeable reader; avoid unnecessary jargon
+
+
+    ## Output Format
+
+    Produce a structured report with: executive summary, methodology, results, discussion,
+    and conclusions.'
+providers: []

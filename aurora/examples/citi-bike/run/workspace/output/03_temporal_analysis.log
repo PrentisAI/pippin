@@ -1,0 +1,15 @@
+[   0.2s] Q1 seasonality
+[   0.7s] figure fig_monthly_volume.png
+[   0.7s] Q2 hourly profiles
+[   1.1s] figure fig_hourly_weekday_vs_weekend.png
+[   1.3s] figure fig_heatmap_dow_hour.png
+[   1.6s] figure fig_hourly_seasonal_robustness.png
+[   1.6s] Q3 member vs casual
+[   3.3s] figure fig_member_vs_casual_hourly.png
+[   3.5s] figure fig_member_vs_casual_seasonal.png
+[   3.5s] Q3 summary stats
+[  12.3s] duration 2023 member done
+[  19.6s] duration 2023 casual done
+[  28.0s] duration 2024 member done
+[  36.5s] duration 2024 casual done
+[  36.5s] findings_numbers.json written; ALL DONE

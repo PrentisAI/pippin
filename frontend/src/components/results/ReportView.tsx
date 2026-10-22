@@ -4,6 +4,7 @@ import { formatCost, formatDuration } from '../../format'
 import type { RunReport, RunResult } from '../../types'
 import { CiteProvider, KeyPopover, useKeyLabels } from '../Cite'
 import { ResultChip, ResultPopover, showValue } from './ResultPopover'
+import { FirstTip } from '../../onboarding/FirstTip'
 
 const MODEL_ROLES: [string, string][] = [['agent', 'Agents'], ['research', 'Research'], ['analysis', 'Analysis'], ['writing', 'Writing'],
   ['ideation_seats', 'Ideation seats'], ['ideation_chair', 'Ideation chair'], ['auditor', 'Auditor'], ['supervisor', 'Live auditor']]
@@ -83,6 +84,10 @@ function Report({ campaignId, runId, onClose }: { campaignId: string; runId: str
         </div>
       </div>
       {overleaf && <OverleafDialog campaignId={campaignId} runId={runId} onClose={() => setOverleaf(false)} />}
+      <FirstTip id="report" doc="guide/results.md">
+        <b>A report.</b> Click a number’s chip to see where it came from: the script as it was then, the command, its inputs,
+        the job. References open the paper. Above: downloads, a script that reproduces the results, and Overleaf.
+      </FirstTip>
       <div className="rep-cols">
         <article className="rep-doc" ref={body} onClick={onBodyClick}>
           {rep.html ? <div className="rep-html" dangerouslySetInnerHTML={{ __html: rep.html }} />

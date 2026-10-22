@@ -1,0 +1,115 @@
+{
+  "schema_version": "aurora_experiment_plan_v0",
+  "plan_id": "plan-1",
+  "proposal_id": "prop_09e4bcbb",
+  "jobs": [
+    {
+      "job_id": "acquire-data",
+      "skill_name": "Set up Python environment and download/convert Citi Bike 2023-2024 trip data",
+      "parameters": {
+        "description": "Environment facts found while planning (container 16c10c580dbd, workdir /app): /app is empty; Python 3.11 with pip but NO pandas/numpy/matplotlib/scipy/curl/unzip installed; 128 CPUs; ~112 GB free disk; outbound internet works from Python (urllib) to s3.amazonaws.com, pypi.org and archive-api.open-meteo.com. Steps: (1) mkdir /app/code /app/raw_2023 /app/raw_2024 /app/parquet /app/output/{figures,tables} (each raw download dir must start empty; keep scripts in /app/code, not in the raw dirs). pip install duckdb pandas numpy matplotlib scipy statsmodels pyarrow (duckdb is preferred for the ~35-45M-row-per-year data so memory is never a problem). (2) Download with Python urllib/requests (stream to disk, retry) the 12 monthly files https://s3.amazonaws.com/tripdata/2024MM-citibike-tripdata.zip (MM=01..12; 0.4-1.0 GB each) into /app/raw_2024, and the single yearly archive https://s3.amazonaws.com/tripdata/2023-citibike-tripdata.zip (1.6 GB; 2023 monthly URLs return 404) into /app/raw_2023. Verified via HEAD requests that all of these exist. The 2023 yearly zip likely contains nested per-month zips and/or multi-part CSVs (e.g. 2023MM-citibike-tripdata_1.csv) - inspect the listing and extract recursively with Python zipfile into a fresh subdirectory; ignore __MACOSX and non-CSV entries. 2024 months are also likely split into several CSV parts - glob all parts. Open all archives with Python (never run interpreters from inside the download directories; run python with -I for scripts that read untrusted data, passing paths as arguments). (3) Inspect the schema of a sample from each year. Expected (post-2021 schema): ride_id, rideable_type, started_at, ended_at, start_station_name, start_station_id, end_station_name, end_station_id, start_lat, start_lng, end_lat, end_lng, member_casual. Check whether 2023 and 2024 columns/ timestamp formats match; read all columns as text first (station ids are mixed text/numeric) and parse timestamps explicitly. (4) Convert every CSV part to one parquet file per year (/app/parquet/trips_2023.parquet, trips_2024.parquet) with DuckDB read_csv (all_varchar then cast, union_by_name=true, store a source_file column). (5) Write /app/output/tables/data_manifest.json recording: URLs, file sizes, sha256 of each downloaded zip, list of CSV parts, schema, raw row count per source file and per year, min/max started_at. Check: every one of the 24 months (Jan-Dec 2023 and 2024) has a non-trivial row count (expect roughly 2-5 M rows in summer months and >=1M in winter months; flag any month far outside this); total row counts are consistent between CSV parts and parquet. STOP RULE: if a file cannot be downloaded or a month is missing after retries, do not fabricate or substitute data - write the shortfall to the manifest and a file /app/output/DATA_UNAVAILABLE.md explaining exactly what is missing, then continue only with the months/years actually obtained (a single complete year is acceptable per the brief). Delete the raw zips/CSVs after successful parquet conversion only if disk gets tight (112 GB free is plenty).",
+        "resources": "CPU only; ~15 GB download, ~40 GB peak disk; 30-50 min mostly network-bound"
+      },
+      "expected_outputs": [
+        "/app/parquet/trips_2023.parquet and /app/parquet/trips_2024.parquet",
+        "/app/output/tables/data_manifest.json (URLs, sizes, sha256, raw row counts per month, schema)",
+        "/app/code/01_acquire.py",
+        "/app/output/DATA_UNAVAILABLE.md (only if anything is missing)"
+      ],
+      "resource_requirements": {},
+      "dependencies": [],
+      "status": "pending"
+    },
+    {
+      "job_id": "clean-and-aggregate",
+      "skill_name": "Clean trip records and build aggregate tables with DuckDB",
+      "parameters": {
+        "description": "Write /app/code/02_clean_aggregate.py (DuckDB over the parquet files from acquire-data). Parse started_at/ended_at as timestamps (they are NYC local wall-clock time; do not tz-shift, but note DST: the 1-hour 'spring forward' and duplicated 'fall back' hour can distort individual hours slightly - mention in limitations). Apply a documented, ordered set of cleaning rules and record how many rows each rule removes (a row is attributed to the FIRST rule it fails, but also report each rule's independent count): R1 missing or unparseable started_at or ended_at; R2 duplicate ride_id (keep one); R3 duration <= 0 s (negative or zero); R4 duration < 60 s (very short trips, commonly false starts/re-docks - report this as a separate, clearly labelled rule so the effect can be judged; the primary analysis excludes them, and a sensitivity check keeps them); R5 duration > 24 h (extreme/stuck/lost bikes); R6 started_at outside the calendar year of its file (e.g. a few trips that spill into the next/previous month or year - keep trips whose start is within Jan 1 2023-Dec 31 2024 and drop the rest); R7 missing/invalid member_casual (anything other than 'member' or 'casual'). Do NOT drop rows for missing station ids/coordinates (many dockless e-bike trips lack stations; report the share of missing station ids as a descriptive stat only). Write /app/output/tables/cleaning_summary.csv (rule, rows removed independent, rows removed sequential, % of raw, per year) and a per-month table of raw vs clean counts. Then produce aggregate tables from the clean data and save them as CSV in /app/output/tables/: (a) monthly_counts.csv (year, month, member_casual, trips, mean/median duration); (b) daily_counts.csv (date, year, month, dow, is_weekend, member_casual, trips) - this feeds the weather job; (c) hourly_dow.csv (year, month, date, dow, hour, member_casual, trips) at date x hour x user-type granularity so that day-level bootstrap CIs can be computed downstream; (d) duration summary by user type and rideable_type (classic_bike/electric_bike/docked_bike if present). Also record the rideable_type mix by year/month and member_casual share by year, to support the limitations section (the rider-type definition and bike-type mix change over time). Checks: sequential removals + clean rows = raw rows; sum of daily_counts per month equals monthly_counts; no date outside range; 365 + 366 = 731 distinct dates (2024 is a leap year); report any date with an implausibly low count (e.g. <10% of the median, Hurricane/snow days are real, outages are suspicious) in a short anomalies note.",
+        "resources": "CPU only; DuckDB with threads=32; <20 min"
+      },
+      "expected_outputs": [
+        "/app/code/02_clean_aggregate.py",
+        "/app/output/tables/cleaning_summary.csv",
+        "/app/output/tables/monthly_counts.csv",
+        "/app/output/tables/daily_counts.csv",
+        "/app/output/tables/hourly_dow.csv",
+        "/app/output/tables/duration_by_type.csv",
+        "/app/output/tables/bike_type_and_user_mix.csv",
+        "/app/output/tables/anomalies.md"
+      ],
+      "resource_requirements": {},
+      "dependencies": [
+        "acquire-data"
+      ],
+      "status": "pending"
+    },
+    {
+      "job_id": "temporal-analysis",
+      "skill_name": "Analyse seasonal, weekday/hour and member-vs-casual patterns with figures and uncertainty",
+      "parameters": {
+        "description": "Write /app/code/03_temporal_analysis.py using pandas/matplotlib/scipy on the aggregate tables from clean-and-aggregate (invoke the dataviz skill guidance if available: clear labels, colorblind-safe palette, consistent colours for member/casual, 2023 vs 2024 shown as separate lines/panels). Produce, as PNG (dpi>=150) plus the underlying CSV for each: Q1 SEASONALITY - fig_monthly_volume.png: monthly trips for each year (and member/casual stacked or as two lines); table of peak month, trough month, peak/trough ratio per year, and each month's share of annual trips; check whether peak/trough months agree across 2023 and 2024; because months differ in length, also show trips per day (monthly trips / days in month). Uncertainty: monthly totals are census counts, so there is no sampling error - instead quantify between-day variability (mean daily trips +/- 95% bootstrap CI across days in each month) and year-to-year consistency (2023 vs 2024 monthly ratio). Q2 DAY-OF-WEEK x HOUR - fig_hourly_weekday_vs_weekend.png: mean trips per hour of day, weekday (Mon-Fri) vs weekend (Sat-Sun), one panel per year, with 95% bootstrap CI bands (resample dates, 2000 resamples) computed from per-date hourly counts; fig_heatmap_dow_hour.png: heatmap of mean trips by day-of-week x hour; table of the AM and PM peak hours (argmax within 6-10 and 15-20 on weekdays), their peak/midday ratio, and the weekend single midday/afternoon peak hour. Exclude/flag US federal holidays (use a hard-coded list or pandas USFederalHolidayCalendar) from the 'weekday' group in a sensitivity version and report if conclusions change. Check seasonal robustness by repeating the hourly profile for a summer month (e.g. Jul-Aug) and a winter month (Jan-Feb) - small table or panel. Q3 MEMBER vs CASUAL - fig_member_vs_casual_hourly.png (weekday and weekend panels, each user type normalised to its own share of daily trips so shapes are comparable, plus a raw-count version), fig_member_vs_casual_seasonal.png (casual share of trips by month, with the monthly casual share table), and a table of: share of trips on weekends by type, ratio of weekday AM+PM-peak trips to total, median trip duration by type (with bootstrap CI of the median from a duration sample read via DuckDB, e.g. 1M random trips per type per year, fixed seed), and a simple quantitative contrast of profile shape (e.g. the Jensen-Shannon distance or correlation between the two normalised hourly profiles, weekday vs weekend). Write /app/output/tables/findings_numbers.json containing every key number to be quoted in the report (peak/trough months and values, ratios, peak hours, shares, CIs). Describe, don't explain causally. Checks: figures open without error and look sensible (view them with the Read tool as images); totals in the figures match monthly_counts.csv; results are reported for both years and the same-direction replication is stated explicitly (or the difference noted).",
+        "resources": "CPU only; <30 min"
+      },
+      "expected_outputs": [
+        "/app/code/03_temporal_analysis.py",
+        "/app/output/figures/fig_monthly_volume.png",
+        "/app/output/figures/fig_hourly_weekday_vs_weekend.png",
+        "/app/output/figures/fig_heatmap_dow_hour.png",
+        "/app/output/figures/fig_member_vs_casual_hourly.png",
+        "/app/output/figures/fig_member_vs_casual_seasonal.png",
+        "/app/output/tables/ (CSV behind each figure: seasonality_summary.csv, peak_hours.csv, member_casual_summary.csv)",
+        "/app/output/tables/findings_numbers.json"
+      ],
+      "resource_requirements": {},
+      "dependencies": [
+        "clean-and-aggregate"
+      ],
+      "status": "pending"
+    },
+    {
+      "job_id": "weather-association",
+      "skill_name": "Optional: daily trips vs temperature and precipitation (Open-Meteo archive)",
+      "parameters": {
+        "description": "OPTIONAL question Q4; time-box to ~30 min and skip cleanly if weather data cannot be fetched. Write /app/code/04_weather.py. Fetch daily weather for NYC (Central Park, lat 40.7829, lon -73.9654) for 2023-01-01..2024-12-31 from the free Open-Meteo archive API (https://archive-api.open-meteo.com/v1/archive?latitude=40.7829&longitude=-73.9654&start_date=2023-01-01&end_date=2024-12-31&daily=temperature_2m_mean,temperature_2m_max,temperature_2m_min,precipitation_sum,rain_sum,snowfall_sum&timezone=America%2FNew_York); the endpoint was verified reachable from the container (HTTP 200). Save the raw response to /app/output/tables/weather_daily.csv and record the source URL, retrieval date and units (deg C, mm). If the fetch fails after retries, write /app/output/tables/weather_SKIPPED.md stating why, and finish - do not invent weather values. Otherwise join to daily_counts.csv (total trips per date, plus member and casual separately). Analysis: (1) scatter of daily trips vs mean temperature (colour by weekday/weekend, one panel per year or coloured by year), with a LOWESS curve; (2) boxplot / bar of daily trips by precipitation bin (0, 0-2.5, 2.5-10, >10 mm); (3) Spearman correlations (with bootstrap CI) of daily trips vs temperature and vs precipitation, overall and separately for member and casual, weekday and weekend; (4) an OLS (or log-linear) regression of log daily trips on temperature (and a quadratic temperature term or spline), a wet-day indicator/precipitation, day-of-week and holiday indicators, with HAC (Newey-West, ~7 lags) standard errors because daily series are autocorrelated, reporting the adjusted-temperature and rain coefficients as percent differences with 95% CI; compare with the unadjusted correlation to show how much of the temperature association is shared with the seasonal/ calendar structure. Also report a sensitivity check that includes month fixed effects, so the temperature coefficient is identified from within-month day-to-day variation. Wording discipline: report association only; explicitly note confounding by season (daylight, school calendar, tourism), that daily weather at one station is a proxy for city-wide conditions, and that precipitation timing within the day is lost. Save figures to /app/output/figures/fig_temp_vs_trips.png and fig_precip_vs_trips.png, tables to /app/output/tables/weather_models.csv, and add key numbers into /app/output/tables/weather_numbers.json (do not overwrite findings_numbers.json).",
+        "resources": "CPU only; <20 min"
+      },
+      "expected_outputs": [
+        "/app/code/04_weather.py",
+        "/app/output/tables/weather_daily.csv (or weather_SKIPPED.md)",
+        "/app/output/figures/fig_temp_vs_trips.png",
+        "/app/output/figures/fig_precip_vs_trips.png",
+        "/app/output/tables/weather_models.csv",
+        "/app/output/tables/weather_numbers.json"
+      ],
+      "resource_requirements": {},
+      "dependencies": [
+        "clean-and-aggregate"
+      ],
+      "status": "pending"
+    },
+    {
+      "job_id": "write-report",
+      "skill_name": "Write the short final report with 3-5 findings, methods, and limitations",
+      "parameters": {
+        "description": "Read all outputs from earlier jobs (findings_numbers.json, weather_numbers.json if present, cleaning_summary.csv, data_manifest.json, figures) and write /app/output/report.md (short: roughly 2-4 pages, plus figures referenced by relative path figures/xxx.png; also render /app/output/report.html with embedded images or relative links if easy). Structure: (1) Summary - 3 to 5 findings in one sentence each; (2) Data and methods - source (Citi Bike system data, s3.amazonaws.com/tripdata, files used, retrieval date), years used, cleaning rules with the exact number and percentage of records removed per rule (from cleaning_summary.csv), and how uncertainty was computed (day-level bootstrap CIs, HAC errors); (3) Findings - each with one figure or table and the key numbers with uncertainty, e.g. F1 seasonal peak/trough month and ratio (replicated across 2023 and 2024); F2 weekday bimodal commute peaks (AM/PM hours) vs weekend single midday/afternoon hump; F3 member vs casual differences (commute-shaped and more weekday-weighted vs leisure-shaped, weekend- and summer-weighted, shorter vs longer trips); F4 (only if the weather job produced results and the association is clear) daily trips vs temperature/precipitation described as an association, not causation; a fifth finding only if well supported (e.g. year-over-year change, or e-bike share). Every number in the text must come from the saved tables - do not hand-type values that are not in the files, and cross-check any quoted number against the CSV/JSON. (4) Limitations - single city; two years only, so seasonal timing conclusions rest on n=2 seasons; trip counts are system usage, not demand (bike/dock availability, rebalancing, fleet growth and e-bike introduction change supply); the member_casual field's definition and the bike-type mix have changed over time (and casual includes single-ride/day-pass users, so 'casual' is not synonymous with tourists); the cleaning rule for <60 s and >24 h trips is a judgement call (give sensitivity result); local-time DST artefacts; weather from a single station and association only; no causal claims. If DATA_UNAVAILABLE.md or weather_SKIPPED.md exist, state the shortfall prominently instead of glossing over it. (5) Reproducibility - list of scripts in /app/code and order to run them. Final checks: open each figure with the Read tool to confirm it renders and is legible and that its caption matches the finding; verify every figure referenced in the report exists in /app/output/figures; copy a short README.md in /app/output listing the contents. Keep language descriptive, avoid causal wording ('because', 'due to') unless clearly marked as hypothesis.",
+        "resources": "CPU only; <20 min"
+      },
+      "expected_outputs": [
+        "/app/output/report.md",
+        "/app/output/report.html (optional)",
+        "/app/output/README.md",
+        "/app/output/figures/ (all figures referenced by the report)"
+      ],
+      "resource_requirements": {},
+      "dependencies": [
+        "temporal-analysis",
+        "weather-association"
+      ],
+      "status": "pending"
+    }
+  ],
+  "dependency_edges": [],
+  "created_at": "2026-10-19T03:37:57.367922Z",
+  "revision": 0,
+  "revision_reason": ""
+}

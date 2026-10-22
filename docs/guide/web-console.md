@@ -8,7 +8,57 @@ aurora serve              # then open http://localhost:8000
 
 ## The first time
 
-The start page first shows **Setup**: what a run needs and whether it is there
+**The welcome.** The first time a person opens the console — you, and with
+accounts every new member — a short welcome takes them through four steps:
+
+1. *Welcome*: what AURORA does, who checks the work, where they come in.
+2. *Connect*: what this machine has and what is missing, each with how to fix
+   it, and the model key (without accounts the console's, with accounts their
+   own). Optional extras (GPU jobs, notifications, OpenAlex, Zotero) can wait.
+3. *Your way of working*: their field (its templates and examples come first),
+   how hands-on new runs are (supervised or autonomous) and their budget. Without
+   accounts these become the console's defaults, with accounts the person's own.
+4. *Start*: walk through a finished example with the tour, watch the scripted
+   demo, or start their own research.
+
+Every step can be skipped and comes back from **Help → Open the welcome again**.
+
+**Examples.** A console comes with finished runs to look at: *Citi Bike usage
+patterns*, a real run from question to report (with a screening decision and
+the live auditor stopping the agent), and the scripted demo. An example is
+marked *example · read-only* in the project list: everyone can open its stream,
+files and report and ask its front desk about it, nobody can change or delete
+it. **Duplicate** makes a project of your own with its question, ready to run.
+Help → Examples lists them; each person can hide them from their project list,
+and an admin can take one out of the console (and put it back).
+
+**The tour.** Three chapters, each a spotlight on one part of the console with
+what it is and what to do there: *A finished run* (the project list, the status
+of a run, report, re-run and fork, the stream and its decisions, files and
+jobs, the project's tabs, talking to a run, the report and its downloads),
+*Around AURORA* (every button of the left bar) and *Your own research* (the
+brief, the templates, the proposal card, a run at work, what comes after).
+Arrow keys move through it; Esc ends it.
+
+**Help (?).** The button at the bottom of the left bar, with the number of
+things not tried yet:
+
+- *Ask how to do something*: answered from the documentation by the front
+  desk's model, with links to the pages (without a key, the matching pages);
+- *Getting started*: a checklist that ticks itself as you do things — connect a
+  key, walk through the example, watch the demo, start your own research, answer
+  a decision, trace a number in a report, brainstorm, bring in papers, get
+  decisions on your phone, find your way around (and, for admins, connect GPUs
+  and invite the team);
+- the tours, the examples, and every guide of the documentation, read in the
+  console.
+
+**First-time tips.** The first time something appears — a proposal card, a
+decision, a run at work, a report, Compare, Fork, GPU jobs, the Brainstorm, the
+Library — a short tip says what it is; *Got it* hides it for good, and Help can
+show them all again.
+
+**Setup.** The start page also shows what a run needs and whether it is there
 (a model key, Claude Code, Docker) and what helps (the container image pulled,
 GPU jobs, notifications, an OpenAlex key), each with how to fix it. Without
 accounts you can paste the OpenRouter key there (it is checked with OpenRouter
@@ -16,10 +66,10 @@ and saved in `AURORA_HOME/.env`, readable only by the console's user) and pull
 the image with one click. The card hides once everything needed is there, or
 when you dismiss it.
 
-**Watch a demo run** starts a project with a run of scripted models and
-simulated tools: the ideation meeting, every phase, the auditors' checks and a
-report, in seconds, with no key, no Docker and no cost. It shows what a run
-looks like before you spend anything.
+**Watch a demo run** adds a run of scripted models and simulated tools to your
+demo project (made the first time): the ideation meeting, every phase, the
+auditors' checks and a report, in seconds, with no key, no Docker and no cost.
+It shows what a run looks like before you spend anything.
 
 Below the box, **templates** start the most common kinds of work: *Analyse a
 dataset*, *Compare methods*, *Reproduce a paper*, *Explore an open question*,

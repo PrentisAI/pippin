@@ -1,0 +1,24 @@
+{
+  "schema_version": "aurora_proposal_v0",
+  "proposal_id": "prop_09e4bcbb",
+  "title": "I think the latest proposal is fine",
+  "description": "I think the latest proposal is fine",
+  "research_questions": [
+    "I think the latest proposal is fine"
+  ],
+  "proposed_methods": [],
+  "expected_outcomes": [],
+  "hypothesis": "",
+  "alternatives_considered": "",
+  "falsification_check": "",
+  "unresolved_disagreements": [],
+  "meeting_notes": [],
+  "decision": {
+    "mode": "researcher",
+    "note": "written by the researcher at a human gate"
+  },
+  "contributions": [],
+  "score": null,
+  "selected": true,
+  "created_at": "2026-10-19T03:36:37.427817Z"
+}

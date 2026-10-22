@@ -1,0 +1,2413 @@
+{
+ "created": "2026-10-19 03:45:58",
+ "base_url": "https://s3.amazonaws.com/tripdata/",
+ "downloads": [
+  {
+   "url": "https://s3.amazonaws.com/tripdata/2023-citibike-tripdata.zip",
+   "year_group": 2023,
+   "file": "2023-citibike-tripdata.zip",
+   "download_status": "downloaded",
+   "size_bytes": 1602415356,
+   "sha256": "f5ac8d2b9556a4f18925569681d60e960eae44ce7e2999c74726c8e1ff706c07",
+   "zip_members": [
+    {
+     "name": "2023-citibike-tripdata/202302-citibike-tripdata.zip",
+     "size": 331665657
+    },
+    {
+     "name": "2023-citibike-tripdata/.DS_Store",
+     "size": 8196
+    },
+    {
+     "name": "2023-citibike-tripdata/202308-citibike-tripdata.zip",
+     "size": 776349734
+    },
+    {
+     "name": "2023-citibike-tripdata/202306-citibike-tripdata.zip",
+     "size": 675602285
+    },
+    {
+     "name": "2023-citibike-tripdata/202310-citibike-tripdata.zip",
+     "size": 729415015
+    },
+    {
+     "name": "2023-citibike-tripdata/202304-citibike-tripdata.zip",
+     "size": 538117588
+    },
+    {
+     "name": "2023-citibike-tripdata/202312-citibike-tripdata.zip",
+     "size": 431154228
+    },
+    {
+     "name": "2023-citibike-tripdata/202303-citibike-tripdata.zip",
+     "size": 414290700
+    },
+    {
+     "name": "2023-citibike-tripdata/202301-citibike-tripdata.zip",
+     "size": 351150553
+    },
+    {
+     "name": "2023-citibike-tripdata/202309-citibike-tripdata.zip",
+     "size": 679815711
+    },
+    {
+     "name": "2023-citibike-tripdata/202311-citibike-tripdata.zip",
+     "size": 551078314
+    },
+    {
+     "name": "2023-citibike-tripdata/202307-citibike-tripdata.zip",
+     "size": 716831012
+    },
+    {
+     "name": "2023-citibike-tripdata/202305-citibike-tripdata.zip",
+     "size": 675683079
+    }
+   ]
+  },
+  {
+   "url": "https://s3.amazonaws.com/tripdata/202401-citibike-tripdata.zip",
+   "year_group": 2024,
+   "file": "202401-citibike-tripdata.zip",
+   "download_status": "downloaded",
+   "size_bytes": 369035302,
+   "sha256": "0a2e81eacd7bf3890712de8f2a1b56bda985c17d9e61b08acf5e7c7ec9f20eb0",
+   "zip_members": [
+    {
+     "name": "202401-citibike-tripdata_2.csv",
+     "size": 173662194
+    },
+    {
+     "name": "202401-citibike-tripdata_1.csv",
+     "size": 195372814
+    }
+   ]
+  },
+  {
+   "url": "https://s3.amazonaws.com/tripdata/202402-citibike-tripdata.zip",
+   "year_group": 2024,
+   "file": "202402-citibike-tripdata.zip",
+   "download_status": "downloaded",
+   "size_bytes": 414712349,
+   "sha256": "f0209d02b862ec7422ea251f55626c007c8289adb62230e870ed7da24ef77f05",
+   "zip_members": [
+    {
+     "name": "202402-citibike-tripdata_1.csv",
+     "size": 195625178
+    },
+    {
+     "name": "202402-citibike-tripdata_2.csv",
+     "size": 195431964
+    },
+    {
+     "name": "202402-citibike-tripdata_3.csv",
+     "size": 23654777
+    }
+   ]
+  },
+  {
+   "url": "https://s3.amazonaws.com/tripdata/202403-citibike-tripdata.zip",
+   "year_group": 2024,
+   "file": "202403-citibike-tripdata.zip",
+   "download_status": "downloaded",
+   "size_bytes": 520746126,
+   "sha256": "d1a58caa37a66bbe6477680f3fba283f6f638475855591a4a2e8b73dc4cf8470",
+   "zip_members": [
+    {
+     "name": "202403-citibike-tripdata_3.csv",
+     "size": 129841340
+    },
+    {
+     "name": "202403-citibike-tripdata_2.csv",
+     "size": 195542945
+    },
+    {
+     "name": "202403-citibike-tripdata_1.csv",
+     "size": 195361411
+    }
+   ]
+  },
+  {
+   "url": "https://s3.amazonaws.com/tripdata/202404-citibike-tripdata.zip",
+   "year_group": 2024,
+   "file": "202404-citibike-tripdata.zip",
+   "download_status": "downloaded",
+   "size_bytes": 629567797,
+   "sha256": "32b8c4f3677402b8e5981070b288bb88f38fd82c3264d934c1a39c597dc4bed7",
+   "zip_members": [
+    {
+     "name": "202404-citibike-tripdata_4.csv",
+     "size": 42462406
+    },
+    {
+     "name": "202404-citibike-tripdata_1.csv",
+     "size": 195586925
+    },
+    {
+     "name": "202404-citibike-tripdata_2.csv",
+     "size": 195446641
+    },
+    {
+     "name": "202404-citibike-tripdata_3.csv",
+     "size": 196071259
+    }
+   ]
+  },
+  {
+   "url": "https://s3.amazonaws.com/tripdata/202405-citibike-tripdata.zip",
+   "year_group": 2024,
+   "file": "202405-citibike-tripdata.zip",
+   "download_status": "downloaded",
+   "size_bytes": 809097529,
+   "sha256": "7c557c96b10b12de4391b97963cda166c46dc75a6a2293714c4ba740af740866",
+   "zip_members": [
+    {
+     "name": "202405-citibike-tripdata_3.csv",
+     "size": 195776754
+    },
+    {
+     "name": "202405-citibike-tripdata_2.csv",
+     "size": 195951437
+    },
+    {
+     "name": "202405-citibike-tripdata_1.csv",
+     "size": 195645459
+    },
+    {
+     "name": "202405-citibike-tripdata_5.csv",
+     "size": 25918315
+    },
+    {
+     "name": "202405-citibike-tripdata_4.csv",
+     "size": 195804862
+    }
+   ]
+  },
+  {
+   "url": "https://s3.amazonaws.com/tripdata/202406-citibike-tripdata.zip",
+   "year_group": 2024,
+   "file": "202406-citibike-tripdata.zip",
+   "download_status": "downloaded",
+   "size_bytes": 936046329,
+   "sha256": "d54f8cb6c953801265448b6835b1aff17ae7cb687caf47fd784b1ff8047df808",
+   "zip_members": [
+    {
+     "name": "202406-citibike-tripdata_5.csv",
+     "size": 153573696
+    },
+    {
+     "name": "202406-citibike-tripdata_4.csv",
+     "size": 195796832
+    },
+    {
+     "name": "202406-citibike-tripdata_1.csv",
+     "size": 195851921
+    },
+    {
+     "name": "202406-citibike-tripdata_3.csv",
+     "size": 195503715
+    },
+    {
+     "name": "202406-citibike-tripdata_2.csv",
+     "size": 195319463
+    }
+   ]
+  },
+  {
+   "url": "https://s3.amazonaws.com/tripdata/202407-citibike-tripdata.zip",
+   "year_group": 2024,
+   "file": "202407-citibike-tripdata.zip",
+   "download_status": "downloaded",
+   "size_bytes": 923324464,
+   "sha256": "fd5dccd7bd69c499f6d0f78e8b10e91316ff5bfabdf25b7fc0efc3007c27d414",
+   "zip_members": [
+    {
+     "name": "202407-citibike-tripdata_2.csv",
+     "size": 195310134
+    },
+    {
+     "name": "202407-citibike-tripdata_3.csv",
+     "size": 196286320
+    },
+    {
+     "name": "202407-citibike-tripdata_1.csv",
+     "size": 195621496
+    },
+    {
+     "name": "202407-citibike-tripdata_4.csv",
+     "size": 195297424
+    },
+    {
+     "name": "202407-citibike-tripdata_5.csv",
+     "size": 140808388
+    }
+   ]
+  },
+  {
+   "url": "https://s3.amazonaws.com/tripdata/202408-citibike-tripdata.zip",
+   "year_group": 2024,
+   "file": "202408-citibike-tripdata.zip",
+   "download_status": "downloaded",
+   "size_bytes": 900042686,
+   "sha256": "9d28e1c00036b880ba42a57acecc529427efd95a272221c3e47f9065a3f63a36",
+   "zip_members": [
+    {
+     "name": "202408-citibike-tripdata_3.csv",
+     "size": 195504717
+    },
+    {
+     "name": "202408-citibike-tripdata_2.csv",
+     "size": 195229575
+    },
+    {
+     "name": "202408-citibike-tripdata_1.csv",
+     "size": 195619626
+    },
+    {
+     "name": "202408-citibike-tripdata_5.csv",
+     "size": 117895432
+    },
+    {
+     "name": "202408-citibike-tripdata_4.csv",
+     "size": 195792634
+    }
+   ]
+  },
+  {
+   "url": "https://s3.amazonaws.com/tripdata/202409-citibike-tripdata.zip",
+   "year_group": 2024,
+   "file": "202409-citibike-tripdata.zip",
+   "download_status": "downloaded",
+   "size_bytes": 976527118,
+   "sha256": "eb1f0c66ab9da721f3f909fc0356c30a236bb79c2b2320977ccd39b2be4f00c8",
+   "zip_members": [
+    {
+     "name": "202409-citibike-tripdata_4.csv",
+     "size": 195482499
+    },
+    {
+     "name": "202409-citibike-tripdata_5.csv",
+     "size": 194390452
+    },
+    {
+     "name": "202409-citibike-tripdata_1.csv",
+     "size": 195190131
+    },
+    {
+     "name": "202409-citibike-tripdata_2.csv",
+     "size": 195780759
+    },
+    {
+     "name": "202409-citibike-tripdata_3.csv",
+     "size": 195682575
+    }
+   ]
+  },
+  {
+   "url": "https://s3.amazonaws.com/tripdata/202410-citibike-tripdata.zip",
+   "year_group": 2024,
+   "file": "202410-citibike-tripdata.zip",
+   "download_status": "downloaded",
+   "size_bytes": 1006602893,
+   "sha256": "44c1fa43aa217dd742f04ebe2ce3b7f533bb27ff01d358bf6d41f83e92a7fbc2",
+   "zip_members": [
+    {
+     "name": "202410-citibike-tripdata_6.csv",
+     "size": 29302992
+    },
+    {
+     "name": "202410-citibike-tripdata_4.csv",
+     "size": 195695538
+    },
+    {
+     "name": "202410-citibike-tripdata_5.csv",
+     "size": 195184918
+    },
+    {
+     "name": "202410-citibike-tripdata_1.csv",
+     "size": 195490020
+    },
+    {
+     "name": "202410-citibike-tripdata_2.csv",
+     "size": 195724586
+    },
+    {
+     "name": "202410-citibike-tripdata_3.csv",
+     "size": 195204001
+    }
+   ]
+  },
+  {
+   "url": "https://s3.amazonaws.com/tripdata/202411-citibike-tripdata.zip",
+   "year_group": 2024,
+   "file": "202411-citibike-tripdata.zip",
+   "download_status": "downloaded",
+   "size_bytes": 724347545,
+   "sha256": "92912a6907ea5029907dd6c95d80cbf7cd3560f2da5014ab23dbee1851189a88",
+   "zip_members": [
+    {
+     "name": "202411-citibike-tripdata_3.csv",
+     "size": 195052931
+    },
+    {
+     "name": "202411-citibike-tripdata_2.csv",
+     "size": 195153264
+    },
+    {
+     "name": "202411-citibike-tripdata_1.csv",
+     "size": 195290496
+    },
+    {
+     "name": "202411-citibike-tripdata_4.csv",
+     "size": 138850288
+    }
+   ]
+  },
+  {
+   "url": "https://s3.amazonaws.com/tripdata/202412-citibike-tripdata.zip",
+   "year_group": 2024,
+   "file": "202412-citibike-tripdata.zip",
+   "download_status": "downloaded",
+   "size_bytes": 450806412,
+   "sha256": "c83f6e01ef4a288a3940ae08373593bd282cbe7dee6e79a854ba993486b0cdeb",
+   "zip_members": [
+    {
+     "name": "202412-citibike-tripdata_1.csv",
+     "size": 194853553
+    },
+    {
+     "name": "202412-citibike-tripdata_3.csv",
+     "size": 60842351
+    },
+    {
+     "name": "202412-citibike-tripdata_2.csv",
+     "size": 195110078
+    }
+   ]
+  }
+ ],
+ "years": {
+  "2023": {
+   "csv_parts": [
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202301-citibike-tripdata.zip__202301-citibike-tripdata_1.csv",
+     "size_bytes": 195546500,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202301-citibike-tripdata.zip__202301-citibike-tripdata_2.csv",
+     "size_bytes": 155603759,
+     "rows": 795405,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202302-citibike-tripdata.zip__202302-citibike-tripdata_1.csv",
+     "size_bytes": 195500327,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202302-citibike-tripdata.zip__202302-citibike-tripdata_2.csv",
+     "size_bytes": 136165036,
+     "rows": 696166,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202303-citibike-tripdata.zip__202303-citibike-tripdata_1.csv",
+     "size_bytes": 195519558,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202303-citibike-tripdata.zip__202303-citibike-tripdata_2.csv",
+     "size_bytes": 195506286,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202303-citibike-tripdata.zip__202303-citibike-tripdata_3.csv",
+     "size_bytes": 23264426,
+     "rows": 118930,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202304-citibike-tripdata.zip__202304-citibike-tripdata_1.csv",
+     "size_bytes": 195458863,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202304-citibike-tripdata.zip__202304-citibike-tripdata_2.csv",
+     "size_bytes": 195699033,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202304-citibike-tripdata.zip__202304-citibike-tripdata_3.csv",
+     "size_bytes": 146959262,
+     "rows": 749713,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202305-citibike-tripdata.zip__202305-citibike-tripdata_1.csv",
+     "size_bytes": 195530590,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202305-citibike-tripdata.zip__202305-citibike-tripdata_2.csv",
+     "size_bytes": 195590194,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202305-citibike-tripdata.zip__202305-citibike-tripdata_3.csv",
+     "size_bytes": 195612295,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202305-citibike-tripdata.zip__202305-citibike-tripdata_4.csv",
+     "size_bytes": 88949434,
+     "rows": 453144,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202306-citibike-tripdata.zip__202306-citibike-tripdata_1.csv",
+     "size_bytes": 195859996,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202306-citibike-tripdata.zip__202306-citibike-tripdata_2.csv",
+     "size_bytes": 195577168,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202306-citibike-tripdata.zip__202306-citibike-tripdata_3.csv",
+     "size_bytes": 195991405,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202306-citibike-tripdata.zip__202306-citibike-tripdata_4.csv",
+     "size_bytes": 88173150,
+     "rows": 451542,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202307-citibike-tripdata.zip__202307-citibike-tripdata_1.csv",
+     "size_bytes": 195875627,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202307-citibike-tripdata.zip__202307-citibike-tripdata_2.csv",
+     "size_bytes": 195801492,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202307-citibike-tripdata.zip__202307-citibike-tripdata_3.csv",
+     "size_bytes": 195613520,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202307-citibike-tripdata.zip__202307-citibike-tripdata_4.csv",
+     "size_bytes": 129539807,
+     "rows": 659577,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202308-citibike-tripdata.zip__202308-citibike-tripdata_1.csv",
+     "size_bytes": 195548228,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202308-citibike-tripdata.zip__202308-citibike-tripdata_2.csv",
+     "size_bytes": 195915111,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202308-citibike-tripdata.zip__202308-citibike-tripdata_3.csv",
+     "size_bytes": 195755881,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202308-citibike-tripdata.zip__202308-citibike-tripdata_4.csv",
+     "size_bytes": 189129948,
+     "rows": 964177,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202309-citibike-tripdata.zip__202309-citibike-tripdata_1.csv",
+     "size_bytes": 195865808,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202309-citibike-tripdata.zip__202309-citibike-tripdata_2.csv",
+     "size_bytes": 196001255,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202309-citibike-tripdata.zip__202309-citibike-tripdata_3.csv",
+     "size_bytes": 195572267,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202309-citibike-tripdata.zip__202309-citibike-tripdata_4.csv",
+     "size_bytes": 92375815,
+     "rows": 471148,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202310-citibike-tripdata.zip__202310-citibike-tripdata_1.csv",
+     "size_bytes": 195466420,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202310-citibike-tripdata.zip__202310-citibike-tripdata_2.csv",
+     "size_bytes": 196407392,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202310-citibike-tripdata.zip__202310-citibike-tripdata_3.csv",
+     "size_bytes": 195228529,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202310-citibike-tripdata.zip__202310-citibike-tripdata_4.csv",
+     "size_bytes": 142312108,
+     "rows": 725334,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202311-citibike-tripdata.zip__202311-citibike-tripdata_1.csv",
+     "size_bytes": 195573204,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202311-citibike-tripdata.zip__202311-citibike-tripdata_2.csv",
+     "size_bytes": 195810919,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202311-citibike-tripdata.zip__202311-citibike-tripdata_3.csv",
+     "size_bytes": 159693761,
+     "rows": 816976,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202312-citibike-tripdata.zip__202312-citibike-tripdata_1.csv",
+     "size_bytes": 195694355,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202312-citibike-tripdata.zip__202312-citibike-tripdata_2.csv",
+     "size_bytes": 195232942,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "2023-citibike-tripdata__2023-citibike-tripdata__202312-citibike-tripdata.zip__202312-citibike-tripdata_3.csv",
+     "size_bytes": 40226501,
+     "rows": 204874,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    }
+   ],
+   "parquet": "/app/parquet/trips_2023.parquet",
+   "csv_total_rows": 35106986,
+   "parquet_rows": 35106986,
+   "parquet_size_bytes": 1587818963,
+   "schema": {
+    "ride_id": "VARCHAR",
+    "rideable_type": "VARCHAR",
+    "started_at_raw": "VARCHAR",
+    "started_at": "TIMESTAMP",
+    "ended_at_raw": "VARCHAR",
+    "ended_at": "TIMESTAMP",
+    "start_station_name": "VARCHAR",
+    "start_station_id": "VARCHAR",
+    "end_station_name": "VARCHAR",
+    "end_station_id": "VARCHAR",
+    "start_lat": "DOUBLE",
+    "start_lng": "DOUBLE",
+    "end_lat": "DOUBLE",
+    "end_lng": "DOUBLE",
+    "member_casual": "VARCHAR",
+    "source_file": "VARCHAR"
+   },
+   "rows_per_source_file_parquet": {
+    "2023-citibike-tripdata__2023-citibike-tripdata__202301-citibike-tripdata.zip__202301-citibike-tripdata_1.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202301-citibike-tripdata.zip__202301-citibike-tripdata_2.csv": 795405,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202302-citibike-tripdata.zip__202302-citibike-tripdata_1.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202302-citibike-tripdata.zip__202302-citibike-tripdata_2.csv": 696166,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202303-citibike-tripdata.zip__202303-citibike-tripdata_1.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202303-citibike-tripdata.zip__202303-citibike-tripdata_2.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202303-citibike-tripdata.zip__202303-citibike-tripdata_3.csv": 118930,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202304-citibike-tripdata.zip__202304-citibike-tripdata_1.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202304-citibike-tripdata.zip__202304-citibike-tripdata_2.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202304-citibike-tripdata.zip__202304-citibike-tripdata_3.csv": 749713,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202305-citibike-tripdata.zip__202305-citibike-tripdata_1.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202305-citibike-tripdata.zip__202305-citibike-tripdata_2.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202305-citibike-tripdata.zip__202305-citibike-tripdata_3.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202305-citibike-tripdata.zip__202305-citibike-tripdata_4.csv": 453144,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202306-citibike-tripdata.zip__202306-citibike-tripdata_1.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202306-citibike-tripdata.zip__202306-citibike-tripdata_2.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202306-citibike-tripdata.zip__202306-citibike-tripdata_3.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202306-citibike-tripdata.zip__202306-citibike-tripdata_4.csv": 451542,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202307-citibike-tripdata.zip__202307-citibike-tripdata_1.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202307-citibike-tripdata.zip__202307-citibike-tripdata_2.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202307-citibike-tripdata.zip__202307-citibike-tripdata_3.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202307-citibike-tripdata.zip__202307-citibike-tripdata_4.csv": 659577,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202308-citibike-tripdata.zip__202308-citibike-tripdata_1.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202308-citibike-tripdata.zip__202308-citibike-tripdata_2.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202308-citibike-tripdata.zip__202308-citibike-tripdata_3.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202308-citibike-tripdata.zip__202308-citibike-tripdata_4.csv": 964177,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202309-citibike-tripdata.zip__202309-citibike-tripdata_1.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202309-citibike-tripdata.zip__202309-citibike-tripdata_2.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202309-citibike-tripdata.zip__202309-citibike-tripdata_3.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202309-citibike-tripdata.zip__202309-citibike-tripdata_4.csv": 471148,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202310-citibike-tripdata.zip__202310-citibike-tripdata_1.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202310-citibike-tripdata.zip__202310-citibike-tripdata_2.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202310-citibike-tripdata.zip__202310-citibike-tripdata_3.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202310-citibike-tripdata.zip__202310-citibike-tripdata_4.csv": 725334,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202311-citibike-tripdata.zip__202311-citibike-tripdata_1.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202311-citibike-tripdata.zip__202311-citibike-tripdata_2.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202311-citibike-tripdata.zip__202311-citibike-tripdata_3.csv": 816976,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202312-citibike-tripdata.zip__202312-citibike-tripdata_1.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202312-citibike-tripdata.zip__202312-citibike-tripdata_2.csv": 1000000,
+    "2023-citibike-tripdata__2023-citibike-tripdata__202312-citibike-tripdata.zip__202312-citibike-tripdata_3.csv": 204874
+   },
+   "started_at_min": "2022-12-14 11:43:54.762000",
+   "started_at_max": "2023-12-31 23:56:57.626000",
+   "ended_at_min": "2023-01-01 00:00:07.185000",
+   "ended_at_max": "2023-12-31 23:59:57.057000",
+   "null_started_at": 0,
+   "null_ended_at": 0,
+   "unparseable_started_at": 0,
+   "unparseable_ended_at": 0,
+   "rows_per_start_month": {
+    "2022-12": 276,
+    "2023-01": 1795329,
+    "2023-02": 1696101,
+    "2023-03": 2119314,
+    "2023-04": 2749360,
+    "2023-05": 3453576,
+    "2023-06": 3451869,
+    "2023-07": 3659372,
+    "2023-08": 3964206,
+    "2023-09": 3471658,
+    "2023-10": 3724615,
+    "2023-11": 2816850,
+    "2023-12": 2204460
+   },
+   "started_at_raw_samples": [
+    "2023-01-04 18:06:37.489",
+    "2023-01-07 14:40:17.806",
+    "2023-01-09 18:20:34.325",
+    "2023-02-12 18:16:52.644",
+    "2023-02-10 18:45:04.911"
+   ],
+   "member_casual_values": {
+    "member": 28513791,
+    "casual": 6593195
+   },
+   "rideable_type_values": {
+    "electric_bike": 17605824,
+    "classic_bike": 17501162
+   }
+  },
+  "2024": {
+   "csv_parts": [
+    {
+     "file": "202401-citibike-tripdata__202401-citibike-tripdata_1.csv",
+     "size_bytes": 195372814,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202401-citibike-tripdata__202401-citibike-tripdata_2.csv",
+     "size_bytes": 173662194,
+     "rows": 888085,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202402-citibike-tripdata__202402-citibike-tripdata_1.csv",
+     "size_bytes": 195625178,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202402-citibike-tripdata__202402-citibike-tripdata_2.csv",
+     "size_bytes": 195431964,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202402-citibike-tripdata__202402-citibike-tripdata_3.csv",
+     "size_bytes": 23654777,
+     "rows": 121501,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202403-citibike-tripdata__202403-citibike-tripdata_1.csv",
+     "size_bytes": 195361411,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202403-citibike-tripdata__202403-citibike-tripdata_2.csv",
+     "size_bytes": 195542945,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202403-citibike-tripdata__202403-citibike-tripdata_3.csv",
+     "size_bytes": 129841340,
+     "rows": 663295,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202404-citibike-tripdata__202404-citibike-tripdata_1.csv",
+     "size_bytes": 195586925,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202404-citibike-tripdata__202404-citibike-tripdata_2.csv",
+     "size_bytes": 195446641,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202404-citibike-tripdata__202404-citibike-tripdata_3.csv",
+     "size_bytes": 196071259,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202404-citibike-tripdata__202404-citibike-tripdata_4.csv",
+     "size_bytes": 42462406,
+     "rows": 217063,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202405-citibike-tripdata__202405-citibike-tripdata_1.csv",
+     "size_bytes": 195645459,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202405-citibike-tripdata__202405-citibike-tripdata_2.csv",
+     "size_bytes": 195951437,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202405-citibike-tripdata__202405-citibike-tripdata_3.csv",
+     "size_bytes": 195776754,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202405-citibike-tripdata__202405-citibike-tripdata_4.csv",
+     "size_bytes": 195804862,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202405-citibike-tripdata__202405-citibike-tripdata_5.csv",
+     "size_bytes": 25918315,
+     "rows": 133961,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202406-citibike-tripdata__202406-citibike-tripdata_1.csv",
+     "size_bytes": 195851921,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202406-citibike-tripdata__202406-citibike-tripdata_2.csv",
+     "size_bytes": 195319463,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202406-citibike-tripdata__202406-citibike-tripdata_3.csv",
+     "size_bytes": 195503715,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202406-citibike-tripdata__202406-citibike-tripdata_4.csv",
+     "size_bytes": 195796832,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202406-citibike-tripdata__202406-citibike-tripdata_5.csv",
+     "size_bytes": 153573696,
+     "rows": 783576,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202407-citibike-tripdata__202407-citibike-tripdata_1.csv",
+     "size_bytes": 195621496,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202407-citibike-tripdata__202407-citibike-tripdata_2.csv",
+     "size_bytes": 195310134,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202407-citibike-tripdata__202407-citibike-tripdata_3.csv",
+     "size_bytes": 196286320,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202407-citibike-tripdata__202407-citibike-tripdata_4.csv",
+     "size_bytes": 195297424,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202407-citibike-tripdata__202407-citibike-tripdata_5.csv",
+     "size_bytes": 140808388,
+     "rows": 722896,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202408-citibike-tripdata__202408-citibike-tripdata_1.csv",
+     "size_bytes": 195619626,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202408-citibike-tripdata__202408-citibike-tripdata_2.csv",
+     "size_bytes": 195229575,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202408-citibike-tripdata__202408-citibike-tripdata_3.csv",
+     "size_bytes": 195504717,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202408-citibike-tripdata__202408-citibike-tripdata_4.csv",
+     "size_bytes": 195792634,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202408-citibike-tripdata__202408-citibike-tripdata_5.csv",
+     "size_bytes": 117895432,
+     "rows": 603575,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202409-citibike-tripdata__202409-citibike-tripdata_1.csv",
+     "size_bytes": 195190131,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202409-citibike-tripdata__202409-citibike-tripdata_2.csv",
+     "size_bytes": 195780759,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202409-citibike-tripdata__202409-citibike-tripdata_3.csv",
+     "size_bytes": 195682575,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202409-citibike-tripdata__202409-citibike-tripdata_4.csv",
+     "size_bytes": 195482499,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202409-citibike-tripdata__202409-citibike-tripdata_5.csv",
+     "size_bytes": 194390452,
+     "rows": 997898,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202410-citibike-tripdata__202410-citibike-tripdata_1.csv",
+     "size_bytes": 195490020,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202410-citibike-tripdata__202410-citibike-tripdata_2.csv",
+     "size_bytes": 195724586,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202410-citibike-tripdata__202410-citibike-tripdata_3.csv",
+     "size_bytes": 195204001,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202410-citibike-tripdata__202410-citibike-tripdata_4.csv",
+     "size_bytes": 195695538,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202410-citibike-tripdata__202410-citibike-tripdata_5.csv",
+     "size_bytes": 195184918,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202410-citibike-tripdata__202410-citibike-tripdata_6.csv",
+     "size_bytes": 29302992,
+     "rows": 150054,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202411-citibike-tripdata__202411-citibike-tripdata_1.csv",
+     "size_bytes": 195290496,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202411-citibike-tripdata__202411-citibike-tripdata_2.csv",
+     "size_bytes": 195153264,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202411-citibike-tripdata__202411-citibike-tripdata_3.csv",
+     "size_bytes": 195052931,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202411-citibike-tripdata__202411-citibike-tripdata_4.csv",
+     "size_bytes": 138850288,
+     "rows": 710134,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202412-citibike-tripdata__202412-citibike-tripdata_1.csv",
+     "size_bytes": 194853553,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202412-citibike-tripdata__202412-citibike-tripdata_2.csv",
+     "size_bytes": 195110078,
+     "rows": 1000000,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    },
+    {
+     "file": "202412-citibike-tripdata__202412-citibike-tripdata_3.csv",
+     "size_bytes": 60842351,
+     "rows": 311171,
+     "columns": [
+      "ride_id",
+      "rideable_type",
+      "started_at",
+      "ended_at",
+      "start_station_name",
+      "start_station_id",
+      "end_station_name",
+      "end_station_id",
+      "start_lat",
+      "start_lng",
+      "end_lat",
+      "end_lng",
+      "member_casual"
+     ]
+    }
+   ],
+   "parquet": "/app/parquet/trips_2024.parquet",
+   "csv_total_rows": 44303209,
+   "parquet_rows": 44303209,
+   "parquet_size_bytes": 1988278414,
+   "schema": {
+    "ride_id": "VARCHAR",
+    "rideable_type": "VARCHAR",
+    "started_at_raw": "VARCHAR",
+    "started_at": "TIMESTAMP",
+    "ended_at_raw": "VARCHAR",
+    "ended_at": "TIMESTAMP",
+    "start_station_name": "VARCHAR",
+    "start_station_id": "VARCHAR",
+    "end_station_name": "VARCHAR",
+    "end_station_id": "VARCHAR",
+    "start_lat": "DOUBLE",
+    "start_lng": "DOUBLE",
+    "end_lat": "DOUBLE",
+    "end_lng": "DOUBLE",
+    "member_casual": "VARCHAR",
+    "source_file": "VARCHAR"
+   },
+   "rows_per_source_file_parquet": {
+    "202401-citibike-tripdata__202401-citibike-tripdata_1.csv": 1000000,
+    "202401-citibike-tripdata__202401-citibike-tripdata_2.csv": 888085,
+    "202402-citibike-tripdata__202402-citibike-tripdata_1.csv": 1000000,
+    "202402-citibike-tripdata__202402-citibike-tripdata_2.csv": 1000000,
+    "202402-citibike-tripdata__202402-citibike-tripdata_3.csv": 121501,
+    "202403-citibike-tripdata__202403-citibike-tripdata_1.csv": 1000000,
+    "202403-citibike-tripdata__202403-citibike-tripdata_2.csv": 1000000,
+    "202403-citibike-tripdata__202403-citibike-tripdata_3.csv": 663295,
+    "202404-citibike-tripdata__202404-citibike-tripdata_1.csv": 1000000,
+    "202404-citibike-tripdata__202404-citibike-tripdata_2.csv": 1000000,
+    "202404-citibike-tripdata__202404-citibike-tripdata_3.csv": 1000000,
+    "202404-citibike-tripdata__202404-citibike-tripdata_4.csv": 217063,
+    "202405-citibike-tripdata__202405-citibike-tripdata_1.csv": 1000000,
+    "202405-citibike-tripdata__202405-citibike-tripdata_2.csv": 1000000,
+    "202405-citibike-tripdata__202405-citibike-tripdata_3.csv": 1000000,
+    "202405-citibike-tripdata__202405-citibike-tripdata_4.csv": 1000000,
+    "202405-citibike-tripdata__202405-citibike-tripdata_5.csv": 133961,
+    "202406-citibike-tripdata__202406-citibike-tripdata_1.csv": 1000000,
+    "202406-citibike-tripdata__202406-citibike-tripdata_2.csv": 1000000,
+    "202406-citibike-tripdata__202406-citibike-tripdata_3.csv": 1000000,
+    "202406-citibike-tripdata__202406-citibike-tripdata_4.csv": 1000000,
+    "202406-citibike-tripdata__202406-citibike-tripdata_5.csv": 783576,
+    "202407-citibike-tripdata__202407-citibike-tripdata_1.csv": 1000000,
+    "202407-citibike-tripdata__202407-citibike-tripdata_2.csv": 1000000,
+    "202407-citibike-tripdata__202407-citibike-tripdata_3.csv": 1000000,
+    "202407-citibike-tripdata__202407-citibike-tripdata_4.csv": 1000000,
+    "202407-citibike-tripdata__202407-citibike-tripdata_5.csv": 722896,
+    "202408-citibike-tripdata__202408-citibike-tripdata_1.csv": 1000000,
+    "202408-citibike-tripdata__202408-citibike-tripdata_2.csv": 1000000,
+    "202408-citibike-tripdata__202408-citibike-tripdata_3.csv": 1000000,
+    "202408-citibike-tripdata__202408-citibike-tripdata_4.csv": 1000000,
+    "202408-citibike-tripdata__202408-citibike-tripdata_5.csv": 603575,
+    "202409-citibike-tripdata__202409-citibike-tripdata_1.csv": 1000000,
+    "202409-citibike-tripdata__202409-citibike-tripdata_2.csv": 1000000,
+    "202409-citibike-tripdata__202409-citibike-tripdata_3.csv": 1000000,
+    "202409-citibike-tripdata__202409-citibike-tripdata_4.csv": 1000000,
+    "202409-citibike-tripdata__202409-citibike-tripdata_5.csv": 997898,
+    "202410-citibike-tripdata__202410-citibike-tripdata_1.csv": 1000000,
+    "202410-citibike-tripdata__202410-citibike-tripdata_2.csv": 1000000,
+    "202410-citibike-tripdata__202410-citibike-tripdata_3.csv": 1000000,
+    "202410-citibike-tripdata__202410-citibike-tripdata_4.csv": 1000000,
+    "202410-citibike-tripdata__202410-citibike-tripdata_5.csv": 1000000,
+    "202410-citibike-tripdata__202410-citibike-tripdata_6.csv": 150054,
+    "202411-citibike-tripdata__202411-citibike-tripdata_1.csv": 1000000,
+    "202411-citibike-tripdata__202411-citibike-tripdata_2.csv": 1000000,
+    "202411-citibike-tripdata__202411-citibike-tripdata_3.csv": 1000000,
+    "202411-citibike-tripdata__202411-citibike-tripdata_4.csv": 710134,
+    "202412-citibike-tripdata__202412-citibike-tripdata_1.csv": 1000000,
+    "202412-citibike-tripdata__202412-citibike-tripdata_2.csv": 1000000,
+    "202412-citibike-tripdata__202412-citibike-tripdata_3.csv": 311171
+   },
+   "started_at_min": "2023-12-31 02:36:55.648000",
+   "started_at_max": "2024-12-31 23:57:46.390000",
+   "ended_at_min": "2024-01-01 00:00:08.272000",
+   "ended_at_max": "2024-12-31 23:59:48.482000",
+   "null_started_at": 0,
+   "null_ended_at": 0,
+   "unparseable_started_at": 0,
+   "unparseable_ended_at": 0,
+   "rows_per_start_month": {
+    "2023-12": 410,
+    "2024-01": 1887908,
+    "2024-02": 2121506,
+    "2024-03": 2663416,
+    "2024-04": 3216957,
+    "2024-05": 4135049,
+    "2024-06": 4782935,
+    "2024-07": 4722952,
+    "2024-08": 4603942,
+    "2024-09": 4997288,
+    "2024-10": 5150717,
+    "2024-11": 3709229,
+    "2024-12": 2310900
+   },
+   "started_at_raw_samples": [
+    "2024-01-14 14:07:03.235",
+    "2024-02-11 11:21:36.441",
+    "2024-02-20 17:15:00.577",
+    "2024-02-15 19:01:47.073",
+    "2024-01-12 17:28:53.198"
+   ],
+   "member_casual_values": {
+    "member": 35746278,
+    "casual": 8556931
+   },
+   "rideable_type_values": {
+    "electric_bike": 29295252,
+    "classic_bike": 15007957
+   }
+  }
+ },
+ "flags": []
+}

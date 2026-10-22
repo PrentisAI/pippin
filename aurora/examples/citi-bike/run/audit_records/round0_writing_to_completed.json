@@ -1,0 +1,33 @@
+{
+  "completed_phase": "writing",
+  "next_phase": "completed",
+  "verdict": "pass",
+  "dimensions": {
+    "goal_alignment": {
+      "ok": true,
+      "note": "phases/writing/draft_1.md answers all four campaign questions. Q1 seasonality is Figure 1, Q2 day-of-week/hour and commute peaks are Figures 2-3, Q3 member vs casual is Figures 4-5, and the optional Q4 weather is Figures 6-7. It states the data source, the cleaning rules with counts, and the limitations (one city, rider-type definition, provenance, one-point weather proxy). Findings are worded as associations, and causation is explicitly disclaimed (summary, Interpretation bullet, weather section). It follows the analysis-phase advice to describe a summer-autumn plateau rather than a single peak month. It is on the long side for a 'short report' (about 140 lines, 7 figures, a hypotheses table), but the four findings are clear."
+    },
+    "completeness": {
+      "ok": true,
+      "note": "The draft has an executive summary, data and methods, results for four findings, a hypotheses table, limitations and reproducibility. It includes 8 PNGs, 7 of which are referenced. The cleaning table has one row per rule with counts, and every analysis-phase recommendation (provenance caveat, DST artefact for R3, R5 asymmetry, casual has no distinct AM peak, e-bike confound, autocorrelated weather residuals) is carried over. Gaps: (1) Figure 2's 2024 panel clips the weekday 17:00 peak and its '08:00' label collides with the legend, and Figure 1 panel A has overlapping 'trough Jan' / 'trough Feb' labels. I confirmed both by viewing the PNGs. The draft discloses both defects, but they are fixable by regenerating the plots in /app/code/03_temporal_analysis.py and were not fixed. (2) fig_hourly_seasonal_robustness.png is shipped but not referenced or checked, which is clutter. The weekday/weekend plot is the main evidence for the commute-peak finding, so shipping it clipped is the main blemish."
+    },
+    "correctness": {
+      "ok": true,
+      "note": "I spot-checked the numbers against /app/output/tables and they match. cleaning_summary.csv gives 38,596 of 79,410,195 removed (0.0486%) and 79,371,599 kept, and the per-rule counts 643 / 182 / 37,576 / 195 sum to 38,596. Per-year R5 is 26,640 vs 10,936. peak_hours.csv gives AM 08:00 and PM 17:00 at 100% agreement, AM/midday 1.46 and 1.54, PM/midday 1.97 and 2.04, and weekend 15:00 at 96% and 73%. seasonality_peak_trough.csv gives total-based ratios 2.34 and 2.73, per-day 2.21 (2.07-2.42) and 2.74 (2.49-3.14), and peak-month agreement 0.55-0.88. member_casual_summary.csv gives weekend shares 23.3/35.3 (2023) and 23.8/35.6 (2024), and median durations 8.55/13.84 and 8.35/13.10. member_casual_peak_hours.csv supports 'casual 2023 weekday AM not distinct (agreement 0.65)'. Winter share is 16.2%/14.3% and Jun-Oct is 52.0%/54.8%. The 2024/2023 monthly ratio ranges 1.05-1.44. weather_models.csv gives rain effects -9.0/-23.4/-42.1%, temperature +38.2% per 10C from 10 to 20C and +10.6% (CI 3.1-18.5) from 20 to 30C, and +3.69% per C (2.97-4.41) with month fixed effects. pbin counts 367+180+90+94 = 731. The claim that all four DST dates are Sundays is true. The figures I viewed (Figures 1, 2, 4, 6) match the text. Minor inconsistencies: the executive summary says 35.4% for casual weekend share in 2023 while the table and source say 35.3% (0.3535); the executive summary quotes casual peak/trough 4.4-5.4 (monthly totals) while the Section 3 table gives 3.9/5.5 (per-day) without saying the basis differs; the rain Spearman rho is -0.2845, which rounds to -0.28, not -0.29. None of these changes a conclusion."
+    },
+    "traceability": {
+      "ok": true,
+      "note": "Every number maps to a named table or script under /app/output/tables and /app/code (01_acquire.py ... 04_weather.py). Methods name the bootstrap settings (2,000 resamples, seed 20240501), the Newey-West lag (7), the weather source (Open-Meteo, Central Park, weather_source.json) and the raw-file manifest (data_manifest.json). The 2023 provenance caveat (yearly zip, monthly URLs 404) is stated openly. The claim that an independent re-query reproduced the 24 monthly counts, clean total and peak hours is carried from the analysis-phase verdict, and I did not rerun it, but the numbers I checked agree with the tables. The hypothesis 'confidence' values (0.93, 0.90, ...) are the pipeline's subjective scores, not statistics, and are not labelled as such in the draft."
+    }
+  },
+  "summary": "The report is sound to finalize. It answers all four questions from real 2023-2024 NYC Citi Bike data (79.37M trips kept, 0.049% removed, each rule reported), and every number I spot-checked matches /app/output/tables. Uncertainty is shown with bootstrap CIs, the unstable peak month is described honestly as a plateau, the weather result is framed as association only, and limitations are thorough and candid. The weaknesses are presentational: the 2024 panel of the key weekday/weekend hourly figure clips the 17:00 peak, the monthly figure has overlapping labels, and there are three small rounding/basis inconsistencies in the text. These do not affect the conclusions, and they are disclosed in the draft, so I am not sending it back.",
+  "recommendations": [
+    "Regenerate fig_hourly_weekday_vs_weekend.png with a shared y-limit above about 12.5k (or a per-panel limit) so the 2024 weekday 17:00 peak is visible, and move the legend off the '08:00' label. Remove the 'Known plot defect' note from the Figure 2 caption afterwards.",
+    "Fix the overlapping 'trough Jan 1.89M' / 'trough Feb 1.69M' labels in panel A of fig_monthly_volume.png (offset them or label only one trough per year), and remove the matching sentence from the Limitations section.",
+    "Make the numbers consistent: use 35.3% (not 35.4%) for casual weekend share in 2023 in the executive summary; use rho = -0.28 for the rain Spearman correlation (source -0.2845); and say in the executive summary and the Section 3 table whether casual/member peak/trough is on monthly totals (4.4-5.4 / 2.1-2.5) or per day (3.9-5.5 / 2.0-2.5).",
+    "Either remove fig_hourly_seasonal_robustness.png from the deliverable or view it and reference it, since it is currently shipped unchecked.",
+    "Label the confidence values in the 'Hypotheses and outcomes' table as subjective analyst scores, or drop them. Consider trimming that table to keep the report 'short' as the brief asks.",
+    "If time allows, check the 2023 yearly zip against any monthly 2023 file, and look at what the >24 h (R5) trips are in 2023. These are the only unresolved data-provenance items, and the draft already states both as limitations."
+  ],
+  "question_for_human": ""
+}

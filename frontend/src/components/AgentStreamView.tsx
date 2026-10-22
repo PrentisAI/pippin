@@ -578,7 +578,7 @@ function AgentBlock({ events }: { events: StreamEvent[] }) {
 function OversightCard({ event }: { event: StreamEvent }) {
   const info = describeEvent(event)
   return (
-    <div className={`auditor-verdict tone-${info.tone}`}>
+    <div className={`auditor-verdict tone-${info.tone}`} data-event={event.event_type}>
       <div className="auditor-content">
         <div className="auditor-label">
           {info.label}

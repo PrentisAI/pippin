@@ -101,6 +101,7 @@ async def act(token: str, request: Request) -> HTMLResponse:
         CURRENT.reset(token_ctx)
     if not ok:
         return _page("Already decided", "<h1>This decision was already made</h1>")
+    auth_store.set_pref(user.user_id, "onboarding_decided", True)
     auth_store.log(user.user_id if not user.is_local else None, f"answered a decision from a notification: {data['a']}",
                    data["c"], run.task_name)
     done = "Approved: the experiment continues." if data["a"] == "continue" else "Stopped: the experiment ends after it saves its work."

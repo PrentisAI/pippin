@@ -131,6 +131,14 @@ export function AnalyticsPanel({ collapsed, panelRef, onOpenProject, onOpenRun }
       </div>
       <div className="skills-list analytics">
         {error && <div className="tl-detail tone-error" style={{ padding: '6px 12px' }}>{error}</div>}
+        {data && data.runs === 0 && (
+          <div className="panel-explain">
+            <b>Nothing to count yet.</b>
+            <span>Once your runs finish, this shows what they cost and how they went: cost per day and per project, the share
+              completed, how long they took, and the most expensive runs.</span>
+            <button className="link-btn" onClick={() => window.dispatchEvent(new CustomEvent('aurora:open-page', { detail: 'examples' }))}>Look at an example run</button>
+          </div>
+        )}
         {data && (
           <>
             <div className="stat-tiles">

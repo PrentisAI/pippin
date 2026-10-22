@@ -25,6 +25,12 @@ import { AccountButton } from '../components/AccountMenu'
 import { useAuth } from '../auth'
 import { ClusterJobsPanel } from '../components/ClusterJobsPanel'
 import { formatCost, formatDuration } from '../format'
+import { WelcomeWizard } from '../onboarding/WelcomeWizard'
+import { Tour } from '../onboarding/Tour'
+import { DocViewer, HelpPanel } from '../onboarding/HelpPanel'
+import { ExamplesView } from '../onboarding/ExamplesView'
+import { FirstTip } from '../onboarding/FirstTip'
+import { loadOnboarding, startTour, updateOnboarding, useOnboarding } from '../onboarding/store'
 import {
   GATE_SOURCE_LABELS,
   isActiveStatus,
@@ -191,7 +197,7 @@ const FileIcon = () => svgIcon(<><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2
 const ClipIcon = () => svgIcon(<path d="M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9" />)
 
 /** A page that takes the main area instead of a project. */
-type MainPage = 'team' | 'library' | 'brainstorm' | null
+type MainPage = 'team' | 'library' | 'brainstorm' | 'examples' | null
 
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).map((x) => x[0]).join('').slice(0, 2).toUpperCase() || '?'
@@ -219,12 +225,15 @@ function ActivityBar({
   page,
   onTogglePanel,
   onOpenPage,
+  helpBadge,
 }: {
   activePanel: string
   explorerActive: boolean
   page: MainPage
   onTogglePanel: (panel: string) => void
   onOpenPage: (page: MainPage) => void
+  /** Things of the getting-started checklist not tried yet. */
+  helpBadge: number
 }) {
   return (
     <div className="activity-bar">
@@ -237,6 +246,8 @@ function ActivityBar({
       <button className={`ab-btn${activePanel === 'skills' ? ' active' : ''}`} title="Skills" onClick={() => onTogglePanel('skills')}><SkillsIcon /></button>
       <button className={`ab-btn${activePanel === 'settings' ? ' active' : ''}`} title="Settings" onClick={() => onTogglePanel('settings')}><SettingsIcon /></button>
       <div className="ab-spacer" />
+      <button className={`ab-btn ab-help${activePanel === 'help' ? ' active' : ''}`} title="Help" aria-label="Help, the getting-started checklist and the tours"
+        onClick={() => onTogglePanel('help')}>?{helpBadge > 0 && <span className="ab-badge" aria-label={`${helpBadge} things to try`}>{helpBadge}</span>}</button>
       <button className={`ab-btn${page === 'team' ? ' active' : ''}`} title="Team" onClick={() => onOpenPage(page === 'team' ? null : 'team')}><TeamIcon /></button>
       <AccountButton onOpenTeam={() => onOpenPage('team')} />
     </div>
@@ -344,7 +355,7 @@ function SidebarPanel({
     api.others().then(setOthers).catch(() => setOthers([]))
   }, [accounts, auth.user.team_role, memberCount])
   return (
-    <div className={`sidebar${collapsed ? ' collapsed' : ''}`} ref={sidebarRef}>
+    <div className={`sidebar${collapsed ? ' collapsed' : ''}`} ref={sidebarRef} data-tour="sidebar">
       <div className="sidebar-brand">
         <div className="logo">A</div>
         <div className="name">AURORA</div>
@@ -353,8 +364,10 @@ function SidebarPanel({
       <div className="sidebar-list">
         <div className="sidebar-section">Projects</div>
         {campaigns.length === 0 && (
-          <div style={{ padding: '24px 16px', textAlign: 'center', fontSize: 11, color: 'var(--fg-dim)' }}>
-            No projects yet
+          <div className="sidebar-empty">
+            <span>No projects yet. A project holds the runs on one question.</span>
+            <button className="link-btn" onClick={onNewProject}>Start one</button>
+            <button className="link-btn" onClick={() => window.dispatchEvent(new CustomEvent('aurora:open-page', { detail: 'examples' }))}>Look at the examples</button>
           </div>
         )}
         {campaigns.map((c) => {
@@ -374,15 +387,20 @@ function SidebarPanel({
                   ) : (
                     <div className="camp-name">{sharedMark(c)}{c.name}</div>
                   )}
-                  <div className="camp-meta">{c.objective || 'No objective'}</div>
+                  {c.example
+                    ? <div className="camp-meta"><span className="camp-example">example · read-only</span></div>
+                    : <div className="camp-meta">{c.objective || 'No objective'}</div>}
                 </div>
                 <div className="camp-time">{relativeTime(c.updated_at)}</div>
-                <ItemMenu label="Project actions" items={[
+                {c.example ? <ItemMenu label="Example actions" items={[
+                  { label: 'Duplicate it as my project', icon: <PencilIcon />, onSelect: () => window.dispatchEvent(new CustomEvent('aurora:duplicate-example', { detail: c.campaign_id })) },
+                  { label: 'Hide the examples', icon: <TrashIcon />, divided: true, onSelect: () => updateOnboarding({ examples_hidden: true }).then(() => window.dispatchEvent(new Event('aurora:projects-changed'))).catch(() => {}) },
+                ]} /> : <ItemMenu label="Project actions" items={[
                   { label: 'Files', icon: <FolderIcon />, onSelect: () => onOpenFiles(c.campaign_id) },
                   ...(accounts ? [{ label: 'Share', icon: <ShareIcon />, onSelect: () => onShare(c) }] : []),
                   { label: 'Rename', icon: <PencilIcon />, onSelect: () => setRenaming(`c:${c.campaign_id}`) },
                   { label: 'Delete', icon: <TrashIcon />, danger: true, divided: true, onSelect: () => onDeleteCampaign(c) },
-                ]} />
+                ]} />}
               </div>
               {isActive && experiments.length > 0 && (
                 <div className="exp-list show">
@@ -403,12 +421,12 @@ function SidebarPanel({
                           <div className="exp-name">{experimentName(exp)}</div>
                         )}
                         <span className={`exp-badge ${expBadgeClass(exp.status)}`}>{statusLabel(exp.status)}</span>
-                        <ItemMenu label="Run actions" items={[
+                        {!c.example && <ItemMenu label="Run actions" items={[
                           { label: 'Rename', icon: <PencilIcon />, onSelect: () => setRenaming(`e:${exp.run_id}`) },
                           ...(isActive ? [{ label: 'Stop', icon: <StopIcon />, onSelect: () => onStopExperiment(c.campaign_id, exp.run_id) }] : []),
                           { label: 'Re-run with the same settings', icon: <RerunIcon />, onSelect: () => onRerunExperiment(c.campaign_id, exp.run_id) },
                           { label: 'Delete', icon: <TrashIcon />, danger: true, divided: true, onSelect: () => onDeleteExperiment(c.campaign_id, exp) },
-                        ]} />
+                        ]} />}
                       </div>
                     )
                   })}
@@ -444,7 +462,21 @@ function SidebarPanel({
 // Welcome View
 // ---------------------------------------------------------------------------
 
-function WelcomeView({ onSend, onOpenRun }: { onSend: (text: string) => Promise<void>; onOpenRun: (cid: string, runId: string) => void }) {
+// the templates of a field first
+const FIELD_TEMPLATES: Record<string, string[]> = {
+  materials: ['simulation', 'open', 'reproduce'], ml: ['ablation', 'reproduce', 'data'], bio: ['data', 'reproduce', 'open'],
+  data: ['data', 'open', 'reproduce'],
+}
+
+function WelcomeView({ onSend, onOpenRun, onOpenExample }: {
+  onSend: (text: string) => Promise<void>
+  onOpenRun: (cid: string, runId: string) => void
+  /** The finished example, with the tour. */
+  onOpenExample: () => void
+}) {
+  const ob = useOnboarding()
+  const order = FIELD_TEMPLATES[ob?.field ?? ''] ?? []
+  const templates = TEMPLATES.slice().sort((a, b) => (order.indexOf(a.id) + 1 || 99) - (order.indexOf(b.id) + 1 || 99))
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -496,7 +528,7 @@ function WelcomeView({ onSend, onOpenRun }: { onSend: (text: string) => Promise<
         <h1>What would you like to research?</h1>
         <p>Describe your research goal, and I'll set up a project for you.</p>
         <SetupCard onDemo={demo} />
-        <div className="input-wrap">
+        <div className="input-wrap" data-tour="brief">
           <textarea
             ref={textareaRef}
             value={input}
@@ -513,12 +545,19 @@ function WelcomeView({ onSend, onOpenRun }: { onSend: (text: string) => Promise<
         </div>
         <ErrorBanner message={error} onDismiss={() => setError(null)} />
         {template && input.includes('[') && <div className="welcome-hint">Fill in the parts in [brackets] (the first is selected), then send. The front desk asks about anything unclear before it proposes a run.</div>}
-        <div className="templates" role="group" aria-label="Start from a template">
-          {TEMPLATES.map((t) => (
+        <div className="templates" role="group" aria-label="Start from a template" data-tour="templates">
+          {templates.map((t) => (
             <button key={t.id} className={`template${template === t.id ? ' on' : ''}`} onClick={() => applyTemplate(t.id)}>
               <b>{t.title}</b><span>{t.blurb}</span><span className="lit-sub">{t.phases}</span>
             </button>
           ))}
+        </div>
+        <div className="welcome-more" aria-label="Not sure where to start">
+          <span className="lit-sub">Not sure where to start?</span>
+          <button className="link-btn" onClick={onOpenExample}>Walk through a finished run</button>
+          <button className="link-btn" onClick={demo}>Watch a run happen</button>
+          <button className="link-btn" onClick={() => startTour('app')}>Tour the console</button>
+          <button className="link-btn" onClick={() => window.dispatchEvent(new CustomEvent('aurora:open-panel', { detail: 'help' }))}>Help and checklist</button>
         </div>
       </div>
     </div>
@@ -530,9 +569,10 @@ function WelcomeView({ onSend, onOpenRun }: { onSend: (text: string) => Promise<
 // ---------------------------------------------------------------------------
 
 // What other pages hand to a project's chat: an item from the Library for its front desk, a tab to open
-const projectMailbox: Record<string, { refs: LibraryRef[]; tab?: string }> = {}
-function toProject(campaignId: string, what: { ref?: LibraryRef; tab?: string }) {
+const projectMailbox: Record<string, { refs: LibraryRef[]; tab?: string; draft?: string }> = {}
+function toProject(campaignId: string, what: { ref?: LibraryRef; tab?: string; draft?: string }) {
   const box = projectMailbox[campaignId] ??= { refs: [] }
+  if (what.draft) box.draft = what.draft
   if (what.ref && !box.refs.some((r) => (r.item_id ?? r.paper_id) === (what.ref!.item_id ?? what.ref!.paper_id))) box.refs.push(what.ref)
   if (what.tab) box.tab = what.tab
   window.dispatchEvent(new CustomEvent('aurora:project-mail', { detail: campaignId }))
@@ -640,6 +680,11 @@ function ChatArea({
         setTimeout(() => textareaRef.current?.focus(), 50)
       }
       if (box.tab) setActiveTab(box.tab)
+      if (box.draft) {
+        setActiveTab('project')
+        setInput(box.draft)
+        setTimeout(() => textareaRef.current?.focus(), 50)
+      }
     }
     take()
     const on = (e: Event) => { if ((e as CustomEvent<string>).detail === campaignId) take() }
@@ -785,7 +830,7 @@ function ChatArea({
     <CiteProvider key={campaignId} campaignId={campaignId}>
     <div className="camp-content">
       {/* Context bar */}
-      <div className="context-bar">
+      <div className="context-bar" data-tour="tabs">
         <div
           className={`context-tab${isProjectTab ? ' active' : ''}`}
           onClick={() => { setActiveTab('project'); setMessages([]); onSelectExperiment(null) }}
@@ -952,7 +997,7 @@ function ChatArea({
       )}
 
       {/* Input bar */}
-      <div className="input-bar">
+      <div className="input-bar" data-tour="input">
         <div className="input-wrap with-cards">
           <AttachmentCards attachments={att.attachments} onRemove={att.remove} />
           {isProjectTab && libRefs.length > 0 && <LibraryRefCards refs={libRefs} onRemove={(r) => setLibRefs(libRefs.filter((x) => x !== r))} />}
@@ -1146,11 +1191,13 @@ function ExperimentView({
   const elapsed = run ? (run.finished_at || now) - run.started_at : 0
   const canResume = run?.status === 'failed' || run?.status === 'stopped'
   const { accounts } = useAuth()
+  // an example that comes with AURORA: everything can be looked at, nothing changed
+  const example = campaignId.startsWith('ex_')
 
   return (
     <div className="exp-content">
       {/* Status strip */}
-      <div className="status-strip">
+      <div className={`status-strip${example ? ' read-only' : ''}`} data-tour="status">
         <div className="stat">
           <div className="stat-label">Status</div>
           <div className="stat-value" style={{ color: isActive ? 'var(--green)' : run?.status === 'failed' ? 'var(--red)' : 'var(--fg-muted)' }}>
@@ -1200,8 +1247,8 @@ function ExperimentView({
               ? 'Off: no model calls for this experiment. Click to switch it on.'
               : isActive ? 'On: answers your messages and relays them to the agent. Click to switch it off (messages then go straight to the agent).'
                 : 'On: answers questions about this experiment from its files. Click to switch it off.'}
-            style={{ cursor: 'pointer', color: run?.frontdesk_enabled === false ? 'var(--fg-dim)' : 'var(--green)' }}
-            onClick={handleToggleFrontdesk}
+            style={{ cursor: example ? 'default' : 'pointer', color: run?.frontdesk_enabled === false ? 'var(--fg-dim)' : 'var(--green)' }}
+            onClick={example ? undefined : handleToggleFrontdesk}
           >
             {run ? (run.frontdesk_enabled === false ? 'off' : 'on') : '—'}
           </div>
@@ -1215,29 +1262,35 @@ function ExperimentView({
             onChanged={fetchRun}
           />
         )}
-        <div className="exp-controls">
+        <div className="exp-controls" data-tour="controls">
           {run && (
             <button className="exp-ctrl-btn rerun" title={run.report ? 'The report, its results and where each came from' : 'Results so far (no report yet)'}
-              onClick={handleOpenReport}>
+              onClick={handleOpenReport} data-tour="report-btn">
               <FilesSvg /> {run.report ? 'Report' : 'Results'}
             </button>
           )}
-          {isActive && (
+          {example && (
+            <button className="exp-ctrl-btn rerun" title="A project of your own with this example’s question, ready to run"
+              onClick={() => window.dispatchEvent(new CustomEvent('aurora:duplicate-example', { detail: campaignId }))}>
+              <RerunSvg /> Duplicate
+            </button>
+          )}
+          {!example && isActive && (
             <button className="exp-ctrl-btn stop" onClick={handleStop}>
               <StopSvg /> Stop
             </button>
           )}
-          {canResume && (
+          {!example && canResume && (
             <button className="exp-ctrl-btn resume" title="Continue from the last checkpoint" onClick={handleResume}>
               <PlaySvg /> Resume
             </button>
           )}
-          {run && !isActive && (
+          {!example && run && !isActive && (
             <button className="exp-ctrl-btn rerun" title="Start a new experiment with the same settings" onClick={handleRerun}>
               <RerunSvg /> Re-run
             </button>
           )}
-          {run && (
+          {!example && run && (
             <button className="exp-ctrl-btn rerun" title="Start a new run from a phase or a job of this one, doing something differently"
               onClick={() => setForking(true)}>
               <RerunSvg /> Fork…
@@ -1250,6 +1303,26 @@ function ExperimentView({
         <div className="error-banner">Failed: {run.error}</div>
       )}
       <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />
+      {example && (
+        <div className="example-bar">
+          <span><b>An example that comes with AURORA.</b> Look at everything — the stream, the files, the report — and ask its
+            front desk about it; nothing here can be changed. Duplicate it to run the question yourself.</span>
+          <button className="link-btn" onClick={() => startTour('run')}>Take the tour</button>
+        </div>
+      )}
+      {!example && run?.pending_decision && !run.pending_decision.resolved && (
+        <FirstTip id="decision" doc="concepts/human-in-the-loop.md">
+          <b>Your first decision.</b> The run is waiting for you: <b>approve</b> lets it go on, an <b>instruction</b> tells the
+          agent what to change, <b>stop</b> ends it after it saves its work. Notifications can bring these to your phone.
+        </FirstTip>
+      )}
+      {!example && isActive && !run?.pending_decision && (
+        <FirstTip id="watching" doc="concepts/auditors.md">
+          <b>A run at work.</b> On the right, the research agent’s steps and, next to them, the auditors: the live auditor
+          reads what the agent does and advises, interrupts, or asks you. Type below to ask about the run or tell the agent
+          something — it does not stop.
+        </FirstTip>
+      )}
 
       {/* A human gate the experiment is waiting at */}
       {run?.pending_decision && !run.pending_decision.resolved && (
@@ -1280,7 +1353,7 @@ function ExperimentView({
         {!streamCollapsed && <ResizeHandle targetRef={streamRef} side="left" minWidth={200} maxWidth={900} />}
 
         {/* Event stream / files (right) */}
-        <div className={`tl-wrap${streamCollapsed ? ' collapsed' : ''}`} ref={streamRef}>
+        <div className={`tl-wrap${streamCollapsed ? ' collapsed' : ''}`} ref={streamRef} data-tour="stream">
           {rightPanel === 'files' ? (
             <div style={{ flex: 1, overflow: 'auto', padding: 0 }}>
               <WorkspacePanel campaignId={campaignId} expId={experimentId} openRequest={openRequest} />
@@ -1304,7 +1377,7 @@ function ExperimentView({
         )}
 
         {/* Right activity bar */}
-        <div className="right-bar">
+        <div className="right-bar" data-tour="rightbar">
           <button className={`rb-btn${rightPanel === 'stream' ? ' active' : ''}`} title="Stream" onClick={() => { setRightPanel('stream'); setStreamCollapsed(false) }}>
             <StreamSvg />
             <span className="rb-label">Stream</span>
@@ -1853,6 +1926,11 @@ function ProposalCard({
 
   return (
     <div className="proposal-card">
+      <FirstTip id="proposal" doc="guide/web-console.md">
+        <b>Your first proposal.</b> Untick phases you do not need, change the models or the budget under Advanced, or ask
+        the front desk to change the brief. The estimate below updates as you do. Nothing runs, and nothing costs money,
+        until you confirm.
+      </FirstTip>
       <div className="proposal-header">
         <span className="proposal-icon">{'⟡'}</span>
         <span className="proposal-title">Experiment Proposal</span>
@@ -2068,7 +2146,8 @@ export default function Home() {
   const [skillQuery, setSkillQuery] = useState('')
   const streamRef = useRef<HTMLDivElement>(null)
 
-  const sidePanels = ['skills', 'search', 'analytics', 'settings']
+  const helpPanelRef = useRef<HTMLDivElement>(null)
+  const sidePanels = ['skills', 'search', 'analytics', 'settings', 'help']
   // the brainstorm page has its own list of spaces and conversations
   const sidebarCollapsed = activePanel === '' || sidePanels.includes(activePanel) || page === 'brainstorm'
   const showSkills = activePanel === 'skills'
@@ -2158,6 +2237,80 @@ export default function Home() {
     const interval = setInterval(fetchCampaigns, 5000)
     return () => clearInterval(interval)
   }, [fetchCampaigns])
+
+  // the first minutes: the welcome wizard, the tour, help, the examples
+  const ob = useOnboarding()
+  useEffect(() => { loadOnboarding() }, [])
+  useEffect(() => {
+    const id = setInterval(() => { loadOnboarding() }, 60000)      // the checklist follows what you do
+    return () => clearInterval(id)
+  }, [])
+  const openExample = useCallback(async (tour: boolean) => {
+    try {
+      const r = await api.examples.list()
+      const ex = r.examples.find((e) => e.kind === 'real run' && e.installed && !e.removed)
+      if (!ex?.campaign_id || !ex.run_id) { setNotice('No example is installed in this console.'); return }
+      if (r.hidden) await updateOnboarding({ examples_hidden: false })
+      await fetchCampaigns()
+      setPage(null)
+      setActivePanel('projects')
+      openRun(ex.campaign_id, ex.run_id)
+      if (tour) setTimeout(() => startTour('run'), 300)
+    } catch (e) { setNotice(`Could not open the example: ${describeError(e)}`) }
+  }, [fetchCampaigns, openRun])
+  const runDemo = useCallback(async () => {
+    try {
+      const r = await api.setup.demo()
+      await fetchCampaigns()
+      setPage(null)
+      openRun(r.campaign_id, r.experiment_id)
+      loadOnboarding()
+    } catch (e) { setNotice(`Could not start the demo: ${describeError(e)}`) }
+  }, [fetchCampaigns, openRun])
+  const goHome = useCallback(() => {
+    setPage(null)
+    setActiveCampaignId(null)
+    setActiveExperimentId(null)
+    navigate('/', { replace: true })
+  }, [navigate])
+  const duplicateExample = useCallback(async (campaignId: string) => {
+    try {
+      const r = await api.examples.list()
+      const ex = r.examples.find((e) => e.campaign_id === campaignId)
+      if (!ex) return
+      const copy = await api.examples.duplicate(ex.id)
+      await fetchCampaigns()
+      setPage(null)
+      toProject(copy.campaign_id, { draft: copy.brief, tab: 'project' })
+      openProject(copy.campaign_id)
+    } catch (e) { setNotice(`Could not duplicate the example: ${describeError(e)}`) }
+  }, [fetchCampaigns, openProject])
+  useEffect(() => {
+    const page = (e: Event) => setPage((e as CustomEvent<MainPage>).detail)
+    const dup = (e: Event) => { duplicateExample((e as CustomEvent<string>).detail) }
+    const changed = () => { fetchCampaigns() }
+    window.addEventListener('aurora:open-page', page)
+    window.addEventListener('aurora:duplicate-example', dup)
+    window.addEventListener('aurora:projects-changed', changed)
+    return () => {
+      window.removeEventListener('aurora:open-page', page)
+      window.removeEventListener('aurora:duplicate-example', dup)
+      window.removeEventListener('aurora:projects-changed', changed)
+    }
+  }, [duplicateExample, fetchCampaigns])
+  const helpAction = (action: string) => {
+    if (action === 'demo') runDemo()
+    else if (action === 'start') goHome()
+    else if (action === 'brainstorm' || action === 'library' || action === 'team' || action === 'examples') setPage(action)
+    else if (action.startsWith('settings')) setActivePanel('settings')
+    else if (action === 'refresh') fetchCampaigns()
+  }
+  const tourActions = {
+    openRun, goHome, accounts: !!ob?.accounts,
+    openPanel: (panel: string) => setActivePanel(panel),
+    openPage: (p: MainPage) => setPage(p),
+    setRight: (panel: string) => setRightPanel(panel),
+  }
 
   useEffect(() => {
     if (activeCampaignId) {
@@ -2266,7 +2419,7 @@ export default function Home() {
   return (
     <div className="shell">
       <ActivityBar activePanel={activePanel} explorerActive={rightPanel === 'files'} onTogglePanel={handleTogglePanel}
-        page={page} onOpenPage={setPage} />
+        page={page} onOpenPage={setPage} helpBadge={ob ? ob.checklist.filter((c) => !c.done).length : 0} />
 
       <SidebarPanel
         campaigns={campaigns}
@@ -2324,6 +2477,8 @@ export default function Home() {
       {activePanel === 'analytics' && <ResizeHandle targetRef={analyticsPanelRef} side="right" />}
       <SettingsPanel collapsed={activePanel !== 'settings'} panelRef={settingsPanelRef} />
       {activePanel === 'settings' && <ResizeHandle targetRef={settingsPanelRef} side="right" />}
+      <HelpPanel collapsed={activePanel !== 'help'} panelRef={helpPanelRef} onAction={helpAction} />
+      {activePanel === 'help' && <ResizeHandle targetRef={helpPanelRef} side="right" />}
 
       <div className="main" style={{ position: 'relative' }}>
         <ErrorBanner message={notice} onDismiss={() => setNotice(null)} />
@@ -2331,8 +2486,10 @@ export default function Home() {
         {view === 'brainstorm' && <BrainstormView initialSpace={bsSpace ?? activeCampaignId} onOpenProject={(cid) => { setPage(null); selectCampaign(cid) }}
           onOpenLibrary={() => setPage('library')} />}
         {view === 'library' && <LibraryView onOpenProject={(cid) => { setPage(null); selectCampaign(cid) }} />}
+        {view === 'examples' && <ExamplesView onOpen={(cid, run) => { setPage(null); openRun(cid, run) }} onDemo={runDemo}
+          onDuplicated={async (cid, brief) => { await fetchCampaigns(); setPage(null); toProject(cid, { draft: brief, tab: 'project' }); openProject(cid) }} />}
         {view === 'welcome' && (
-          <WelcomeView onSend={handleNewProject} onOpenRun={openRun} />
+          <WelcomeView onSend={handleNewProject} onOpenRun={openRun} onOpenExample={() => openExample(true)} />
         )}
 
         {view === 'campaign' && activeCampaignId && (
@@ -2370,6 +2527,11 @@ export default function Home() {
           </>
         )}
       </div>
+      {ob && !ob.wizard.done && (
+        <WelcomeWizard ob={ob} onExample={() => openExample(true)} onDemo={runDemo} onOwn={goHome} />
+      )}
+      <Tour actions={tourActions} />
+      <DocViewer />
     </div>
   )
 }

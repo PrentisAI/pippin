@@ -1,0 +1,54 @@
+{
+ "2023-citibike-tripdata.zip": {
+  "expected_size": 1602415356,
+  "status": "downloaded"
+ },
+ "202401-citibike-tripdata.zip": {
+  "expected_size": 369035302,
+  "status": "downloaded"
+ },
+ "202402-citibike-tripdata.zip": {
+  "expected_size": 414712349,
+  "status": "downloaded"
+ },
+ "202403-citibike-tripdata.zip": {
+  "expected_size": 520746126,
+  "status": "downloaded"
+ },
+ "202404-citibike-tripdata.zip": {
+  "expected_size": 629567797,
+  "status": "downloaded"
+ },
+ "202405-citibike-tripdata.zip": {
+  "expected_size": 809097529,
+  "status": "downloaded"
+ },
+ "202406-citibike-tripdata.zip": {
+  "expected_size": 936046329,
+  "status": "downloaded"
+ },
+ "202407-citibike-tripdata.zip": {
+  "expected_size": 923324464,
+  "status": "downloaded"
+ },
+ "202408-citibike-tripdata.zip": {
+  "expected_size": 900042686,
+  "status": "downloaded"
+ },
+ "202409-citibike-tripdata.zip": {
+  "expected_size": 976527118,
+  "status": "downloaded"
+ },
+ "202410-citibike-tripdata.zip": {
+  "expected_size": 1006602893,
+  "status": "downloaded"
+ },
+ "202411-citibike-tripdata.zip": {
+  "expected_size": 724347545,
+  "status": "downloaded"
+ },
+ "202412-citibike-tripdata.zip": {
+  "expected_size": 450806412,
+  "status": "downloaded"
+ }
+}

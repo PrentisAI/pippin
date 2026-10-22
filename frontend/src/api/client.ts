@@ -1,4 +1,4 @@
-import type { SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -357,6 +357,24 @@ export const api = {
     setKey: (key: string) => request<SetupStatus>('/setup/key', put({ key })),
     pull: () => request<SetupStatus>('/setup/pull', post()),
     demo: () => request<{ campaign_id: string; experiment_id: string }>('/demo', post()),
+  },
+  onboarding: {
+    get: () => request<Onboarding>('/onboarding'),
+    update: (body: Partial<{ step: WizardStep; done: boolean; field: string; tour_done: string; tip_seen: string;
+      tips_reset: boolean; traced: boolean; examples_hidden: boolean }>) => request<Onboarding>('/onboarding', put(body)),
+    defaults: (body: { autonomy: 'supervised' | 'autonomous'; max_cost_usd: number | null }) =>
+      request<Onboarding>('/onboarding/defaults', put(body)),
+  },
+  examples: {
+    list: () => request<{ examples: ExampleCard[]; hidden: boolean }>('/examples'),
+    duplicate: (id: string) => request<{ campaign_id: string; name: string; brief: string }>(`/examples/${id}/duplicate`, post()),
+    install: (id: string) => request<{ campaign_id: string }>(`/examples/${id}/install`, post()),
+    remove: (id: string) => request<{ ok: boolean }>(`/examples/${id}`, del),
+  },
+  help: {
+    pages: () => request<{ pages: HelpPage[] }>('/help/docs'),
+    page: (path: string) => request<{ path: string; title: string; markdown: string }>(`/help/docs/${path}`),
+    ask: (question: string) => request<HelpAnswer>('/help/ask', post({ question })),
   },
   results: {
     report: (cid: string, exp: string, version?: number) =>

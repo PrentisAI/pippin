@@ -1,0 +1,95 @@
+{
+  "schema_version": "aurora_mental_model_v0",
+  "active_hypotheses": [
+    {
+      "hypothesis_id": "h1",
+      "statement": "Citi Bike volume is strongly seasonal, with a winter trough (Jan/Feb) and a broad summer-autumn plateau, with the same shape in 2023 and 2024.",
+      "status": "confirmed",
+      "confidence": 0.93,
+      "supporting_evidence": [
+        "Peak/trough 2.3 (2023) and 2.7 (2024); 2024/2023 ratio above 1 in all months",
+        "Independent re-query reproduced the 24 monthly counts"
+      ],
+      "contradicting_evidence": [
+        "Peak month differs between years (Aug vs Oct) and bootstrap agreement is only 55-88%, so a single peak month is not supportable"
+      ]
+    },
+    {
+      "hypothesis_id": "h2",
+      "statement": "Weekday use is commute-driven (peaks at 08:00 and 17:00), while weekend use is leisure-shaped (single broad peak around 15:00).",
+      "status": "confirmed",
+      "confidence": 0.9,
+      "supporting_evidence": [
+        "Peak hours 8 and 17 with 100% bootstrap agreement in both years",
+        "Weekend single peak at 15:00",
+        "Holiday exclusion changes ratios by only 0.03-0.04"
+      ],
+      "contradicting_evidence": [
+        "Commute purpose is inferred from timing only; no trip-purpose data. Weekend peak hour is a plateau, with 2024 agreement of 54-73%."
+      ]
+    },
+    {
+      "hypothesis_id": "h3",
+      "statement": "Members behave more like commuters and casual riders more like leisure/tourist riders: casual share is higher on weekends, casual weekday mornings lack a peak, casual trips are longer and much more seasonal.",
+      "status": "confirmed",
+      "confidence": 0.85,
+      "supporting_evidence": [
+        "Weekend share 35.4% vs 23.3% (2023) with non-overlapping CIs",
+        "Casual peak/trough 4.4-5.4 vs member 2.1-2.5",
+        "Median duration about 13-14 vs about 8.5 min"
+      ],
+      "contradicting_evidence": [
+        "Weekend hourly shapes nearly identical (JS about 0.06); weekday difference is moderate (about 0.12), so the two groups overlap substantially",
+        "Intent behind the labels is not observed"
+      ]
+    },
+    {
+      "hypothesis_id": "h4",
+      "statement": "Day-to-day trip volume rises with temperature and falls with rain, over and above seasonal and calendar structure.",
+      "status": "active",
+      "confidence": 0.78,
+      "supporting_evidence": [
+        "Spearman 0.73 (temperature), -0.29 (precipitation)",
+        "Within-month temperature coefficient about +3.7%/C",
+        "Dose-response in rain bins: -9%, -23%, -42%",
+        "Full-model R2 0.80 vs 0.62 for month plus calendar"
+      ],
+      "contradicting_evidence": [
+        "Residual autocorrelation (Durbin-Watson 1.15) means intervals may be narrow",
+        "Temperature curve flattens above about 29C",
+        "Single-point weather proxy and unmeasured seasonal confounders (daylight, school calendar, tourism)"
+      ]
+    },
+    {
+      "hypothesis_id": "h5",
+      "statement": "Results are an artifact of data quality or cleaning.",
+      "status": "refuted",
+      "confidence": 0.05,
+      "supporting_evidence": [],
+      "contradicting_evidence": [
+        "Only 0.049% removed",
+        "All internal consistency checks pass",
+        "Sub-60s rule changes 182 rows",
+        "Negative durations are explained by DST"
+      ]
+    }
+  ],
+  "competing_hypotheses": [],
+  "inferred_mechanisms": [
+    "Commute-driven weekday demand, mostly from members, produces the 08:00 and 17:00 peaks; the evening peak is larger than the morning one.",
+    "Discretionary and tourist-type riding, concentrated among casual riders, is the main driver of weekend afternoon use and of strong seasonality, with weather acting as a gating factor on that discretionary demand.",
+    "Weather (cold, rain) suppresses trips on top of seasonal pattern; the effect is roughly proportional (log scale) and saturates at high temperatures.",
+    "Year-over-year growth (about 1.26x) is system-wide across all months and coincides with a rise in e-bike share, but this study cannot attribute cause."
+  ],
+  "causal_relationships": [],
+  "unresolved_ambiguity": [
+    "Exact peak month and busiest weekday are not stable across years.",
+    "How much of the temperature association is true weather response vs seasonal co-movement.",
+    "Cause of 2024 growth (e-bikes, supply, demand).",
+    "Provenance of the 2023 yearly zip vs the original monthly files.",
+    "Whether the rider-type definition changed within the study period."
+  ],
+  "expected_outcomes": {},
+  "current_rationale": "Citi Bike usage in 2023-2024 follows a clear and robust pattern: strong seasonality with a winter trough and summer-autumn plateau, weekday commute peaks at 08:00 and 17:00, a weekend afternoon peak around 15:00, casual riders who are more weekend- and season-oriented than members, and daily volume that tracks temperature and rain. These were verified by an independent re-query and are stable under the cleaning and holiday/DST sensitivity checks. Findings are descriptive associations from one city and two years; the peak month and weekday ordering should be reported as uncertain.",
+  "reconstructed_from_evidence_at": "2026-10-19T04:15:08.760914Z"
+}

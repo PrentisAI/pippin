@@ -14,10 +14,8 @@ import os
 import re
 import shutil
 import subprocess
-from pathlib import Path
 from typing import Any
 
-import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -126,34 +124,18 @@ class KeyBody(BaseModel):
     key: str
 
 
-def _env_path() -> Path:
-    from aurora.paths import aurora_home
-    return aurora_home() / ".env"
-
-
 @router.put("/setup/key")
 async def set_server_key(body: KeyBody) -> dict[str, Any]:
     """The console's own OpenRouter key (a console without accounts only)."""
     if not current_user().is_local:
         raise HTTPException(403, "With accounts, each person adds their own key under the account button")
+    from aurora.env import KEY_PATTERN, check_openrouter_key, save_openrouter_key
     key = body.key.strip()
-    if not re.fullmatch(r"sk-or-[A-Za-z0-9_\-]{20,}", key):
+    if not re.fullmatch(KEY_PATTERN, key):
         raise HTTPException(400, "That does not look like an OpenRouter key (sk-or-…)")
-    try:
-        async with httpx.AsyncClient(timeout=15) as c:
-            r = await c.get("https://openrouter.ai/api/v1/key", headers={"Authorization": f"Bearer {key}"})
-        if r.status_code in (401, 403):
-            raise HTTPException(400, "OpenRouter does not accept this key")
-    except httpx.HTTPError:
-        pass                        # offline: keep it anyway; the first run will tell
-    path = _env_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [ln for ln in (path.read_text().splitlines() if path.exists() else [])
-             if not ln.startswith("OPENROUTER_API_KEY=")]
-    lines.append(f"OPENROUTER_API_KEY={key}")
-    path.write_text("\n".join(lines) + "\n")
-    os.chmod(path, 0o600)
-    os.environ["OPENROUTER_API_KEY"] = key
+    if await asyncio.to_thread(check_openrouter_key, key) is False:
+        raise HTTPException(400, "OpenRouter does not accept this key")
+    save_openrouter_key(key)                 # offline: kept anyway; the first run will tell
     return await get_setup()
 
 
@@ -176,13 +158,27 @@ DEMO_OBJECTIVE = ("Investigate surface segregation of Zn in Cu(111) and its effe
 
 @router.post("/demo")
 async def start_demo() -> dict[str, Any]:
-    """A demo project with a run of scripted models and simulated tools: every phase, decisions, a
-    report, in seconds. No key, no Docker, no cost."""
-    from aurora.api.routes.campaigns import StartExperimentRequest, _start, create_quick_project
-    project = await create_quick_project("Demo: Zn segregation in Cu(111) (scripted, no cost)", DEMO_OBJECTIVE)
-    from aurora.api.routes.campaigns import _ensure_campaign
-    campaign = _ensure_campaign(project["campaign_id"])
+    """A run of scripted models and simulated tools: every phase, the auditors' checks, a report, in
+    seconds. No key, no Docker, no cost.  It goes into the person's demo project (made the first time)."""
+    from fastapi import HTTPException as _HTTPException
+
+    from aurora.api.routes.campaigns import StartExperimentRequest, _ensure_campaign, _start, create_quick_project
+    from aurora.auth.guard import can_see
+    from aurora.auth.store import auth_store
+    me = current_user()
+    cid = auth_store.get_pref(me.user_id, "demo_project") or ""
+    campaign = None
+    if cid and can_see(me, cid):
+        try:
+            campaign = _ensure_campaign(cid)
+        except _HTTPException:
+            campaign = None
+    if campaign is None:
+        project = await create_quick_project("Demo: Zn segregation in Cu(111) (scripted, no cost)", DEMO_OBJECTIVE)
+        campaign = _ensure_campaign(project["campaign_id"])
+        auth_store.set_pref(me.user_id, "demo_project", campaign.campaign_id)
     req = StartExperimentRequest(instruction=DEMO_OBJECTIVE, name="demo run", mock_mode=True, skip_phases=[],
                                  sandbox_docker=False)
     result = await _start(campaign, req)
+    auth_store.set_pref(me.user_id, "onboarding_demo", True)
     return {"campaign_id": campaign.campaign_id, "experiment_id": result["experiment_id"]}

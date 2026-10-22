@@ -10,6 +10,7 @@ import { IdeasPane } from './Ideas'
 import { FILTER_LABELS, PapersPane, inFilter, type PaperFilter } from './Papers'
 import { ACTIVITY, AGENT_ASK, Avatar, BULB, CHAT, LENS, LOCK, Rich, VisPill, analyse, ago, short } from './common'
 import { NewCard, PickFile, PickPaper, Promote, ShareChat } from './dialogs'
+import { FirstTip } from '../../onboarding/FirstTip'
 
 type Dialog = null | { kind: 'share' } | { kind: 'projectShare' } | { kind: 'promote'; card: BsCard } | { kind: 'new'; type: 'idea' | 'question' | 'note' }
   | { kind: 'bring' } | { kind: 'attachPaper' } | { kind: 'attachFile' } | { kind: 'zotero' }
@@ -191,7 +192,7 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
           <button key={c.chat_id} className="bs-item" aria-current={c.chat_id === chatId} onClick={() => setChatId(c.chat_id)}>
             {CHAT}<span className="bs-ell">{c.title}</span></button>
         ))}
-        {!myChats.length && <div className="lit-sub" style={{ padding: '2px 8px' }}>No private brainstorms.</div>}
+        {!myChats.length && <div className="lit-sub" style={{ padding: '2px 8px' }}>No private brainstorms yet: start one to think an idea through before you run anything.</div>}
         {space.can_write && (
           <button className="bs-item" onClick={() => act(async () => { const c = await api.brainstorm.newChat(spaceId); await loadSpace(); setChatId(c.chat_id) })}>
             <span>+ New brainstorm</span><span className="lit-sub">private</span></button>
@@ -249,6 +250,11 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
 
       {/* ── middle: the conversation ── */}
       <section className="bs-center" aria-label="Conversation">
+        <FirstTip id="brainstorm" doc="concepts/brainstorm.md">
+          <b>Brainstorm.</b> Say what you are thinking about. The Skeptic looks for the weakest assumption, Methods turns the idea
+          into a test, the Librarian brings papers. Ideas are kept on the board with the evidence for and against; a good one
+          becomes a proposal with one click.
+        </FirstTip>
         <div className="bs-head">
           <div className="bs-head-row">
             <h2>{currentChat?.title ?? 'A new brainstorm'}{currentChat?.run_id && currentChat.status && <span className="bs-livestate"> · {live ? `live, ${currentChat.status}` : currentChat.status}</span>}</h2>

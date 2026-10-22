@@ -258,6 +258,11 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_quickstart(args: argparse.Namespace) -> int:
+    from aurora.quickstart import main as quickstart
+    return quickstart(assume=args.yes, port=args.port, serve=not args.no_serve)
+
+
 def cmd_users(args: argparse.Namespace) -> int:
     """Accounts of the web console. The first admin turns sign-in on."""
     import getpass
@@ -383,6 +388,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
+
+    p = sub.add_parser("quickstart", help="the first minutes: check this machine, set the key, see the demo, open the console")
+    p.add_argument("-y", "--yes", action="store_true", help="answer yes to every question")
+    p.add_argument("--port", type=int, default=8000, help="port of the web console (default 8000)")
+    p.add_argument("--no-serve", action="store_true", help="do not start the web console at the end")
+    p.set_defaults(func=cmd_quickstart)
 
     p = sub.add_parser("run", help="run a campaign")
     p.add_argument("config", nargs="?", help="YAML configuration file")

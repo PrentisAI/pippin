@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, describeError } from '../../api/client'
 import { formatCost } from '../../format'
 import type { ForkPoints } from '../../types'
+import { FirstTip } from '../../onboarding/FirstTip'
 
 /** Fork a run: a new run starts from a phase or a job of this one, with what it had made and spent until
  *  then, and does something differently from there on. The original run is not changed. */
@@ -52,6 +53,10 @@ export function ForkDialog({ campaignId, runId, runName, onClose, onForked }: {
       <form className="modal lit-modal fork-modal" role="dialog" aria-modal="true" aria-label="Fork this run" onMouseDown={(e) => e.stopPropagation()} onSubmit={submit}>
         <div className="modal-title">Fork “{runName}”</div>
         <div className="modal-body">
+          <FirstTip id="fork" doc="guide/results.md">
+            <b>Forking.</b> Pick a point, say what to do differently from there — or take another direction, such as an idea the
+            ideation meeting did not choose — and the new run starts with what this one had made by then.
+          </FirstTip>
           <div className="modal-hint">A new run starts from a point of this one, with the files, results and cost it had then, and goes on as you say.
             This run is not changed; both appear side by side under Compare.</div>
           {!data ? <div className="modal-hint">{error ?? 'Loading…'}</div> : !data.points.length ? (

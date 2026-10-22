@@ -1,0 +1,33 @@
+{
+ "id": "citi-bike",
+ "title": "Citi Bike usage patterns",
+ "blurb": "When and where New Yorkers ride, and how it changes with the seasons: from a question about 79 million trips to a report with eight figures.",
+ "field": "data",
+ "shows": [
+  "ideation",
+  "screening",
+  "a decision",
+  "planning",
+  "research",
+  "live auditor",
+  "analysis",
+  "report"
+ ],
+ "kind": "real run",
+ "project": {
+  "name": "Citi Bike usage patterns",
+  "objective": "Goal: analyze a public bike-share dataset to find clear, well-supported patterns in how people use the system over time, and write a short report.\n\nData: NYC Citi Bike monthly trip-history files, publicly available from the Citi Bike system data page (s3.amazonaws.com/tripdata). Use one or two recent full years (for example 2023 and 2024). Each row is one trip with start and stop timestamps, station IDs, and rider type. If the data is not available in the container, say so and stop rather than inventing data.\n\nQuestions to answer:\n1. How does monthly trip volume vary across the year? Is there a clear seasonal peak and trough?\n2. How does usage vary by day of week and hour of day? Compare weekdays and weekends, and identify commute peaks if present.\n3. How do member and casual riders differ in these patterns?\n4. Optional, if time allows: is daily trip count associated with temperature or precipitation? Use a public weather source for the same dates only if it is easy to get; otherwise skip this.\n\nMethod: clean obviously bad records (negative or extreme durations, missing timestamps) and report how many were removed. Use plots and simple summary statistics. Report uncertainty where it matters, and do not claim causation.\n\nGood result: a short report with 3 to 5 findings, each backed by a figure or table, the data source and cleaning steps stated, and limitations noted (for example, the dataset covers only one city and the rider-type field changed definition over time).\n\nConstraints: work only in the campaign container. Save code, figures and the final report to the output directory."
+ },
+ "experiment": {
+  "run_id": "20261019-025018_citi-bike-usage-patterns",
+  "task_name": "Citi Bike usage patterns",
+  "model": "anthropic/claude-sonnet-5.5",
+  "autonomy_mode": "supervised",
+  "status": "completed",
+  "phase": "writing",
+  "cost_usd": 9.3789,
+  "started_at": 1792378218.632037,
+  "finished_at": 1792388575.9017973,
+  "config_json": "{\"request\": {\"instruction\": \"Goal: analyze a public bike-share dataset to find clear, well-supported patterns in how people use the system over time, and write a short report.\\n\\nData: NYC Citi Bike monthly trip-history files, publicly available from the Citi Bike system data page (s3.amazonaws.com/tripdata). Use one or two recent full years (for example 2023 and 2024). Each row is one trip with start and stop timestamps, station IDs, and rider type. If the data is not available in the container, say so and stop rather than inventing data.\\n\\nQuestions to answer:\\n1. How does monthly trip volume vary across the year? Is there a clear seasonal peak and trough?\\n2. How does usage vary by day of week and hour of day? Compare weekdays and weekends, and identify commute peaks if present.\\n3. How do member and casual riders differ in these patterns?\\n4. Optional, if time allows: is daily trip count associated with temperature or precipitation? Use a public weather source for the same dates only if it is easy to get; otherwise skip this.\\n\\nMethod: clean obviously bad records (negative or extreme durations, missing timestamps) and report how many were removed. Use plots and simple summary statistics. Report uncertainty where it matters, and do not claim causation.\\n\\nGood result: a short report with 3 to 5 findings, each backed by a figure or table, the data source and cleaning steps stated, and limitations noted (for example, the dataset covers only one city and the rider-type field changed definition over time).\\n\\nConstraints: work only in the campaign container. Save code, figures and the final report to the output directory.\", \"name\": \"Citi Bike usage patterns\", \"skip_phases\": [], \"model\": \"\", \"models\": null, \"docker_image\": \"\", \"inputs\": [], \"data_paths\": [], \"autonomy_mode\": \"\", \"ideation_mode\": \"independent\", \"max_cost_usd\": 20.0, \"mock_mode\": null, \"cpus\": null, \"memory_mb\": null}}"
+ }
+}

@@ -1,6 +1,7 @@
 # Command line
 
 ```text
+aurora quickstart              the first minutes: check, key, demo, the console
 aurora demo                    run the offline demo (no API key, no Docker)
 aurora init [PATH]             write a commented starter config (default aurora.yaml)
 aurora doctor [CONFIG]         check Claude Code, Docker, the API key and the config

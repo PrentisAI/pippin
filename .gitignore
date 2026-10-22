@@ -9,7 +9,9 @@ dist/
 site/
 .env
 workspace/
+!aurora/examples/*/run/workspace/
 aurora/web/
+aurora/_docs/
 frontend/node_modules/
 frontend/dist/
 experiments/data/

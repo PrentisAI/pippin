@@ -405,6 +405,21 @@ class AuthStore:
     def set_pref(self, user_id: str, key: str, value: Any) -> None:
         self._x("INSERT OR REPLACE INTO user_prefs VALUES (?, ?, ?)", (user_id, key, json.dumps(value)))
 
+    def usage_facts(self, user_id: str) -> dict[str, bool]:
+        """What a person has tried (for the getting-started checklist): brainstormed, kept papers,
+        connected Zotero.  Tables of other stores in this database may not exist yet."""
+        def has(sql: str, args: tuple) -> bool:
+            try:
+                return self._conn.execute(sql, args).fetchone() is not None
+            except sqlite3.OperationalError:
+                return False
+        return {
+            "brainstormed": has("SELECT 1 FROM bs_messages WHERE who=? LIMIT 1", (user_id,)),
+            "papers": has("SELECT 1 FROM lit_items WHERE (added_by=? OR owner=?) AND campaign_id NOT LIKE 'ex\\_%' "
+                          "ESCAPE '\\' LIMIT 1", (user_id, user_id)),
+            "zotero": has("SELECT 1 FROM zotero_maps WHERE user_id=? LIMIT 1", (user_id,)),
+        }
+
     # ------------------------------------------------------------------ audit
 
     def log(self, user_id: str | None, action: str, target: str = "", detail: str = "") -> None:

@@ -136,22 +136,16 @@ AURORA needs Python 3.11 or newer.
 ```bash
 git clone https://github.com/prentisai/aurora && cd aurora
 pip install -e .
-aurora demo                     # the whole pipeline offline, in seconds
+(cd frontend && npm ci && npm run build)      # the web console (Node.js 18+), once
+aurora quickstart
 ```
 
-`aurora demo` replays a small scripted materials study with mock models: no
-API key, no Docker, no cost. It shows what a run produces and where.
-
-For the web console, build it once (Node.js 18+) and start it:
-
-```bash
-(cd frontend && npm ci && npm run build)
-aurora serve                    # http://localhost:8000
-```
-
-The start page lists what a real run still needs, lets you paste your
-OpenRouter key, and has **Watch a demo run** for the same scripted study in the
-browser.
+`aurora quickstart` checks this machine, asks for your OpenRouter key, plays the
+offline demo (scripted models: no key, no Docker, no cost) and opens the web
+console. There a short welcome shows what AURORA does, sets your defaults, and
+offers a finished example run with a guided tour. **Help (?)** in the left bar
+keeps a getting-started checklist, the tours, and the documentation, which also
+answers "how do I …" questions.
 
 ## Your first real run
 

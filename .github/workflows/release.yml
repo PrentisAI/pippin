@@ -11,6 +11,8 @@ jobs:
         with: {node-version: 22}
       - name: Build the web console into the package
         run: cd frontend && npm ci && npm run build && rm -rf ../aurora/web && cp -r dist ../aurora/web
+      - name: Put the documentation into the package (the console's Help reads it)
+        run: rm -rf aurora/_docs && cp -r docs aurora/_docs && cp mkdocs.yml aurora/_docs/
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
       - run: pip install build && python -m build

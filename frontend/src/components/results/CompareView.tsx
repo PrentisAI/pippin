@@ -3,6 +3,7 @@ import { api, describeError } from '../../api/client'
 import { formatCost, formatDuration } from '../../format'
 import type { RunComparison, RunOverview } from '../../types'
 import { ResultChip } from './ResultPopover'
+import { FirstTip } from '../../onboarding/FirstTip'
 
 const MODEL_ROLES: [string, string][] = [['agent', 'Agents'], ['research', 'Research agent'], ['analysis', 'Analysis'],
   ['writing', 'Writing'], ['ideation_seats', 'Ideation seats'], ['ideation_chair', 'Ideation chair'], ['auditor', 'Auditor'],
@@ -76,6 +77,10 @@ export function CompareView({ campaignId, onOpenRun }: { campaignId: string; onO
         <h2>Compare runs</h2>
         <label className="modal-check"><input type="checkbox" checked={onlyDiff} onChange={(e) => setOnlyDiff(e.target.checked)} /> Only what differs</label>
       </div>
+      <FirstTip id="compare" doc="guide/results.md">
+        <b>Runs side by side.</b> Pick the runs above; cells that differ are marked. Results are matched by name across runs,
+        and each value opens its provenance.
+      </FirstTip>
       <div className="lit-chips" role="group" aria-label="Runs to compare">
         {data.all_runs.map((r) => (
           <button key={r.run_id} className={`lit-chip${picked.includes(r.run_id) ? ' on' : ''}`} aria-pressed={picked.includes(r.run_id)}

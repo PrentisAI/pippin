@@ -7,6 +7,7 @@ import { FollowingView } from './feed/FollowingView'
 import { ScholarView } from './feed/ScholarView'
 import { PaperLinks } from './LiteratureView'
 import { ZoteroDialog } from './ZoteroDialog'
+import { FirstTip } from '../onboarding/FirstTip'
 
 const KINDS: [FeedKind | 'all', string][] = [['all', 'All'], ['paper', 'Papers'], ['post', 'Posts'], ['blog', 'Blogs'], ['discussion', 'Discussions']]
 const SOURCE_ORDER = ['arxiv', 'openalex', 's2', 'hf', 'bluesky', 'mastodon', 'rss', 'x', 'discussion']
@@ -96,6 +97,10 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
 
   return (
     <div className="team-page lib-page fd-page">
+      <FirstTip id="library" doc="concepts/literature.md">
+        <b>The Library.</b> The papers of all your projects — the ones agents cite, each checked against the scholarly indexes,
+        and the ones you add — with your notes and Zotero. The feed shows what is new from the people and topics you follow.
+      </FirstTip>
       <div className="lib-head">
         <h1>Library</h1>
         <div className="bs-row">
@@ -239,7 +244,7 @@ function SavedTab({ lib, saved, onOpenProject, onRemoveItem, onChanged }: {
             </div>
           </article>
         ))}
-        {!papers.length && <div className="lit-empty">No papers here yet. Save them from the feed or a search, or let the agents bring papers into your projects.</div>}
+        {!papers.length && <div className="lit-empty">No papers here yet. Search above, add one by DOI or arXiv ID with “Add a paper”, bring a collection in with “Zotero”, or let the agents bring papers into your projects.</div>}
       </div>
     </>
   )

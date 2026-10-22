@@ -63,6 +63,7 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
     from aurora.api.routes.links import public_router as report_pages
     from aurora.api.routes.links import router as links_router
     from aurora.api.routes.literature import library_router, project_router
+    from aurora.api.routes.onboarding import router as onboarding_router
     from aurora.api.routes.run_results import router as results_router
     from aurora.api.routes.setup import router as setup_router
     from aurora.api.routes.skills import router as skills_router
@@ -78,7 +79,8 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
     app.include_router(decision_links)          # /a/<token>: answering a decision from a notification
     for router in (campaign_router, settings_router, skills_router, insights_router, files_router,
                    me_router, team_router, access_router, project_router, library_router,
-                   zotero_router, brainstorm_router, feed_router, links_router, results_router, setup_router):
+                   zotero_router, brainstorm_router, feed_router, links_router, results_router, setup_router,
+                   onboarding_router):
         app.include_router(router, dependencies=[Depends(guard)])
 
     @app.on_event("startup")
@@ -92,6 +94,12 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
             orphans = await remove_orphaned_containers(store.data_dir)
             if orphans:
                 logger.info("Removed %d containers left behind by interrupted experiments", orphans)
+        # the examples that come with AURORA (once per console; an admin can take them out)
+        try:
+            from aurora.examples import install_all
+            await asyncio.to_thread(install_all, home=store.data_dir, store=store)
+        except Exception:
+            logger.warning("Could not install the examples", exc_info=True)
         logger.info("AURORA API started; %d projects in %s",
                     len(store.list_campaigns()), store.data_dir)
         # everyone's Zotero collections, every few minutes

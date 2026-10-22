@@ -1,0 +1,70 @@
+                     count       mean       std  ...   50%    75%    max
+temperature_2m_mean  731.0  12.946648  8.668990  ...  12.9  20.55  29.00
+temperature_2m_max   731.0  17.857456  9.321478  ...  17.8  26.10  35.50
+temperature_2m_min   731.0   8.468947  8.451885  ...   8.2  15.75  24.70
+precipitation_sum    731.0   3.919152  9.446998  ...   0.0   2.60  93.80
+rain_sum             731.0   3.780848  9.390227  ...   0.0   2.25  93.80
+snowfall_sum         731.0   0.096908  0.831725  ...   0.0   0.00  18.13
+
+[6 rows x 8 columns]
+pbin
+0         367
+0-2.5     180
+2.5-10     90
+>10        94
+Name: count, dtype: int64
+      subset outcome        weather    n  spearman_rho  ci_lo  ci_hi  p_naive
+0   all days   total      mean temp  731         0.732  0.616  0.783    0.000
+1   all days   total  precipitation  731        -0.285 -0.382 -0.194    0.000
+2   all days  member      mean temp  731         0.661  0.519  0.729    0.000
+3   all days  member  precipitation  731        -0.295 -0.385 -0.205    0.000
+4   all days  casual      mean temp  731         0.805  0.715  0.839    0.000
+5   all days  casual  precipitation  731        -0.214 -0.310 -0.125    0.000
+6   weekdays   total      mean temp  522         0.737  0.613  0.789    0.000
+7   weekdays   total  precipitation  522        -0.283 -0.383 -0.180    0.000
+8   weekdays  member      mean temp  522         0.689  0.553  0.755    0.000
+9   weekdays  member  precipitation  522        -0.293 -0.393 -0.194    0.000
+10  weekdays  casual      mean temp  522         0.840  0.767  0.869    0.000
+11  weekdays  casual  precipitation  522        -0.230 -0.338 -0.131    0.000
+12  weekends   total      mean temp  209         0.733  0.516  0.809    0.000
+13  weekends   total  precipitation  209        -0.283 -0.456 -0.136    0.000
+14  weekends  member      mean temp  209         0.689  0.441  0.780    0.000
+15  weekends  member  precipitation  209        -0.303 -0.477 -0.159    0.000
+16  weekends  casual      mean temp  209         0.798  0.614  0.852    0.000
+17  weekends  casual  precipitation  209        -0.234 -0.414 -0.091    0.001
+                             model outcome                               term  coef_log  se_hac  pct_effect  pct_ci_lo  pct_ci_hi      p    n     r2  adj_r2  pct_per_10C  pct_per_10C_ci_lo  pct_per_10C_ci_hi
+0        M0_unadjusted_linear_temp   total                               temp     0.036   0.002       3.706      3.264      4.150  0.000  731  0.501   0.500       43.891             37.875             50.169
+3                 M1_calendar_only   total                            holiday    -0.358   0.125     -30.076    -45.229    -10.730  0.004  731  0.110   0.101          NaN                NaN                NaN
+6          M2_calendar_linear_temp   total                               temp     0.036   0.002       3.675      3.273      4.079  0.000  731  0.603   0.598       43.460             37.990             49.147
+7          M2_calendar_linear_temp   total                            holiday    -0.316   0.090     -27.107    -38.860    -13.094  0.000  731  0.603   0.598          NaN                NaN                NaN
+12    M3_calendar_quad_temp_precip   total   C(pbin, Treatment('0'))[T.0-2.5]    -0.094   0.014      -8.958    -11.413     -6.436  0.000  731  0.798   0.795          NaN                NaN                NaN
+13    M3_calendar_quad_temp_precip   total  C(pbin, Treatment('0'))[T.2.5-10]    -0.266   0.025     -23.371    -27.066    -19.490  0.000  731  0.798   0.795          NaN                NaN                NaN
+14    M3_calendar_quad_temp_precip   total     C(pbin, Treatment('0'))[T.>10]    -0.547   0.050     -42.145    -47.565    -36.165  0.000  731  0.798   0.795          NaN                NaN                NaN
+15    M3_calendar_quad_temp_precip   total                               temp     0.066   0.004       6.808      6.048      7.574  0.000  731  0.798   0.795       93.218             79.890            107.534
+16    M3_calendar_quad_temp_precip   total                       I(temp ** 2)    -0.001   0.000      -0.112     -0.138     -0.085  0.000  731  0.798   0.795          NaN                NaN                NaN
+17    M3_calendar_quad_temp_precip   total                            holiday    -0.304   0.077     -26.237    -36.600    -14.180  0.000  731  0.798   0.795          NaN                NaN                NaN
+18    M3_calendar_quad_temp_precip   total       derived: +10C from 0C to 10C     0.547   0.024      72.803     64.797     81.198  0.000  731  0.798   0.795          NaN                NaN                NaN
+19    M3_calendar_quad_temp_precip   total      derived: +10C from 10C to 20C     0.324   0.014      38.216     34.501     42.033  0.000  731  0.798   0.795          NaN                NaN                NaN
+20    M3_calendar_quad_temp_precip   total      derived: +10C from 20C to 30C     0.100   0.036      10.551      3.119     18.519  0.005  731  0.798   0.795          NaN                NaN                NaN
+39  M4_month_FE_linear_temp_precip   total   C(pbin, Treatment('0'))[T.0-2.5]    -0.065   0.014      -6.269     -8.741     -3.730  0.000  731  0.816   0.810          NaN                NaN                NaN
+40  M4_month_FE_linear_temp_precip   total  C(pbin, Treatment('0'))[T.2.5-10]    -0.224   0.023     -20.046    -23.515    -16.420  0.000  731  0.816   0.810          NaN                NaN                NaN
+41  M4_month_FE_linear_temp_precip   total     C(pbin, Treatment('0'))[T.>10]    -0.500   0.049     -39.352    -44.897    -33.249  0.000  731  0.816   0.810          NaN                NaN                NaN
+42  M4_month_FE_linear_temp_precip   total                               temp     0.036   0.004       3.691      2.972      4.414  0.000  731  0.816   0.810       43.678             34.031             54.020
+43  M4_month_FE_linear_temp_precip   total                            holiday    -0.333   0.076     -28.353    -38.322    -16.772  0.000  731  0.816   0.810          NaN                NaN                NaN
+{
+ "r2": {
+  "temp_only": 0.500995160754784,
+  "calendar_only(dow+holiday+year)": 0.1103915666782328,
+  "month_FE+calendar": 0.6240079357708045,
+  "calendar+quad_temp+precip": 0.7983775554722227,
+  "month_FE+calendar+temp+precip": 0.8162229805923656
+ },
+ "within_month_spearman_temp_total": 0.3425566779922811,
+ "durbin_watson_M3_total": 1.1467926347600164,
+ "M3_total_quadratic_vertex_C": 29.491471942918125,
+ "M3_total_se_hac14_vs_7": {
+  "temp_se_7": 0.0036466187725027067,
+  "temp_se_14": 0.004170155898774166
+ }
+}
+DONE
