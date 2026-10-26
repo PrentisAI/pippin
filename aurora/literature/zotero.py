@@ -32,6 +32,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 
@@ -93,6 +94,12 @@ CREATE TABLE IF NOT EXISTS zotero_items (
     pdf       TEXT NOT NULL DEFAULT '',    -- the attachment copied (its key)
     synced_at REAL NOT NULL,
     PRIMARY KEY (user_id, library, item_key)
+);
+CREATE TABLE IF NOT EXISTS zotero_ann_versions (  -- how far a library's annotations were read
+    user_id TEXT NOT NULL,
+    library TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, library)
 );
 """
 
@@ -189,18 +196,21 @@ class ZoteroClient:
         self._client = client
 
     async def _req(self, verb: str, path: str, *, params: dict[str, Any] | None = None, body: Any = None,
-                   headers: dict[str, str] | None = None, raw: bool = False) -> httpx.Response:
+                   headers: dict[str, str] | None = None, raw: bool = False, allow: tuple[int, ...] = (),
+                   content: bytes | str | None = None) -> httpx.Response:
         hdrs = {"Zotero-API-Version": "3", **(headers or {})}
         if self.key:
             hdrs["Zotero-API-Key"] = self.key
         url = path if path.startswith("http") else f"{self.base}/{path.lstrip('/')}"
         for attempt in range(4):
             try:
+                kw: dict[str, Any] = {"params": params, "headers": hdrs}
+                kw.update({"content": content} if content is not None else {"json": body})
                 if self._client is not None:
-                    r = await self._client.request(verb, url, params=params, json=body, headers=hdrs)
+                    r = await self._client.request(verb, url, **kw)
                 else:
                     async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0), follow_redirects=True) as c:
-                        r = await c.request(verb, url, params=params, json=body, headers=hdrs)
+                        r = await c.request(verb, url, **kw)
             except httpx.HTTPError as exc:
                 if self.method == "local":
                     raise ZoteroError("Zotero on this computer does not answer. Is Zotero 7 open, with “Allow other "
@@ -213,6 +223,8 @@ class ZoteroClient:
                 wait = float(r.headers.get("Retry-After") or r.headers.get("Backoff") or 5)
                 await asyncio.sleep(min(wait, 60.0))
                 continue
+            if r.status_code in allow:
+                return r
             if r.status_code == 403:
                 raise ZoteroError("Zotero refused the key: check that it is right and has access to this library"
                                   + (" with write access" if verb != "GET" else ""))
@@ -283,10 +295,88 @@ class ZoteroClient:
 
     async def create(self, library: str, items: list[dict[str, Any]]) -> dict[str, str]:
         """Create items; returns {index: item key} of those created."""
+        return {k: v["key"] for k, v in (await self.create_items(library, items)).items()}
+
+    async def create_items(self, library: str, items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        """Create items; returns {index: {key, version}} of those created, and {index: {error}} of the others."""
         r = await self._req("POST", f"{library_path(library, self.user_id)}/items", body=items,
                             headers={"Zotero-Write-Token": hex(int(time.time() * 1e6))[2:].rjust(32, "0")[-32:]})
         res = r.json()
-        return {k: (v.get("key") if isinstance(v, dict) else v) for k, v in (res.get("successful") or res.get("success") or {}).items()}
+        out: dict[str, dict[str, Any]] = {}
+        for k, v in (res.get("successful") or {}).items():
+            out[k] = {"key": v.get("key") or (v.get("data") or {}).get("key"), "version": int(v.get("version") or 0)}
+        if not out:     # older servers answer {"success": {index: key}}
+            version = int(r.headers.get("Last-Modified-Version") or 0)
+            out = {k: {"key": v, "version": version} for k, v in (res.get("success") or {}).items()}
+        for k, v in (res.get("failed") or {}).items():
+            out[k] = {"error": str((v or {}).get("message") or v)[:200]}
+        return out
+
+    async def item(self, library: str, key: str) -> dict[str, Any] | None:
+        r = await self._req("GET", f"{library_path(library, self.user_id)}/items/{key}", params={"format": "json"},
+                            raw=True)
+        return r.json() if r.status_code == 200 else None
+
+    async def patch(self, library: str, key: str, data: dict[str, Any], version: int) -> int | None:
+        """Change an item; its new version, or None when it changed in Zotero meanwhile (or is gone)."""
+        r = await self._req("PATCH", f"{library_path(library, self.user_id)}/items/{key}", body=data, raw=True,
+                            headers={"If-Unmodified-Since-Version": str(version)}, allow=(412,))
+        if r.status_code in (412, 404):
+            return None
+        return int(r.headers.get("Last-Modified-Version") or version)
+
+    async def delete(self, library: str, key: str, version: int) -> bool:
+        """Delete an item; False when it changed in Zotero meanwhile."""
+        r = await self._req("DELETE", f"{library_path(library, self.user_id)}/items/{key}", raw=True,
+                            headers={"If-Unmodified-Since-Version": str(version)}, allow=(412,))
+        return r.status_code != 412
+
+    async def annotations_since(self, library: str, since: int) -> tuple[list[dict[str, Any]], int]:
+        """The library's annotations changed since a version (all of them for 0)."""
+        params: dict[str, Any] = {"itemType": "annotation"}
+        if since:
+            params["since"] = since
+        return await self._all(f"{library_path(library, self.user_id)}/items", params)
+
+    async def deleted_since(self, library: str, since: int) -> list[str]:
+        """Keys of the items deleted since a version (the local API cannot say: nothing then)."""
+        if self.method == "local" or not since:
+            return []
+        r = await self._req("GET", f"{library_path(library, self.user_id)}/deleted", params={"since": since}, raw=True)
+        return list((r.json() or {}).get("items") or []) if r.status_code == 200 else []
+
+    async def upload_pdf(self, library: str, parent_key: str, filename: str, content: bytes) -> str:
+        """Attach a PDF to an item, stored in Zotero; returns the attachment's key."""
+        import hashlib
+        made = await self.create_items(library, [{
+            "itemType": "attachment", "parentItem": parent_key, "linkMode": "imported_file", "title": "Full Text PDF",
+            "contentType": "application/pdf", "filename": filename, "tags": [{"tag": TAG}]}])
+        att = (made.get("0") or {}).get("key")
+        if not att:
+            raise ZoteroError(f"Zotero did not take the PDF: {(made.get('0') or {}).get('error', 'no answer')}")
+        path = f"{library_path(library, self.user_id)}/items/{att}/file"
+        form = {"md5": hashlib.md5(content).hexdigest(), "filename": filename, "filesize": str(len(content)),
+                "mtime": str(int(time.time() * 1000))}
+        r = await self._req("POST", path, content=urlencode(form),
+                            headers={"Content-Type": "application/x-www-form-urlencoded", "If-None-Match": "*"})
+        auth = r.json()
+        if auth.get("exists"):
+            return att
+        body = auth["prefix"].encode() + content + auth["suffix"].encode()
+        # the file goes to Zotero's storage host, which must not get the API key
+        try:
+            if self._client is not None:
+                up = await self._client.post(auth["url"], content=body, headers={"Content-Type": auth["contentType"]})
+            else:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as c:
+                    up = await c.post(auth["url"], content=body, headers={"Content-Type": auth["contentType"]})
+        except httpx.HTTPError as exc:
+            raise ZoteroError(f"the PDF upload failed ({type(exc).__name__})") from exc
+        if up.status_code not in (200, 201, 204):
+            raise ZoteroError(f"the PDF upload was refused ({up.status_code})")
+        await self._req("POST", path, content=f"upload={auth['uploadKey']}",
+                        headers={"Content-Type": "application/x-www-form-urlencoded", "If-None-Match": "*"})
+        return att
 
     async def add_to_collection(self, library: str, item: dict[str, Any], collection_key: str) -> None:
         data = item.get("data") or item
@@ -311,6 +401,9 @@ class ZoteroStore:
         self._conn = sqlite3.connect(str(Path(data_dir) / "aurora.db"), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        if "attachment" not in {r[1] for r in self._conn.execute("PRAGMA table_info(zotero_items)")}:
+            # the item's PDF attachment (its key), where notes made on the paper go
+            self._conn.execute("ALTER TABLE zotero_items ADD COLUMN attachment TEXT NOT NULL DEFAULT ''")
         self._conn.commit()
         self._lock = threading.RLock()
 
@@ -355,7 +448,7 @@ class ZoteroStore:
                 (time.time(), error, json.dumps(report or {}), user_id))
 
     def forget(self, user_id: str) -> None:
-        for table in ("zotero_links", "zotero_maps", "zotero_items", "zotero_notes"):
+        for table in ("zotero_links", "zotero_maps", "zotero_items", "zotero_notes", "zotero_ann_versions"):
             self._x(f"DELETE FROM {table} WHERE user_id=?", (user_id,))
 
     def maps(self, user_id: str) -> list[dict[str, Any]]:
@@ -384,11 +477,34 @@ class ZoteroStore:
 
     def put_item(self, user_id: str, library: str, item_key: str, **fields: Any) -> None:
         prev = self.item(user_id, library, item_key) or {}
-        row = {"paper_id": "", "ref_id": "", "version": 0, "citekey": "", "pdf": "", **prev, **fields}
+        row = {"paper_id": "", "ref_id": "", "version": 0, "citekey": "", "pdf": "", "attachment": "", **prev, **fields}
         self._x("INSERT OR REPLACE INTO zotero_items (user_id, library, item_key, paper_id, ref_id, version, citekey, "
-                "pdf, synced_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                "pdf, attachment, synced_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (user_id, library, item_key, row["paper_id"], row["ref_id"], row["version"], row["citekey"],
-                 row["pdf"], time.time()))
+                 row["pdf"], row["attachment"], time.time()))
+
+    def attachment_of(self, user_id: str, paper_id: str) -> tuple[str, str] | None:
+        """(library, attachment key) of the paper's PDF in the person's Zotero, if Zotero has one."""
+        rows = self._all("SELECT library, attachment FROM zotero_items WHERE user_id=? AND paper_id=? AND attachment!='' "
+                         "ORDER BY synced_at DESC", (user_id, paper_id))
+        return (rows[0]["library"], rows[0]["attachment"]) if rows else None
+
+    def paper_of_attachment(self, user_id: str, library: str, attachment: str) -> str:
+        rows = self._all("SELECT paper_id FROM zotero_items WHERE user_id=? AND library=? AND attachment=? AND paper_id!=''",
+                         (user_id, library, attachment))
+        return rows[0]["paper_id"] if rows else ""
+
+    def item_of_paper(self, user_id: str, paper_id: str) -> dict[str, Any] | None:
+        rows = self._all("SELECT * FROM zotero_items WHERE user_id=? AND paper_id=? ORDER BY synced_at DESC",
+                         (user_id, paper_id))
+        return rows[0] if rows else None
+
+    def ann_version(self, user_id: str, library: str) -> int:
+        rows = self._all("SELECT version FROM zotero_ann_versions WHERE user_id=? AND library=?", (user_id, library))
+        return rows[0]["version"] if rows else 0
+
+    def set_ann_version(self, user_id: str, library: str, version: int) -> None:
+        self._x("INSERT OR REPLACE INTO zotero_ann_versions VALUES (?,?,?)", (user_id, library, version))
 
     def item_key(self, user_id: str, library: str, paper_id: str) -> str:
         rows = self._all("SELECT item_key FROM zotero_items WHERE user_id=? AND library=? AND paper_id=?",
@@ -522,18 +638,28 @@ def _own_note(text: str) -> bool:
     return bool(text) and not re.match(r"^(Comment|Full Text|Accepted|Submitted)\b:?", text, flags=re.I)
 
 
-async def _annotations(client: ZoteroClient, lib: str, attachment_key: str) -> list[dict[str, Any]]:
+def _note_of(ad: dict[str, Any]) -> dict[str, Any] | None:
+    """A Zotero annotation as a highlight or note the agents read."""
+    text = (ad.get("annotationText") or "").strip()
+    comment = (ad.get("annotationComment") or "").strip()
+    if not (text or comment):
+        return None
+    return {"note_id": ad["key"], "kind": "highlight" if text else "note", "text": (text or comment)[:4000],
+            "comment": comment if text else "", "page": str(ad.get("annotationPageLabel") or "")}
+
+
+async def _annotations(client: ZoteroClient, lib: str, attachment_key: str,
+                       found: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """The highlights and notes on a PDF; ``found`` collects the annotations themselves (with their place)."""
     out = []
     for ann in await client.children(lib, attachment_key):
         ad = ann.get("data") or {}
         if ad.get("itemType") != "annotation":
             continue
-        text = (ad.get("annotationText") or "").strip()
-        comment = (ad.get("annotationComment") or "").strip()
-        if text or comment:
-            out.append({"note_id": ad["key"], "kind": "highlight" if text else "note",
-                        "text": (text or comment)[:4000], "comment": comment if text else "",
-                        "page": str(ad.get("annotationPageLabel") or "")})
+        if found is not None:
+            found.append({**ad, "version": int(ann.get("version") or ad.get("version") or 0)})
+        if note := _note_of(ad):
+            out.append(note)
     return out
 
 
@@ -601,12 +727,14 @@ async def _pull_item(user_id: str, who: str, m: dict[str, Any], item: dict[str, 
     if not paper_id or not (options["pdfs"] or options["notes"]):
         return
     notes: list[dict[str, Any]] = []
+    found: list[dict[str, Any]] = []
     try:
         if standalone:          # the PDF is the item: its highlights are its own children
+            zotero_store.put_item(user_id, lib, data["key"], attachment=data["key"])
             if options["pdfs"]:
                 await _copy_pdf(client, user_id, lib, cid, data["key"], item, paper_id, report, title)
             if options["notes"]:
-                notes += await _annotations(client, lib, data["key"])
+                notes += await _annotations(client, lib, data["key"], found)
         else:
             for ch in await client.children(lib, data["key"]):
                 cd = ch.get("data") or {}
@@ -615,16 +743,20 @@ async def _pull_item(user_id: str, who: str, m: dict[str, Any], item: dict[str, 
                     if _own_note(text):
                         notes.append({"note_id": cd["key"], "kind": "note", "text": text[:4000]})
                 if cd.get("itemType") == "attachment" and cd.get("contentType") == "application/pdf":
+                    if not (zotero_store.item(user_id, lib, data["key"]) or {}).get("attachment"):
+                        zotero_store.put_item(user_id, lib, data["key"], attachment=cd["key"])
                     if options["pdfs"]:
                         await _copy_pdf(client, user_id, lib, cid, data["key"], ch, paper_id, report, title)
                     if options["notes"]:   # highlights live on the PDF, also when the file is not in Zotero
-                        notes += await _annotations(client, lib, cd["key"])
+                        notes += await _annotations(client, lib, cd["key"], found)
     except ZoteroError as exc:
         report.problems.append(f"“{title[:50]}”: {exc}")
         return
     if options["notes"]:
         library.set_notes(cid, user_id, paper_id, notes)
         report.notes += len(notes)
+        for ad in found:            # into the reader, with their place on the page
+            take_annotation(user_id, lib, paper_id, cid or f"user:{user_id}", ad)
 
 
 async def push(user_id: str, m: dict[str, Any], client: ZoteroClient, report: SyncReport,
@@ -702,6 +834,11 @@ async def sync(user_id: str, who: str, *, campaign_id: str | None = None,
                     await idea_notes(user_id, m, client, report)
                 except ZoteroError as exc:
                     report.problems.append(f"Writing idea notes in “{m['name']}”: {exc}")
+        if options["notes"]:
+            try:
+                await sync_notes(user_id, client)
+            except ZoteroError as exc:
+                report.problems.append(f"Notes on PDFs: {exc}")
     except ZoteroError as exc:
         error = str(exc)
         raise
@@ -737,6 +874,301 @@ async def idea_notes(user_id: str, m: dict[str, Any], client: ZoteroClient, repo
             card_id, paper_id, _ = batch[int(idx)]
             zotero_store.note_written(user_id, lib, card_id, paper_id, key)
             report.idea_notes += 1
+
+
+# ---------------------------------------------------------------------------
+# Notes on PDFs: the reader's notes <-> Zotero annotations on the paper's PDF
+#
+# A kept note becomes a highlight annotation on the PDF attachment: the same words (its page and
+# rectangles), the author's colour, tagged ``aurora`` (and ``aurora:<agent>`` for an agent's note). The
+# comment says who wrote it, the idea it bears on and the replies. Annotations made in Zotero come back
+# as the person's notes. Changed on both sides: the later edit wins. Deleted on one side: deleted on the
+# other (AURORA waits a few seconds first, for Undo).
+
+AURORA_MARK = " (AURORA)"
+_SORT_INDEX = re.compile(r"\d{5}\|\d{6}\|\d{5}")
+_note_tasks: dict[str, asyncio.Task] = {}
+_note_again: set[str] = set()
+
+
+def _iso_time(value: str) -> float:
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat((value or "").replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def compose_comment(a: dict[str, Any], replies: list[dict[str, Any]], names: dict[str, str] | None = None) -> str:
+    """The Zotero comment of a note: who wrote it, what it says, the idea it bears on, the replies."""
+    from aurora.literature.annotations import AGENT_COLORS
+    names = names or {}
+    head = a.get("comment") or ""
+    if a.get("author"):
+        head = f"{a['author']}{AURORA_MARK}: {head}" if head else f"{a['author']}{AURORA_MARK}"
+    parts = [head] if head else []
+    if a.get("idea_text"):
+        parts.append(f"Idea: {a['idea_text']}")
+    for r in replies:
+        if r.get("pending") or not r.get("text"):
+            continue
+        who = r["who"]
+        name = f"{who}{AURORA_MARK}" if who in AGENT_COLORS else names.get(who, "You")
+        parts.append(f"— {name}: {r['text']}")
+    return "\n\n".join(parts)
+
+
+def parse_comment(comment: str, author: str = "") -> str:
+    """A note's own words, from a Zotero comment AURORA wrote (without who, the idea and the replies)."""
+    head = (comment or "").split("\n\n— ", 1)[0]
+    head = head.split("\n\nIdea: ", 1)[0]
+    if author:
+        if head.startswith(f"{author}{AURORA_MARK}:"):
+            head = head[len(author) + len(AURORA_MARK) + 1:]
+        elif head.strip() == f"{author}{AURORA_MARK}":
+            head = ""
+    return head.strip()
+
+
+def annotation_json(a: dict[str, Any], attachment: str, comment: str) -> dict[str, Any]:
+    page = int(a.get("page_index") or 0)
+    tags = [{"tag": TAG}] + ([{"tag": f"{TAG}:{a['author'].lower()}"}] if a.get("author") else [])
+    rects = [[round(float(x), 3) for x in r[:4]] for r in a.get("rects") or []]
+    sort_index = a.get("sort_index") or ""
+    return {"itemType": "annotation", "parentItem": attachment, "annotationType": "highlight",
+            "annotationText": a.get("text") or "", "annotationComment": comment,
+            "annotationColor": a.get("color") or "#ffd400", "annotationPageLabel": a.get("page_label") or str(page + 1),
+            "annotationSortIndex": sort_index if _SORT_INDEX.fullmatch(sort_index) else f"{page:05d}|000000|00000",
+            "annotationPosition": json.dumps({"pageIndex": page, "rects": rects}), "tags": tags}
+
+
+def take_annotation(user_id: str, lib: str, paper_id: str, space: str, ad: dict[str, Any]) -> None:
+    """An annotation as Zotero has it: a new note, or a change to (or the end of) one the reader has."""
+    from aurora.literature.annotations import AGENT_COLORS, annotations
+    if ad.get("annotationType") not in ("highlight", "underline", "note", "text"):
+        return                       # ink and image areas have no words to show
+    key, version = ad.get("key", ""), int(ad.get("version") or 0)
+    existing = annotations.by_zotero_key(user_id, key)
+    if ad.get("deleted"):            # in Zotero's trash
+        if existing:
+            annotations.purge(existing["ann_id"])
+        return
+    tags = {t.get("tag", "") for t in ad.get("tags") or []}
+    author = next((t.split(":", 1)[1].capitalize() for t in tags if t.startswith(f"{TAG}:")), "")
+    author = author if author in AGENT_COLORS else ""
+    raw = ad.get("annotationComment") or ""
+    comment = parse_comment(raw, author) if TAG in tags else raw
+    try:
+        pos = json.loads(ad.get("annotationPosition") or "{}")
+    except json.JSONDecodeError:
+        pos = {}
+    fields = {"text": ad.get("annotationText") or "", "comment": comment, "color": ad.get("annotationColor") or "",
+              "page_index": int(pos.get("pageIndex") or 0), "page_label": str(ad.get("annotationPageLabel") or ""),
+              "rects": pos.get("rects") or [], "sort_index": ad.get("annotationSortIndex") or ""}
+    if existing is None:
+        annotations.add(user_id, paper_id, author=author, state="kept", space=space, source="zotero", zotero_lib=lib,
+                        zotero_key=key, zotero_version=version, **fields)
+        return
+    if version <= existing["zotero_version"] or existing["deleted_at"]:
+        return
+    if existing["dirty"] and _iso_time(ad.get("dateModified", "")) < existing["updated_at"]:
+        # changed on both sides, here later: AURORA's version goes to Zotero over this one
+        annotations.update(existing["ann_id"], touch=False, zotero_version=version)
+        return
+    annotations.update(existing["ann_id"], touch=False, zotero_version=version, dirty=False, sync_error="", **fields)
+
+
+def _space_of(user_id: str, paper_id: str) -> str:
+    """Where a note made in Zotero shows: the mapped project that has the paper, else the person's own space."""
+    for m in zotero_store.maps(user_id):
+        if m["campaign_id"] and library.has_item(m["campaign_id"], paper_id):
+            return m["campaign_id"]
+    return f"user:{user_id}"
+
+
+async def pull_note_changes(user_id: str, lib: str, client: ZoteroClient) -> int:
+    """Annotations changed (or deleted) in Zotero since the last look, on PDFs of papers AURORA knows."""
+    from aurora.literature.annotations import annotations
+    since = zotero_store.ann_version(user_id, lib)
+    items, version = await client.annotations_since(lib, since)
+    seen = 0
+    for it in items:
+        ad = {**(it.get("data") or {}), "version": int(it.get("version") or (it.get("data") or {}).get("version") or 0)}
+        paper_id = zotero_store.paper_of_attachment(user_id, lib, ad.get("parentItem", ""))
+        if not paper_id:
+            continue
+        existing = annotations.by_zotero_key(user_id, ad.get("key", ""))
+        take_annotation(user_id, lib, paper_id, existing["space"] if existing else _space_of(user_id, paper_id), ad)
+        seen += 1
+    for key in await client.deleted_since(lib, since):
+        if a := annotations.by_zotero_key(user_id, key):
+            annotations.purge(a["ann_id"])
+    zotero_store.set_ann_version(user_id, lib, version or since)
+    return seen
+
+
+async def push_notes(user_id: str, client: ZoteroClient) -> int:
+    """Kept notes Zotero does not have as they are now, and deletions; returns how many went."""
+    from aurora.brainstorm.store import bs_store
+    from aurora.literature.annotations import annotations
+    link = zotero_store.link(user_id)
+    if link is None or link["method"] != "web":
+        return 0
+    sent = 0
+    for a in annotations.to_push(user_id):
+        if a["deleted_at"] is not None:
+            if a["zotero_key"]:
+                try:
+                    if not await client.delete(a["zotero_lib"], a["zotero_key"], a["zotero_version"]):
+                        cur = await client.item(a["zotero_lib"], a["zotero_key"])   # changed there meanwhile
+                        if cur is not None:
+                            await client.delete(a["zotero_lib"], a["zotero_key"], int(cur.get("version") or 0))
+                except ZoteroError as exc:
+                    annotations.update(a["ann_id"], touch=False, sync_error=str(exc))
+                    continue
+                sent += 1
+            annotations.purge(a["ann_id"])
+            continue
+        target = zotero_store.attachment_of(user_id, a["paper_id"])
+        if target is None or not a["rects"] or not _may_write(link["access"], target[0]):
+            continue                 # it stays in AURORA; the reader says why
+        lib, att = target
+        card = bs_store.card(a["card_id"]) if a["card_id"] else None
+        names = {a["owner"]: _name(a["owner"])}
+        body = annotation_json(a, att, compose_comment({**a, "idea_text": card["text"] if card else ""},
+                                                       annotations.replies(a["ann_id"]), names))
+        try:
+            if a["zotero_key"] and a["zotero_lib"] == lib:
+                changes = {k: v for k, v in body.items() if k not in ("itemType", "parentItem")}
+                version = await client.patch(lib, a["zotero_key"], changes, a["zotero_version"])
+                if version is None:
+                    cur = await client.item(lib, a["zotero_key"])
+                    if cur is None:              # deleted in Zotero: so it is here
+                        annotations.purge(a["ann_id"])
+                        continue
+                    cd = {**(cur.get("data") or {}), "version": int(cur.get("version") or 0)}
+                    if _iso_time(cd.get("dateModified", "")) >= a["updated_at"]:
+                        annotations.update(a["ann_id"], touch=False, dirty=False)
+                        take_annotation(user_id, lib, a["paper_id"], a["space"], cd)       # Zotero's is later
+                        continue
+                    version = await client.patch(lib, a["zotero_key"], changes, cd["version"])
+                if version is not None:
+                    _pushed(a, zotero_version=version)
+                    sent += 1
+            else:
+                made = (await client.create_items(lib, [body])).get("0") or {}
+                if made.get("key"):
+                    _pushed(a, zotero_lib=lib, zotero_key=made["key"], zotero_version=made["version"])
+                    sent += 1
+                else:
+                    annotations.update(a["ann_id"], touch=False, sync_error=made.get("error", "Zotero did not take it"))
+        except ZoteroError as exc:
+            annotations.update(a["ann_id"], touch=False, sync_error=str(exc))
+    return sent
+
+
+def _pushed(a: dict[str, Any], **fields: Any) -> None:
+    """Zotero has the note as it was sent; still changed if it was edited while being sent."""
+    from aurora.literature.annotations import annotations
+    now = annotations.get(a["ann_id"])
+    still = now is not None and now["updated_at"] > a["updated_at"]
+    annotations.update(a["ann_id"], touch=False, dirty=still, sync_error="", **fields)
+
+
+async def sync_notes(user_id: str, client: ZoteroClient | None = None) -> None:
+    """Notes both ways, for every library holding a PDF of the person's papers."""
+    link = zotero_store.link(user_id)
+    if link is None:
+        return
+    client = client or client_for(user_id)
+    libs = {r["library"] for r in zotero_store._all(
+        "SELECT DISTINCT library FROM zotero_items WHERE user_id=? AND attachment!=''", (user_id,))}
+    for lib in sorted(libs):
+        await pull_note_changes(user_id, lib, client)
+    await push_notes(user_id, client)
+
+
+def notes_soon(user_id: str, delay: float = 1.5) -> None:
+    """Bring the person's notes to Zotero (and Zotero's back) in a moment; changes in a burst go together."""
+    from aurora.literature.annotations import annotations
+    if zotero_store.link(user_id) is None:
+        for a in annotations.to_push(user_id, grace=8.0):
+            if a["deleted_at"] is not None:
+                annotations.purge(a["ann_id"])
+        return
+    task = _note_tasks.get(user_id)
+    if task is not None and not task.done():
+        _note_again.add(user_id)
+        return
+
+    async def run() -> None:
+        await asyncio.sleep(delay)
+        for _ in range(20):
+            _note_again.discard(user_id)
+            try:
+                await sync_notes(user_id)
+            except ZoteroError as exc:
+                logger.info("Zotero notes of %s: %s", user_id, exc)
+            except Exception:
+                logger.warning("Zotero notes of %s failed", user_id, exc_info=True)
+            if user_id in _note_again:
+                await asyncio.sleep(delay)
+                continue
+            if annotations.waiting_deletions(user_id):      # told after the time for Undo
+                await asyncio.sleep(9)
+                continue
+            break
+
+    _note_tasks[user_id] = asyncio.create_task(run())
+
+
+def notes_target(user_id: str, paper_id: str) -> dict[str, Any]:
+    """Where the person's notes on a paper go in Zotero, or why they stay in AURORA."""
+    link = zotero_store.link(user_id)
+    if link is None:
+        return {"state": "off"}
+    can_write = link["method"] == "web" and any(_may_write(link["access"], m["library"]) for m in zotero_store.maps(user_id))
+    item = zotero_store.item_of_paper(user_id, paper_id)
+    base = {"last_sync": link["last_sync"], "error": link["last_error"], "method": link["method"]}
+    if item is None:
+        return {**base, "state": "not_in_zotero", "can_add": can_write and bool(zotero_store.maps(user_id))}
+    lib = item["library"]
+    where = "My Library" if lib == "user" else "a group library"
+    if link["method"] != "web" or not _may_write(link["access"], lib):
+        return {**base, "state": "read_only", "library": where}
+    if not item["attachment"]:
+        return {**base, "state": "no_pdf", "library": where, "can_add": True}
+    return {**base, "state": "ok", "library": where}
+
+
+async def add_paper(user_id: str, who: str, paper_id: str, campaign_id: str, pdf: Path | None) -> dict[str, Any]:
+    """Put a paper (and its PDF) into the person's Zotero, in the collection of the project, so notes can follow."""
+    link = zotero_store.link(user_id)
+    if link is None or link["method"] != "web":
+        raise ZoteroError("Connect your Zotero account (with a key that can write) first")
+    maps = [m for m in zotero_store.maps(user_id) if m["campaign_id"] == campaign_id and _may_write(link["access"], m["library"])]
+    maps = maps or [m for m in zotero_store.maps(user_id) if m["campaign_id"] == "" and _may_write(link["access"], m["library"])]
+    if not maps:
+        raise ZoteroError("Choose a Zotero collection for this project (or your Library) first, in Settings › Zotero")
+    m = maps[0]
+    client = client_for(user_id)
+    item = zotero_store.item_of_paper(user_id, paper_id)
+    if item is None:
+        owner = "" if m["campaign_id"] else user_id
+        library.add_item(m["campaign_id"], paper_id, source="person", added_by=who, owner=owner)
+        await push(user_id, m, client, SyncReport(), only={paper_id})
+        item = zotero_store.item_of_paper(user_id, paper_id)
+        if item is None:
+            raise ZoteroError("Zotero did not take the paper")
+    if not item["attachment"]:
+        if pdf is None:
+            raise ZoteroError("There is no PDF of this paper to put into Zotero")
+        entry = library.paper(paper_id)
+        att = await client.upload_pdf(item["library"], item["item_key"], f"{entry['key'] if entry else paper_id}.pdf",
+                                      pdf.read_bytes())
+        zotero_store.put_item(user_id, item["library"], item["item_key"], attachment=att)
+    notes_soon(user_id, delay=0.2)
+    return notes_target(user_id, paper_id)
 
 
 def _may_write(access: dict[str, Any], library: str) -> bool:

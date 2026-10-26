@@ -29,6 +29,7 @@ nav:
       - Working with the human: concepts/human-in-the-loop.md
       - Literature: concepts/literature.md
       - Brainstorm: concepts/brainstorm.md
+      - Zoom out and zoom in: concepts/zoom-out-zoom-in.md
       - Skills: concepts/skills.md
   - Guides:
       - Command line: guide/cli.md

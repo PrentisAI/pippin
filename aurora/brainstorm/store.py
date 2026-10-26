@@ -114,6 +114,8 @@ class BrainstormStore:
         cols = {r[1] for r in self._conn.execute("PRAGMA table_info(bs_messages)")}
         if "attachments" not in cols:        # papers and files given with a message
             self._conn.execute("ALTER TABLE bs_messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'")
+        if "widget" not in cols:             # something to act on in the message: a proposal, a step of a map, options
+            self._conn.execute("ALTER TABLE bs_messages ADD COLUMN widget TEXT NOT NULL DEFAULT ''")
         if "status" not in {r[1] for r in self._conn.execute("PRAGMA table_info(bs_chats)")}:
             self._conn.execute("ALTER TABLE bs_chats ADD COLUMN status TEXT NOT NULL DEFAULT ''")   # a live meeting's
         card_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(bs_cards)")}
@@ -171,14 +173,15 @@ class BrainstormStore:
 
     def add_message(self, chat_id: str, who: str, text: str = "", *, kind: str = "text", steps: list[str] | None = None,
                     effects: list[list[str]] | None = None, only_for: str = "", consent: str = "",
-                    pending: bool = False, attachments: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                    pending: bool = False, attachments: list[dict[str, Any]] | None = None,
+                    widget: dict[str, Any] | None = None) -> dict[str, Any]:
         mid = _new("m")
         now = time.time()
         with self._lock:
             self._x("INSERT INTO bs_messages (msg_id, chat_id, who, kind, text, steps, effects, only_for, consent, "
-                    "pending, created_at, attachments) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "pending, created_at, attachments, widget) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (mid, chat_id, who, kind, text, json.dumps(steps or []), json.dumps(effects or []), only_for,
-                     consent, int(pending), now, json.dumps(attachments or [])))
+                     consent, int(pending), now, json.dumps(attachments or []), json.dumps(widget) if widget else ""))
             self._x("UPDATE bs_chats SET updated_at=? WHERE chat_id=?", (now, chat_id))
         return self.message(mid)  # type: ignore[return-value]
 
@@ -190,6 +193,7 @@ class BrainstormStore:
     def _msg(r: dict[str, Any]) -> dict[str, Any]:
         r["steps"], r["effects"], r["pending"] = json.loads(r["steps"]), json.loads(r["effects"]), bool(r["pending"])
         r["attachments"] = json.loads(r.get("attachments") or "[]")
+        r["widget"] = json.loads(r["widget"]) if r.get("widget") else None
         return r
 
     def update_message(self, msg_id: str, **fields: Any) -> None:
@@ -197,6 +201,8 @@ class BrainstormStore:
         for k, v in fields.items():
             if k in ("steps", "effects"):
                 cols[k] = json.dumps(v)
+            elif k == "widget":
+                cols[k] = json.dumps(v) if v else ""
             elif k == "pending":
                 cols[k] = int(v)
             elif k in ("text", "decided"):

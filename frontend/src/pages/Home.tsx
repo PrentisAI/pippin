@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api, describeError } from '../api/client'
 import { AgentStreamView } from '../components/AgentStreamView'
@@ -59,6 +59,12 @@ import {
   type RunEstimate,
 } from '../types'
 import { turnKey, type StreamEvent } from '../types/chat'
+import type { ReadRequest } from '../components/reader/PaperReader'
+import type { MapRequest } from '../components/review/FieldMapView'
+
+// the paper reader (and pdf.js) load when a paper is first opened
+const PaperReader = lazy(() => import('../components/reader/PaperReader'))
+const FieldMapView = lazy(() => import('../components/review/FieldMapView'))
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -2124,6 +2130,17 @@ export default function Home() {
   const [activePanel, setActivePanel] = useState<string>('projects')
   const [rightPanel, setRightPanel] = useState<string>('stream')
   const [page, setPage] = useState<MainPage>(null)
+  // a paper open in the reader, over whatever page it was opened from
+  const [reading, setReading] = useState<ReadRequest | null>(null)
+  // a map of a field open over the page (the reader opens over it in turn)
+  const [mapping, setMapping] = useState<MapRequest | null>(null)
+  useEffect(() => {
+    const open = (e: Event) => setReading((e as CustomEvent<ReadRequest>).detail)
+    const map = (e: Event) => setMapping((e as CustomEvent<MapRequest>).detail)
+    window.addEventListener('aurora:read-paper', open)
+    window.addEventListener('aurora:open-map', map)
+    return () => { window.removeEventListener('aurora:read-paper', open); window.removeEventListener('aurora:open-map', map) }
+  }, [])
   // the space the brainstorm page opens on (a project's, from its tab bar; else your own)
   const [bsSpace, setBsSpace] = useState<string | null>(null)
   useEffect(() => {
@@ -2482,6 +2499,16 @@ export default function Home() {
 
       <div className="main" style={{ position: 'relative' }}>
         <ErrorBanner message={notice} onDismiss={() => setNotice(null)} />
+        {mapping && (
+          <Suspense fallback={<div className="rv"><div className="rd-loading">Opening the map…</div></div>}>
+            <FieldMapView key={`${mapping.space}|${mapping.mapId ?? ''}`} req={mapping} onClose={() => setMapping(null)} />
+          </Suspense>
+        )}
+        {reading && (
+          <Suspense fallback={<div className="rd"><div className="rd-loading">Opening the paper…</div></div>}>
+            <PaperReader key={`${reading.paper}|${reading.space}|${reading.cardId ?? ''}`} req={reading} onClose={() => setReading(null)} />
+          </Suspense>
+        )}
         {view === 'team' && <TeamView />}
         {view === 'brainstorm' && <BrainstormView initialSpace={bsSpace ?? activeCampaignId} onOpenProject={(cid) => { setPage(null); selectCampaign(cid) }}
           onOpenLibrary={() => setPage('library')} />}

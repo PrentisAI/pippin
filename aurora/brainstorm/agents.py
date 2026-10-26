@@ -43,8 +43,13 @@ unless the researcher asks for one.
 - Cite papers only by their key in square brackets, e.g. [Behrens12], and only papers from the project's \
 literature or from your own searches. Never invent a paper; every reference is checked.
 - Record what you contribute on the board with the tools (a question, evidence, a next step, an assessment), \
-attached to the idea it concerns. Say in your answer what you added.
+attached to the idea it concerns. If the researcher's idea is not on the board yet, first write it down \
+(add_idea: their idea in one clear sentence, in their terms), then attach your contribution to it. Say in \
+your answer what you added. Never talk about your tools or what you cannot do.
 - The researcher decides; you advise. Disagree when you have a reason.
+- When a map of the field is given below, place what you say on it: the region of the design space an idea is in, \
+the unsolved problem it answers, the nearest papers. If the researcher disputes the map (its definition, a boundary, \
+where a paper sits), call revise_map with their point.
 {role_rules}"""
 
 ROLE_RULES = {
@@ -60,6 +65,11 @@ alternatives, and what result would refute it. Record the design as a next step 
 - Prefer designs the project can run with its data and compute; say what it would cost in effort.
 - When an idea's open questions are answered and it has evidence, update its assessment (set_assessment).""",
     "Librarian": """\
+- When the researcher asks what has been done in a direction, how far a field has come, what the approaches are, or \
+whether an idea is new, and no map of that field is given below, propose to map it (map_field): that is how you \
+answer a question about a whole field. Say in a sentence why, then let them start it.
+- To understand one paper in depth (how its authors came to the idea, its weakest assumption, what to do next), \
+propose a deep read (deep_read).
 - Search the literature (search_papers) before you answer about evidence; read the abstracts you get.
 - Record each relevant paper as evidence for or against the idea (add_evidence with its key), with one \
 sentence on what it shows. Say plainly when the evidence is indirect or weak, or when you found none.
@@ -95,6 +105,37 @@ _TOOLS_ALL = [
      "parameters": {"type": "object", "properties": {
          "text": {"type": "string", "description": "the idea, one or two sentences"},
          "builds_on": {"type": "string", "description": "an idea it builds on, if any"}}, "required": ["text"]}},
+    {"name": "read_paper", "description": "Read a paper's PDF (its text, a few pages at a time), when there is one.",
+     "parameters": {"type": "object", "properties": {
+         "paper_key": {"type": "string"},
+         "from_page": {"type": "integer", "description": "the first page to read (1 = the first)"}},
+         "required": ["paper_key"]}},
+    {"name": "annotate", "description": "Mark a passage of a paper's PDF for the researcher, with what it means for an "
+                                        "idea. They see it highlighted in the paper and decide whether to keep it.",
+     "parameters": {"type": "object", "properties": {
+         "paper_key": {"type": "string"},
+         "quote": {"type": "string", "description": "the paper's exact words (10 to 40), copied from read_paper"},
+         "comment": {"type": "string", "description": "what it means for the idea, one to three sentences"},
+         "card_id": {"type": "string", "description": "the idea it bears on"},
+         "rel": {"type": "string", "enum": ["supports", "challenges", "asks about", "builds on"]}},
+         "required": ["paper_key", "quote", "comment", "card_id"]}},
+    {"name": "map_field", "description": "Propose to map a research direction (why it is needed, what the field means "
+                                         "by it, its design space, how far it has come, what is attempted but not solved). "
+                                         "The researcher starts it with one click; its steps are told in this conversation.",
+     "parameters": {"type": "object", "properties": {
+         "topic": {"type": "string", "description": "the direction, in a few words"},
+         "brief": {"type": "string", "description": "what the researcher cares about in it, from the conversation"}},
+         "required": ["topic"]}},
+    {"name": "deep_read", "description": "Propose a deep read of one paper: twelve questions, including how its authors "
+                                         "may have come to the idea. The researcher starts it with one click.",
+     "parameters": {"type": "object", "properties": {"paper_key": {"type": "string"}}, "required": ["paper_key"]}},
+    {"name": "revise_map", "description": "The researcher disputes the map of the field: its definition or a boundary "
+                                          "(what: definition), or where a paper sits (what: placement, with paper_key). "
+                                          "Works out what it would change; the options come back in this conversation.",
+     "parameters": {"type": "object", "properties": {
+         "what": {"type": "string", "enum": ["definition", "placement"]},
+         "text": {"type": "string", "description": "the researcher's point, in their words"},
+         "paper_key": {"type": "string"}}, "required": ["what", "text"]}},
     {"name": "set_assessment", "description": "Set the one-sentence assessment of where an idea stands.",
      "parameters": {"type": "object", "properties": {
          "card_id": {"type": "string"}, "text": {"type": "string"}}, "required": ["card_id", "text"]}},
@@ -121,6 +162,7 @@ class Board:
     links: list[dict[str, Any]] = field(default_factory=list)
     project: dict[str, Any] = field(default_factory=dict)          # name, objective, runs
     literature: Any = None
+    map: dict[str, Any] | None = None                              # the space's map of the field, if there is one
 
     @property
     def shared_chat(self) -> bool:
@@ -158,6 +200,12 @@ class Board:
             lines.append("## The researcher's private ideas (NOT visible to others here)\nDo not quote or use them in "
                          "this shared conversation. If one bears on the question, call ask_to_share instead.\n"
                          + "\n".join(f"- {c['card_id']}: {c['text']}" for c in self.private))
+        if self.map is not None:
+            from aurora.review.fieldmap import summary_for_agents
+            if self.map["state"] == "ready" or self.map["version"]:
+                lines.append(summary_for_agents(self.map))
+            else:
+                lines.append(f"## A map of the field “{self.map['topic']}” is being built (step: {self.map['step']}).")
         if focus and focus in names:
             lines.append(f"## The conversation is about the idea {focus}: {names[focus]['text']}")
         return "\n\n".join(lines)
@@ -259,6 +307,10 @@ class BoardTools:
                     pass
             self.turn.effect("Started an idea", idea["card_id"])
             return {"ok": True, "card_id": idea["card_id"]}
+        if name in ("read_paper", "annotate"):
+            return self._paper_tool(name, args)
+        if name in ("map_field", "deep_read", "revise_map"):
+            return await self._review_tool(name, args)
         if name == "set_assessment":
             idea = self._idea(str(args.get("card_id")))
             bs_store.update_card(idea["card_id"], stand=str(args.get("text", ""))[:600])
@@ -274,16 +326,115 @@ class BoardTools:
         return {"error": f"unknown tool {name}"}
 
 
+    async def _review_tool(self, name: str, args: dict[str, Any]) -> Any:
+        """Zoom out and zoom in from the conversation: proposals the researcher starts, revisions of the map."""
+        b = self.board
+        chat = b.chat["chat_id"]
+        if name == "map_field":
+            topic = " ".join(str(args.get("topic", "")).split())[:200]
+            if not topic:
+                return {"error": "name the direction"}
+            if b.map is not None and b.map["state"] == "building":
+                return {"error": f"a map of “{b.map['topic']}” is being built; wait for it"}
+            from aurora.review.converse import estimate_calls
+            calls = estimate_calls(30)
+            bs_store.add_message(chat, self.agent, f"Map the field: {topic}. About {calls} model calls; a few minutes.",
+                                 kind="action", widget={"type": "proposal", "action": "map_field", "topic": topic,
+                                                        "brief": str(args.get("brief", ""))[:1000], "size": 30,
+                                                        "calls": calls, "state": "pending"})
+            return {"ok": True, "note": "Proposed; the researcher starts it from the button under your message."}
+        if name == "deep_read":
+            from aurora.literature.library import library
+            entry = library.paper(str(args.get("paper_key", "")).strip("[] "))
+            if entry is None:
+                return {"error": "not a paper AURORA knows; give its key"}
+            bs_store.add_message(chat, self.agent, f"Deep-read [{entry['key']}]: twelve questions, about fourteen model calls.",
+                                 kind="action", widget={"type": "proposal", "action": "deep_read", "paper_id": entry["paper_id"],
+                                                        "key": entry["key"], "title": entry["paper"].title, "state": "pending"})
+            return {"ok": True, "note": "Proposed; the researcher starts it from the button under your message."}
+        # revise_map
+        if b.map is None:
+            return {"error": "there is no map of the field in this space"}
+        if b.map["owner"] != b.viewer:
+            return {"error": "only the map's owner changes it; say so to the researcher"}
+        from fastapi import HTTPException
+
+        from aurora.api.routes import review as rv
+        from aurora.review.store import review_store
+        review_store.set_state(b.map["map_id"], chat_id=chat)        # the conversation about the map is here now
+        try:
+            if args.get("what") == "placement":
+                from aurora.literature.library import library
+                entry = library.paper(str(args.get("paper_key", "")).strip("[] "))
+                if entry is None:
+                    return {"error": "give the key of the paper whose placement is disputed"}
+                rv.start_replace(b.map["map_id"], entry["paper_id"], str(args.get("text", "")))
+                self.turn.step(f"Placing [{entry['key']}] again")
+                return {"ok": True, "note": "The paper is being placed again with the researcher's point."}
+            rv.start_challenge(b.map["map_id"], str(args.get("text", "")))
+        except HTTPException as exc:
+            return {"error": exc.detail}
+        self.turn.step("Working out what the challenge would change")
+        return {"ok": True, "note": "Working out what it would change; the options come in this conversation."}
+
+    def _pdf_pages(self, key: str) -> tuple[dict[str, Any], list[str]]:
+        from aurora.literature.library import library
+        from aurora.literature.reading import find_pdf, page_texts
+        b = self.board
+        entry = library.paper(key.strip("[] "))
+        if entry is None:
+            raise ValueError(f"[{key}] is not a paper AURORA knows")
+        known = library.known_to(b.literature.campaign_id) if b.literature is not None else set()
+        if entry["paper_id"] not in known and entry["key"] not in self.known_papers:
+            raise ValueError(f"[{entry['key']}] is not a paper from the literature or your searches")
+        campaign_id = "" if b.space.startswith("user:") else b.space
+        pdf = find_pdf(entry["paper_id"], b.viewer, campaign_id)
+        if pdf is None:
+            raise ValueError(f"there is no PDF of [{entry['key']}] here; work from its abstract")
+        return entry, page_texts(pdf)
+
+    def _paper_tool(self, name: str, args: dict[str, Any]) -> Any:
+        entry, pages = self._pdf_pages(str(args.get("paper_key", "")))
+        if name == "read_paper":
+            start = max(1, int(args.get("from_page") or 1))
+            self.turn.step(f"Reading [{entry['key']}], from page {start}")
+            out, total = [], 0
+            for i in range(start - 1, len(pages)):
+                chunk = f"--- page {i + 1} of {len(pages)} ---\n{pages[i].strip()}"
+                if total + len(chunk) > 24_000 and out:
+                    out.append(f"(more from page {i + 1})")
+                    break
+                out.append(chunk)
+                total += len(chunk)
+            return "\n".join(out) or "The PDF has no text on those pages."
+        from aurora.literature.annotations import annotations, find_page
+        idea = self._idea(str(args.get("card_id")))
+        quote = " ".join(str(args.get("quote", "")).split())
+        page = find_page(pages, quote)
+        if page < 0:
+            return {"error": "the paper does not contain these exact words; copy the quote from read_paper"}
+        rel = str(args.get("rel", ""))
+        annotations.add(self.board.viewer, entry["paper_id"], author=self.agent, state="suggested", text=quote,
+                        comment=str(args.get("comment", ""))[:1500], page_index=page, page_label=str(page + 1),
+                        space=self.board.space, card_id=idea["card_id"], rel=rel, chat_id=self.board.chat["chat_id"])
+        self.turn.effect(f"Marked a passage of [{entry['key']}] for", idea["card_id"])
+        return {"ok": True, "note": "Marked; the researcher sees it in the paper as your suggestion."}
+
+
 # each agent records what its role brings, so they do not do each other's work
 ROLE_TOOLS = {
-    "Skeptic": {"add_question", "add_evidence", "set_assessment"},
-    "Methods": {"add_next_step", "add_question", "add_idea", "set_assessment"},
-    "Librarian": {"search_papers", "add_evidence", "add_question"},
+    # every agent may write down the researcher's idea when it is not on the board yet
+    "Skeptic": {"add_question", "add_evidence", "add_idea", "set_assessment", "read_paper", "annotate", "revise_map"},
+    "Methods": {"add_next_step", "add_question", "add_idea", "set_assessment", "read_paper", "annotate", "revise_map"},
+    "Librarian": {"search_papers", "add_evidence", "add_question", "add_idea", "read_paper", "annotate", "map_field",
+                  "deep_read", "revise_map"},
 }
 
 
 def tool_specs(agent: str, board: Board) -> list[dict[str, Any]]:
     allowed = ROLE_TOOLS.get(agent, set())
+    if board.map is None:
+        allowed = allowed - {"revise_map"}
     specs = [t for t in _TOOLS_ALL if t["name"] in allowed]
     if board.literature is not None and "search_papers" in allowed:
         specs.append(_SEARCH)
@@ -378,27 +529,43 @@ async def answer(agent: str, board: Board, history: list[dict[str, Any]], questi
     return bs_store.message(msg["msg_id"])  # type: ignore[return-value]
 
 
-_MENTION = re.compile(r"@(Skeptic|Methods|Librarian)\b", re.I)
+_MENTION = re.compile(r"@(Skeptic|Method|Librarian)s?\b", re.I)      # @Skeptics, @Method: close enough
 
 
 def mentioned(text: str) -> list[str]:
     seen: list[str] = []
     for m in _MENTION.findall(text or ""):
-        name = m.capitalize()
+        name = "Methods" if m.lower() == "method" else m.capitalize()
         if name not in seen:
             seen.append(name)
     return seen
 
 
-async def pick(text: str, activity: str, access: ModelAccess, client: Any = None) -> list[str]:
-    """Who answers a message nobody was named in: none, one, or (very active) up to two agents."""
+async def pick(text: str, activity: str, access: ModelAccess, client: Any = None, *, opening: bool = False,
+               fallback: str = "Librarian") -> list[str]:
+    """Who answers a message nobody was named in.
+
+    * *opening* (the first message of a brainstorm), or "very" active: always one or two;
+    * moderately active: one, unless the researcher is plainly in the middle of a train of thought
+      (greetings, questions and anything said to the room get an answer).
+
+    When one must answer and the model names nobody, *fallback* does (the agent who spoke last)."""
     if activity == "off" or not access.api_key:
         return []
     n = 2 if activity == "high" else 1
-    prompt = (f"A researcher wrote in a brainstorm: \"{text[:1500]}\"\n\nWhich of these agents should answer, "
-              f"if any? Skeptic (finds weak points), Methods (turns ideas into tests), Librarian (finds evidence in "
-              f"the literature). Answer with up to {n} names separated by commas, most useful first, or NONE if "
-              f"the researcher is just thinking out loud and an answer would interrupt.")
+    must = opening or activity == "high"
+    agents = ("Skeptic (finds weak points), Methods (turns ideas into tests), Librarian (finds what is known "
+              "in the literature)")
+    if must:
+        lead = (f"A researcher opened a brainstorm with: \"{text[:1500]}\"" if opening
+                else f"A researcher wrote in a brainstorm: \"{text[:1500]}\"")
+        prompt = (f"{lead}\n\nWhich of these agents should answer? {agents}. Answer with up to {n} names "
+                  f"separated by commas, most useful first.")
+    else:
+        prompt = (f"A researcher wrote in a brainstorm: \"{text[:1500]}\"\n\nWhich of these agents should "
+                  f"answer? {agents}. Answer with up to {n} names separated by commas, most useful first. Answer "
+                  f"NONE only if the researcher is plainly in the middle of their own train of thought and a reply "
+                  f"would interrupt; a greeting, a question, or anything said to the agents gets an answer.")
     client = client or _client(access)
     try:
         resp = await client.chat.completions.create(model=access.model, temperature=0,
@@ -409,4 +576,5 @@ async def pick(text: str, activity: str, access: ModelAccess, client: Any = None
         logger.debug("picking a brainstorm agent failed", exc_info=True)
         return []
     found = [(m.start(), a) for a in AGENTS if (m := re.search(rf"\b{a}\b", out, re.I))]
-    return [a for _, a in sorted(found)][:n]
+    names = [a for _, a in sorted(found)][:n]
+    return names or ([fallback if fallback in AGENTS else "Librarian"] if must else [])

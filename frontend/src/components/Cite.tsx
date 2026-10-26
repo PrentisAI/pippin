@@ -1,6 +1,7 @@
 import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api, describeError } from '../api/client'
+import { readPaper } from './reader/open'
 
 /** What a citation points to (from /literature/resolve). */
 export interface CiteInfo {
@@ -231,7 +232,8 @@ function CitePopover({ info, body, anchor, onClose }: { info: CiteInfo; body: st
       )}
       {error && <div className="modal-error">{error}</div>}
       <div className="cite-pop-actions">
-        {real && pdf && <a className="btn-sm lit-btn" href={pdf} target="_blank" rel="noreferrer">Open PDF</a>}
+        {real && (pdf || real.arxiv_id) && real.key && <button className="btn-sm lit-btn" onClick={() => {
+          readPaper({ paper: real.key!, space: ctx.campaignId, from: 'Back' }); onClose() }}>Read the PDF</button>}
         {real && !pdf && (real.url || real.doi) && <a className="btn-sm lit-btn" href={real.doi ? `https://doi.org/${real.doi}` : real.url} target="_blank" rel="noreferrer">Open</a>}
         {!real && info.closest && info.ref_id && ctx.canEdit && !info.resolution && (
           <button className="btn-sm btn-approve" disabled={busy} onClick={replace}>Use the real one instead</button>

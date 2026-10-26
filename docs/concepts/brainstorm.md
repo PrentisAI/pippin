@@ -68,6 +68,37 @@ The model is `models.brainstorm` (default: the front desk's).
 
 Dismissing a suggestion (×) tells the agents to bring fewer things like it.
 
+## Reading a paper with the agents
+
+**Read the PDF** on a paper (in the Papers tab, on the Literature page, or from a
+citation) opens it in the reader: the PDF on the left, the notes on it beside it.
+
+- **Select words** in the PDF to highlight them, write a note on them, or ask
+  the Librarian, the Skeptic or Methods about them. The agent answers in the
+  note's conversation, from the passage, its page and your idea. Reply there, and
+  name another agent (`@Methods`) to bring it in.
+- **The agents read along.** Opened from a brainstorm idea, the paper is read for
+  that idea: each agent marks up to two passages its role cares about (the
+  Librarian: what the paper shows for or against the idea; the Skeptic: what the
+  idea has to survive; Methods: what a test of it could reuse), with a comment
+  and how it bears on the idea. These are **suggestions**, drawn with a dashed
+  line, until you **Keep** or **Dismiss** them. Turn *Agents mark passages on
+  their own* off and they answer only when you ask. In a conversation, an agent
+  can also read a paper's PDF and mark a passage for you.
+- Each author has its colour: you yellow, the Librarian blue, the Skeptic orange,
+  Methods purple (Zotero's colours). Filter the notes by author; clicking a note
+  shows its place in the paper, and clicking a highlight opens its note.
+- **Private by default.** Your notes, and the agents' notes in your reading, are
+  yours. In a project where you may comment, **Share with the project** shows a
+  note to its members, who can reply.
+- **Zotero.** When your Zotero has the paper and its PDF, and your key can
+  write, kept notes become annotations on that PDF in Zotero, and the ones you
+  make in Zotero come back. See [Zotero](../guide/zotero.md#notes-on-pdfs).
+
+Where the PDF comes from: the project's papers (uploaded, or copied from Zotero),
+your Library, another project of yours, or, for an open paper (arXiv), fetched
+once and kept. Without one, the reader shows the abstract.
+
 ## An idea up close
 
 **Start a discussion** (or *See the discussion*) on an idea opens it on the

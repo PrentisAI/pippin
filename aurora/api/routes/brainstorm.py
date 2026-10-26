@@ -161,9 +161,10 @@ def _board(ch: dict[str, Any], campaign_id: str) -> ag.Board:
     else:
         usable, private = cards, []
     ids = {c["card_id"] for c in usable}
+    from aurora.api.routes.review import latest_map
     return ag.Board(space=ch["space"], viewer=uid, viewer_name=_name(uid) if _name(uid) != "You" else "The researcher",
                     chat=ch, cards=usable, private=private, links=bs_store.links(ids), project=_project(campaign_id),
-                    literature=_literature(ch["space"], campaign_id))
+                    literature=_literature(ch["space"], campaign_id), map=latest_map(ch["space"], uid))
 
 
 def _attached(attachments: list[dict[str, Any]], campaign_id: str) -> str:
@@ -348,16 +349,101 @@ async def say(chat_id: str, body: Say) -> dict[str, Any]:
         raise HTTPException(400, "The message is empty")
     if ch["run_id"]:
         return _speak_in_meeting(ch, cid, text)
+    earlier = bs_store.messages(chat_id)
+    # a deep read waits for the researcher's guess at the authors' path: this message is it
+    waiting = next((m for m in reversed(earlier) if (m.get("widget") or {}).get("type") == "guess"
+                    and m["widget"].get("state") == "waiting"), None)
+    if waiting and _guess_owner(waiting["widget"]["read_id"]):
+        msg = bs_store.add_message(chat_id, _uid(), text)
+        bs_store.update_message(waiting["msg_id"], widget={**waiting["widget"], "state": "answered"})
+        from aurora.api.routes.review import reveal
+        reveal(waiting["widget"]["read_id"], chat_id, guess=text)
+        return {"message": _message_view(msg), "agents": []}
+    opening = not any(m["kind"] == "text" for m in earlier)
+    last_agent = next((m["who"] for m in reversed(earlier) if m["who"] in ag.AGENTS), "Librarian")
     msg = bs_store.add_message(chat_id, _uid(), text, attachments=body.attachments[:10])
     if body.focus:
         bs_store.update_chat(chat_id, focus=body.focus)
     if ch["title"] == "New brainstorm" and ch["owner"] == _uid():
         bs_store.update_chat(chat_id, title=_title(text))
-    names = ag.mentioned(text) or await ag.pick(text, _activity(), _access())
+    activity = _activity()
+    names = ag.mentioned(text) or await ag.pick(text, activity, _access(), opening=opening, fallback=last_agent)
     if body.attachments and not names:       # something brought along is meant to be looked at
         names = ["Librarian"]
+    if not names:
+        _say_why_quiet(chat_id, activity)
     _run_agents(ch, cid, names, text, body.focus or ch["focus"], attachments=body.attachments)
     return {"message": _message_view(msg), "agents": names}
+
+
+def _guess_owner(read_id: str) -> bool:
+    from aurora.review.store import review_store
+    r = review_store.read_by_id(read_id)
+    return r is not None and r["owner"] == _uid()
+
+
+class Act(BaseModel):
+    choice: str          # start | decline | skip | resume | an option's id
+
+
+@router.post("/messages/{msg_id}/act")
+async def act(msg_id: str, body: Act) -> dict[str, Any]:
+    """Act on a message: start a proposed map or deep read, apply an answer to a challenge, skip a guess, resume."""
+    from aurora.api.routes import review as rv
+    m = bs_store.message(msg_id)
+    if m is None or not m.get("widget"):
+        raise HTTPException(404, "Nothing to act on")
+    ch, cid = _chat(m["chat_id"])
+    _may_write(cid)
+    w = dict(m["widget"])
+    kind = w.get("type")
+    if kind == "proposal":
+        if w.get("state") != "pending":
+            raise HTTPException(409, "Already decided")
+        if body.choice == "decline":
+            w["state"] = "declined"
+        elif w.get("action") == "map_field":
+            started = rv.start_map(ch["space"] if not ch["space"].startswith("user:") else "global", w["topic"],
+                                   w.get("brief", ""), chat_id=ch["chat_id"], size=int(w.get("size") or 30))
+            w.update(state="started", map_id=started["map_id"])
+        elif w.get("action") == "deep_read":
+            r = await rv.start_read(w["paper_id"], ch["space"] if not ch["space"].startswith("user:") else "global",
+                                    chat_id=ch["chat_id"])
+            w.update(state="started", read_id=r["read_id"])
+    elif kind == "challenge":
+        if w.get("state") != "pending":
+            raise HTTPException(409, "Already decided")
+        rv._start(w["map_id"], lambda b: rv.fieldmap.apply_challenge(b, w["challenge_id"], body.choice))
+        w.update(state="applied", chosen=body.choice)
+    elif kind == "guess":
+        if w.get("state") != "waiting" or not _guess_owner(w["read_id"]):
+            raise HTTPException(409, "Already answered")
+        w["state"] = "answered"
+        rv.reveal(w["read_id"], ch["chat_id"])
+    elif kind == "map_failed":
+        rv._start(w["map_id"], lambda b: rv.fieldmap.run(b, start=rv.fieldmap.resume_from(b.content)))
+        w["state"] = "resumed"
+    else:
+        raise HTTPException(400, "Nothing to do with this message")
+    bs_store.update_message(msg_id, widget=w)
+    return _message_view(bs_store.message(msg_id))  # type: ignore[arg-type]
+
+
+_QUIET = {
+    "off": "No agent answers unless you ask (How active: only when asked). Name one — @Skeptic, @Methods, "
+           "@Librarian — or use the buttons below.",
+    "moderate": "No agent answered: this read like thinking out loud. To hear from one, name it — @Skeptic, "
+                "@Methods, @Librarian — or use the buttons below.",
+    "high": "No agent had something to add. Name one — @Skeptic, @Methods, @Librarian — to ask it anyway.",
+}
+
+
+def _say_why_quiet(chat_id: str, activity: str) -> None:
+    """Silence explained, to the writer only, and not twice in a row."""
+    last = (bs_store.messages(chat_id, viewer=_uid()) or [None])[-2:]
+    if any(m and m["kind"] == "system" and m.get("only_for") == _uid() and m["text"] in _QUIET.values() for m in last):
+        return
+    bs_store.add_message(chat_id, "system", _QUIET.get(activity, _QUIET["moderate"]), kind="system", only_for=_uid())
 
 
 def _speak_in_meeting(ch: dict[str, Any], campaign_id: str, text: str) -> dict[str, Any]:

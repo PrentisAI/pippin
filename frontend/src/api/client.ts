@@ -1,4 +1,4 @@
-import type { Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { DeepRead, FieldMap, FieldMapSummary, LitPaper, NotePlace, ReaderAgent, ReaderNote, ReaderView, Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -282,6 +282,50 @@ export const api = {
     citeVersion: (cid: string, pid: string, version = 0) => request<ProjectLiterature>(`/campaigns/${cid}/literature/papers/${pid}/version`, put({ version })),
     fileUrl: (cid: string, path: string) => `${BASE_URL}/campaigns/${cid}/files/raw?path=${encodeURIComponent(path)}`,
   },
+  reader: {
+    get: (paper: string, q: { space?: string; card_id?: string; chat_id?: string }) =>
+      request<ReaderView>(`/reader/papers/${encodeURIComponent(paper)}?${new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][])}`),
+    pdfUrl: (paper: string, space: string) => `${BASE_URL}/reader/papers/${encodeURIComponent(paper)}/pdf?space=${encodeURIComponent(space)}`,
+    addNote: (paper: string, body: { space: string; card_id?: string; chat_id?: string; text: string; comment?: string; draft?: boolean; ask?: ReaderAgent } & NotePlace) =>
+      request<ReaderNote>(`/reader/papers/${encodeURIComponent(paper)}/notes`, post(body)),
+    change: (annId: string, body: { comment?: string; keep?: boolean; shared?: boolean; place?: NotePlace }) =>
+      request<ReaderNote>(`/reader/notes/${annId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    remove: (annId: string) => request<{ deleted: boolean; in_zotero: boolean }>(`/reader/notes/${annId}`, { method: 'DELETE' }),
+    restore: (annId: string) => request<ReaderNote>(`/reader/notes/${annId}/restore`, post()),
+    reply: (annId: string, text: string) => request<ReaderNote>(`/reader/notes/${annId}/replies`, post({ text })),
+    readAlong: (paper: string, body: { space: string; card_id?: string; chat_id?: string }) =>
+      request<{ started: boolean; why?: string }>(`/reader/papers/${encodeURIComponent(paper)}/read-along`, post(body)),
+    settings: (agents_mark: boolean) => request<{ agents_mark: boolean }>('/reader/settings', { method: 'PUT', body: JSON.stringify({ agents_mark }) }),
+    toZotero: (paper: string, space: string) => request<ReaderView['zotero']>(`/reader/papers/${encodeURIComponent(paper)}/zotero`, post({ space })),
+    sync: () => request<{ ok: boolean }>('/reader/sync', post()),
+  },
+  review: {
+    maps: (space: string) => request<FieldMapSummary[]>(`/review/spaces/${encodeURIComponent(space)}/maps`),
+    pane: (space: string) => request<FieldMap | null>(`/review/spaces/${encodeURIComponent(space)}/pane`),
+    newMap: (space: string, body: { topic: string; brief?: string; seeds?: string[]; size?: number }) =>
+      request<FieldMap>(`/review/spaces/${encodeURIComponent(space)}/maps`, post(body)),
+    map: (id: string) => request<FieldMap>(`/review/maps/${id}`),
+    change: (id: string, body: { topic?: string; shared?: boolean }) => request<FieldMap>(`/review/maps/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    remove: (id: string) => request<{ deleted: boolean }>(`/review/maps/${id}`, { method: 'DELETE' }),
+    run: (id: string, start = '') => request<FieldMap>(`/review/maps/${id}/run`, post({ start })),
+    accept: (id: string, proposal: string) => request<FieldMap>(`/review/maps/${id}/proposals/${proposal}/accept`, post()),
+    dismiss: (id: string, proposal: string) => request<FieldMap>(`/review/maps/${id}/proposals/${proposal}/dismiss`, post()),
+    choose: (id: string, framework: string) => request<FieldMap>(`/review/maps/${id}/framework`, post({ framework })),
+    replace: (id: string, paperId: string, note: string) => request<FieldMap>(`/review/maps/${id}/papers/${paperId}/replace`, post({ note })),
+    challenge: (id: string, text: string) => request<FieldMap>(`/review/maps/${id}/challenges`, post({ text })),
+    apply: (id: string, challenge: string, option: string) => request<FieldMap>(`/review/maps/${id}/challenges/${challenge}/apply`, post({ option })),
+    checkNew: (id: string) => request<FieldMap>(`/review/maps/${id}/check-new`, post()),
+    version: (id: string, v: number) => request<FieldMap['content']>(`/review/maps/${id}/versions/${v}`),
+    toBrainstorm: (id: string, problem: string) => request<{ card_id: string; links: number }>(`/review/maps/${id}/problems/${problem}/brainstorm`, post()),
+    openRead: (body: { paper: string; space: string; map_id?: string; start?: boolean }) => request<DeepRead>('/review/reads', post(body)),
+    findRead: (paper: string, space: string) => request<DeepRead | null>(`/review/reads?paper=${encodeURIComponent(paper)}&space=${encodeURIComponent(space)}`),
+    read: (id: string) => request<DeepRead>(`/review/reads/${id}`),
+    changeRead: (id: string, body: { guess?: string; revealed?: boolean; ticks?: number[] }) =>
+      request<DeepRead>(`/review/reads/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    again: (id: string, questions: number[]) => request<DeepRead>(`/review/reads/${id}/again`, post({ questions })),
+    followUp: (id: string, question: number, text: string) => request<DeepRead>(`/review/reads/${id}/followups`, post({ question, text })),
+    ideaToBrainstorm: (id: string) => request<{ card_id: string; links: number }>(`/review/reads/${id}/idea`, post()),
+  },
   brainstorm: {
     spaces: () => request<{ space: string; name: string; project: boolean; can_write: boolean }[]>('/brainstorm/spaces'),
     space: (space: string) => request<BsSpace>(`/brainstorm/spaces/${encodeURIComponent(space)}`),
@@ -306,6 +350,7 @@ export const api = {
     share: (chatId: string, what: 'all' | 'ideas', card_ids: string[]) =>
       request<{ chat: BsChat; shared_cards: number }>(`/brainstorm/chats/${chatId}/share`, post({ what, card_ids })),
     consent: (msgId: string, share: boolean) => request<{ ok: boolean }>(`/brainstorm/messages/${msgId}/consent`, post({ share })),
+    act: (msgId: string, choice: string) => request<BsMessage>(`/brainstorm/messages/${msgId}/act`, post({ choice })),
     addCard: (space: string, body: { type?: CardType; text: string; paper_id?: string; links?: { to: string; rel: Relation }[]; vis?: string; chat_id?: string; ask_skeptic?: boolean }) =>
       request<{ card: BsCard; chat_id?: string }>(`/brainstorm/spaces/${encodeURIComponent(space)}/cards`, post(body)),
     changeCard: (cardId: string, body: { text?: string; answer?: string; vis?: 'private' | 'project' }) =>
@@ -371,6 +416,7 @@ export const api = {
     install: (id: string) => request<{ campaign_id: string }>(`/examples/${id}/install`, post()),
     remove: (id: string) => request<{ ok: boolean }>(`/examples/${id}`, del),
   },
+  paper: (ident: string) => request<LitPaper>(`/library/papers/${encodeURIComponent(ident)}`),
   help: {
     pages: () => request<{ pages: HelpPage[] }>('/help/docs'),
     page: (path: string) => request<{ path: string; title: string; markdown: string }>(`/help/docs/${path}`),

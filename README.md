@@ -99,6 +99,13 @@ See [Results, reports and runs](docs/guide/results.md).
 - **Brainstorm** — think out loud with a *Skeptic*, *Methods* and a
   *Librarian* agent, keep ideas as arguments (evidence for and against, open
   questions, next steps), and turn one into an experiment proposal.
+- **Zoom out, zoom in** — map a research direction as a chain (why it is needed, what the
+  field means by it, the design space, how far each need is met, where it moves, what is attempted
+  but not solved), and deep-read a paper in twelve questions, including how the authors may have
+  come to the idea, reconstructed without seeing their method.
+- **Paper reader** — read a PDF with the agents: highlight and note passages,
+  ask an agent about one, let them mark what bears on your idea; the notes you
+  keep become annotations on the PDF in Zotero, and back.
 - **Feed** — new papers and posts from the people and sources you follow,
   ranked against your projects, with one sentence on why each fits.
 
@@ -204,7 +211,7 @@ The documentation is in [`docs/`](docs/) and reads directly on GitHub:
 | | |
 |---|---|
 | Getting started | [Installation](docs/getting-started/installation.md) · [Your first campaign](docs/getting-started/first-campaign.md) |
-| Concepts | [How a campaign runs](docs/concepts/pipeline.md) · [Ideation](docs/concepts/ideation.md) · [Auditors](docs/concepts/auditors.md) · [Working with the human](docs/concepts/human-in-the-loop.md) · [Literature](docs/concepts/literature.md) · [Brainstorm](docs/concepts/brainstorm.md) · [Skills](docs/concepts/skills.md) |
+| Concepts | [How a campaign runs](docs/concepts/pipeline.md) · [Ideation](docs/concepts/ideation.md) · [Auditors](docs/concepts/auditors.md) · [Working with the human](docs/concepts/human-in-the-loop.md) · [Literature](docs/concepts/literature.md) · [Brainstorm](docs/concepts/brainstorm.md) · [Zoom out and zoom in](docs/concepts/zoom-out-zoom-in.md) · [Skills](docs/concepts/skills.md) |
 | Guides | [Command line](docs/guide/cli.md) · [Web console](docs/guide/web-console.md) · [Results, reports and runs](docs/guide/results.md) · [Accounts and sharing](docs/guide/accounts.md) · [The feed](docs/guide/feed.md) · [Zotero](docs/guide/zotero.md) · [Notifications](docs/guide/notifications.md) · [GPU jobs](docs/guide/cluster-jobs.md) · [Models and costs](docs/guide/models-and-costs.md) · [Sandbox and security](docs/guide/sandbox.md) · [Troubleshooting](docs/guide/troubleshooting.md) |
 | Reference | [Configuration](docs/reference/configuration.md) · [Campaign files](docs/reference/workspace.md) · [Events](docs/reference/events.md) |
 

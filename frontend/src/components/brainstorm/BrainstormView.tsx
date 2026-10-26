@@ -11,6 +11,8 @@ import { FILTER_LABELS, PapersPane, inFilter, type PaperFilter } from './Papers'
 import { ACTIVITY, AGENT_ASK, Avatar, BULB, CHAT, LENS, LOCK, Rich, VisPill, analyse, ago, short } from './common'
 import { NewCard, PickFile, PickPaper, Promote, ShareChat } from './dialogs'
 import { FirstTip } from '../../onboarding/FirstTip'
+import { readPaper } from '../reader/open'
+import { ActionWidget, MapPane } from '../review/ChatWidgets'
 
 type Dialog = null | { kind: 'share' } | { kind: 'projectShare' } | { kind: 'promote'; card: BsCard } | { kind: 'new'; type: 'idea' | 'question' | 'note' }
   | { kind: 'bring' } | { kind: 'attachPaper' } | { kind: 'attachFile' } | { kind: 'zotero' }
@@ -28,13 +30,14 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
   const [chatId, setChatId] = useState<string | null>(null)
   const [chat, setChat] = useState<{ chat: BsChat; messages: BsMessage[]; pending: boolean; here: { user_id: string; name: string }[] } | null>(null)
   const [focus, setFocus] = useState('')
-  const [tab, setTab] = useState<'ideas' | 'papers'>('ideas')
+  const [tab, setTab] = useState<'ideas' | 'papers' | 'map'>('ideas')
   const [ideaFilter, setIdeaFilter] = useState<'all' | 'project' | 'mine'>('all')
   const [paperFilter, setPaperFilter] = useState<PaperFilter>('all')
   const [searchSel, setSearchSel] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [flash, setFlash] = useState('')
   const [flashKey, setFlashKey] = useState('')
+  const [openKey, setOpenKey] = useState<string | null>(null)
   const [drawer, setDrawer] = useState<string | null>(null)
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<BsAttachment[]>([])
@@ -106,8 +109,11 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
     setTab('ideas'); setExpanded((x) => ({ ...x, [id]: true })); setFlash(id)
   }
   const showPaper = (key: string) => {
-    setTab('papers'); setPaperFilter('all'); setSearchSel(null); setFlashKey(key)
-    setTimeout(() => document.getElementById(`paper-${key}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 100)
+    setTab('papers'); setPaperFilter('all'); setSearchSel(null); setFlashKey(key); setOpenKey(key)
+  }
+  const askAbout = (q: string) => {
+    setText(q)
+    setTimeout(() => (document.querySelector('.bs-composer input[aria-label="Message"]') as HTMLInputElement | null)?.focus(), 50)
   }
   const askAgent = (agent: string, cardId: string) => act(async () => {
     const id = await ensureChat()
@@ -194,7 +200,12 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
         ))}
         {!myChats.length && <div className="lit-sub" style={{ padding: '2px 8px' }}>No private brainstorms yet: start one to think an idea through before you run anything.</div>}
         {space.can_write && (
-          <button className="bs-item" onClick={() => act(async () => { const c = await api.brainstorm.newChat(spaceId); await loadSpace(); setChatId(c.chat_id) })}>
+          <button className="bs-item" disabled={busy} onClick={() => {
+            // an empty new brainstorm of yours is reused, not made again
+            const blank = myChats.find((c) => c.title === 'New brainstorm')
+            if (blank) { setChatId(blank.chat_id); return }
+            act(async () => { const c = await api.brainstorm.newChat(spaceId); await loadSpace(); setChatId(c.chat_id) })
+          }}>
             <span>+ New brainstorm</span><span className="lit-sub">private</span></button>
         )}
         {space.project && (<>
@@ -288,6 +299,7 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
               ask them, or use the buttons below{space.activity !== 'off' ? ' (and when what you write calls for one of them)' : ''}.</div>
           )}
           {chat?.messages.map((m) => <Message key={m.msg_id} m={m} space={space} cards={cards} onIdea={showIdea} onPaper={showPaper}
+            spaceId={spaceId} onChanged={() => { loadChat(); loadSpace() }}
             onConsent={(share) => act(async () => { await api.brainstorm.consent(m.msg_id, share); await loadChat(); loadSpace() })} />)}
         </div>
         {error && <div className="panel-message error" style={{ margin: '0 16px' }}>{error}</div>}
@@ -301,6 +313,10 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
                 {focusCard && AGENT_ASK.map(([agent, label]) => <button key={agent} type="button" disabled={busy} onClick={() => askAgent(agent, focusCard!.card_id)}>{label}</button>)}
                 {focusCard && <button type="button" onClick={() => setDialog({ kind: 'promote', card: focusCard! })}>Turn into a proposal</button>}
                 <button type="button" disabled={busy || (!focusCard && !text.trim())} title={!focusCard && !text.trim() ? 'Pick an idea, or type what to search for' : 'The Librarian searches thoroughly, from many angles'} onClick={deep}>Deep search</button>
+                <button type="button" title="Zoom out: the Librarian maps a whole direction with you" onClick={() => {
+                  setText(text.trim() ? text : 'What has been done on ')
+                  setTimeout(() => (document.querySelector('.bs-composer input[aria-label="Message"]') as HTMLInputElement | null)?.focus(), 30)
+                }}>What has been done on…</button>
               </div>
             )}
             <div className="bs-composer">
@@ -333,6 +349,7 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
         <div className="team-tabs" role="tablist">
           <button role="tab" aria-selected={tab === 'ideas'} className={tab === 'ideas' ? 'on' : ''} onClick={() => setTab('ideas')}>Ideas · {ideas.length}</button>
           <button role="tab" aria-selected={tab === 'papers'} className={tab === 'papers' ? 'on' : ''} onClick={() => setTab('papers')}>Papers · {papersCount}</button>
+          <button role="tab" aria-selected={tab === 'map'} className={tab === 'map' ? 'on' : ''} onClick={() => setTab('map')}>Map</button>
         </div>
         <div className="bs-right-body">
           {tab === 'ideas' ? (
@@ -342,9 +359,13 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
               onSuggestion={onSuggestion}
               onDismiss={(s) => act(async () => { await api.brainstorm.dismissSuggestion(s.sug_id); await loadSpace(); setToast({ text: 'Dismissed. The agents bring fewer things like this.' }) })}
               onAttach={(cid, to, rel) => act(async () => { await api.brainstorm.link(cid, to, rel); await loadSpace(); showIdea(to); setToast({ text: `Filed under “${short(cards.get(to)?.text ?? '', 40)}”.` }) })} />
+          ) : tab === 'map' ? (
+            <MapPane space={spaceId} cards={cards} onIdea={showIdea} />
           ) : (
             <PapersPane space={space} lit={lit} setLit={setLit} filter={paperFilter} searchId={searchSel} onSearch={setSearchSel}
-              flashKey={flashKey} rule={ruleNow} onIdea={showIdea} />
+              flashKey={flashKey} rule={ruleNow} onIdea={showIdea} openKey={openKey} onOpen={setOpenKey} onAsk={askAbout}
+              onRead={(key, cardId) => readPaper({ paper: key, space: spaceId, cardId: focusCard?.card_id ?? cardId,
+                chatId: chatId ?? undefined, from: 'Brainstorm' })} />
           )}
         </div>
       </aside>
@@ -389,8 +410,9 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
   )
 }
 
-function Message({ m, space, cards, onIdea, onPaper, onConsent }: {
+function Message({ m, space, cards, onIdea, onPaper, onConsent, spaceId, onChanged }: {
   m: BsMessage; space: BsSpace; cards: Map<string, BsCard>; onIdea: (id: string) => void; onPaper: (key: string) => void; onConsent: (share: boolean) => void
+  spaceId: string; onChanged: () => void
 }) {
   const agent = space.agents[m.who]
   const seat = /^p\d\d$/.test(m.who)
@@ -429,6 +451,7 @@ function Message({ m, space, cards, onIdea, onPaper, onConsent }: {
             <span><Rich text={s} cards={cards} onIdea={onIdea} onPaper={onPaper} />{m.pending && i === steps.length - 1 ? '…' : ''}</span></div>)}</div>
         )}
         {m.text && <div className="bs-text"><Rich text={m.text} cards={cards} onIdea={onIdea} onPaper={onPaper} />{m.pending && seat ? '…' : ''}</div>}
+        {m.kind === 'action' && m.widget && <ActionWidget m={m} space={spaceId} onChanged={onChanged} />}
         {m.effects.map(([what, id], i) => (
           <div key={i} className="bs-effect">↳ {what} {cards.get(id) ? <button className="bs-ichip" onClick={() => onIdea(id)}>{short(cards.get(id)!.text, 40)}</button> : 'an idea'}</div>
         ))}

@@ -38,7 +38,29 @@ only to a project you can edit.
 
 Never sent: a reference that could not be verified. Never done: deleting or
 changing anything in your Zotero other than adding papers to the collection, the
-`aurora` tag and, if you turned them on, idea notes.
+`aurora` tag, idea notes if you turned them on, and the annotations of the
+reader (below).
+
+## Notes on PDFs
+
+Notes made in the paper reader (see [Brainstorm](../concepts/brainstorm.md#reading-a-paper-with-the-agents))
+and annotations on the PDF in Zotero are kept in step, both ways:
+
+| | |
+|---|---|
+| **A note you make** | Becomes a highlight annotation on the paper's PDF in Zotero within seconds: the same words on the same page, in yellow, tagged `aurora`. |
+| **An agent's note** | Stays in AURORA while it is a suggestion. Once you keep it, it goes too, in the agent's colour, tagged `aurora` and `aurora:skeptic` (or the agent's name), its comment starting with *Skeptic (AURORA):*. |
+| **Replies and the idea** | Go into the annotation's comment: the idea the note bears on, then each reply with who wrote it. |
+| **An annotation you make in Zotero** | Comes into the reader as your note, at the next sync (every 5 minutes, or **Sync now** in the reader's Zotero menu). The agents read it too. |
+| **Edited on both sides** | The later edit wins. |
+| **Deleted** | On one side, deleted on the other. In AURORA, Zotero is told a few seconds later, so **Undo** can still bring the note back. |
+
+The notes stay in AURORA (and the reader says why) when Zotero is not
+connected, when the key can only read, or when your Zotero lacks the paper or
+its PDF. In the last case **Add it to Zotero** in the reader's Zotero menu puts
+the paper into the project's collection and uploads its PDF to Zotero's storage;
+the notes follow.
+
 
 ## When it syncs
 

@@ -385,3 +385,15 @@ async def test_screening_compares_with_prior_work_and_the_report_gets_real_refer
     # literature off (or mock runs): nothing is searched or checked
     off = ResearchEngine(AuroraConfig(objective="x", campaign_id="r8", literature={"enabled": False}))
     assert off.literature is None and await off._prior_work(proposal) == ""
+
+
+def test_one_paper_by_its_key(client):
+    """The brainstorm opens a paper an agent read by its key, also when it is in no list at hand."""
+    from aurora.literature.library import library
+    from aurora.literature.records import Paper
+    stored = library.upsert_paper(Paper(title="Active sites in methanol synthesis", authors=["Malte Behrens"], year=2012,
+                                        doi="10.1126/science.1219831", abstract="Cu steps decorated with Zn."))
+    r = client.get(f"/api/library/papers/{stored['key']}").json()
+    assert r["title"] == "Active sites in methanol synthesis" and r["abstract"] == "Cu steps decorated with Zn."
+    assert client.get(f"/api/library/papers/{stored['paper_id']}").json()["key"] == stored["key"]
+    assert client.get("/api/library/papers/Nobody99").status_code == 404

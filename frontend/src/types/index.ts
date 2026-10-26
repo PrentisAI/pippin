@@ -792,8 +792,10 @@ export interface BsMessage {
   who_name: string
   agent: boolean
   mine: boolean
-  kind: 'text' | 'consent' | 'system'
+  kind: 'text' | 'consent' | 'system' | 'action'
   text: string
+  /** Something to act on: a proposal, a step of a map, the options of a challenge, a guess asked for. */
+  widget?: MsgWidget | null
   steps: string[]
   effects: [string, string][]
   only_for: string
@@ -1118,3 +1120,181 @@ export interface HelpAnswer {
   note: string
   sources: { n: number; path: string; page: string; heading: string; excerpt: string }[]
 }
+
+// ---------------------------------------------------------------------------
+// The paper reader: notes by you and the agents on a PDF, and their way to Zotero
+
+export type ReaderAgent = 'Librarian' | 'Skeptic' | 'Methods'
+
+export interface ReaderReply {
+  reply_id: string
+  who: string
+  who_name: string
+  agent: boolean
+  text: string
+  pending: boolean
+  created_at: number
+}
+
+/** A note on a PDF: a marked passage, perhaps with a comment and a conversation. */
+export interface ReaderNote {
+  ann_id: string
+  paper_id: string
+  /** '' : the person; else the agent who wrote it. */
+  author: '' | ReaderAgent
+  mine: boolean
+  owner_name: string
+  author_name: string
+  state: 'kept' | 'suggested' | 'draft'
+  text: string
+  comment: string
+  color: string
+  page_index: number
+  page_label: string
+  /** [[x1, y1, x2, y2], ...] in PDF points; [] : not placed on the page yet. */
+  rects: number[][]
+  sort_index: string
+  shared: boolean
+  space: string
+  card_id: string
+  rel: '' | 'supports' | 'challenges' | 'asks about' | 'builds on'
+  idea_text: string
+  source: 'aurora' | 'zotero'
+  status: 'suggested' | 'draft' | 'synced' | 'saving' | 'local' | 'error' | 'shared'
+  why: string
+  created_at: number
+  updated_at: number
+  replies: ReaderReply[]
+}
+
+export type ZoteroNotesState = 'off' | 'not_in_zotero' | 'no_pdf' | 'read_only' | 'ok'
+
+export interface ReaderView {
+  paper: LitPaper
+  space: string
+  campaign_id: string
+  pdf: { available: boolean; openable: boolean }
+  notes: ReaderNote[]
+  idea: { card_id: string; text: string } | null
+  reads: Partial<Record<ReaderAgent, { state: 'reading' | 'done' | 'failed'; detail: string }>>
+  agents_mark: boolean
+  can_share: boolean
+  zotero: {
+    state: ZoteroNotesState
+    connected: boolean
+    library?: string
+    can_add?: boolean
+    last_sync?: number | null
+    error?: string
+    method?: string
+    counts: { synced: number; saving: number; suggested: number; local: number }
+  }
+}
+
+/** Where a passage is on the page, the way Zotero keeps it. */
+export interface NotePlace {
+  page_index: number
+  page_label?: string
+  rects: number[][]
+  sort_index?: string
+}
+
+// ---------------------------------------------------------------------------
+// Zoom out (a map of a research direction) and zoom in (a deep read of a paper)
+
+export type ClaimLabel = 'paper' | 'lit' | 'inf' | 'spec'
+export interface Para { text: string; label: ClaimLabel; quote?: string; page?: number }
+
+export interface MapDim { id: string; name: string; component: string; values: { id: string; label: string; meaning: string }[]; explains: string }
+export interface Placement { values: Record<string, string>; strain: boolean; note: string; evidence: string; verified: boolean; corrected?: string }
+export interface Framework {
+  id: string; name: string; by: string; dims: MapDim[]
+  placements: Record<string, Placement>; held: Record<string, Placement>; joined?: Record<string, Placement>
+  scores: { fit?: number; held?: number; orth?: number; disc?: number; disc_reason?: string; n_fit?: string; n_held?: string }
+}
+export interface PaperCard {
+  sub_problem?: string; choice?: string; assumptions?: string[]; baselines?: string[]
+  limitations?: { text: string; stated: boolean }[]; results?: { claim: string; benchmark: string }[]
+  capabilities?: string[]; term_use?: string; quotes?: { field: string; text: string }[]; source?: 'pdf' | 'abstract'
+}
+export interface MapPaper {
+  paper_id: string; key: string; title: string; year: number | null; venue: string; authors: string[]; abstract: string
+  doi: string; arxiv_id: string; url: string; role: 'core' | 'held_out' | 'joined' | 'adjacent' | 'survey' | 'benchmark'; card: PaperCard
+}
+export interface Capability { id: string; name: string; info: string; timescale: string; example: string }
+export interface ProgressRow {
+  capability: string; status: 'solved' | 'partly' | 'early' | 'open'; headline: string; best: string[]
+  results: { key: string; claim: string; benchmark: string }[]; conditions: Para[]
+  limitations: { text: string; keys?: string[] }[]; conflicts: Para[]; cost: Para[]; eval_gap: Para[]; papers: string[]
+}
+export interface MapProblem {
+  id: string; title: string; capability: string; importance: string; gap: string; evidence: string[]
+  diagnosis: { cause: string; text: string }; why_now: string
+  approaches: { text: string; from: string; label: ClaimLabel }[]; first_experiment: string; failure: string
+  closest: { key: string; difference: string }[]; novelty: string; novelty_note: string; card_id?: string
+}
+export interface MapChallenge {
+  id: string; text: string; support: Para[]; state: 'pending' | 'applied'; chosen?: string
+  options: { id: string; boundary: string; dimensions: string; papers: string; progress: string; joins: string[] }[]
+}
+export interface MapContent {
+  need?: { term: string; why: Para[]; examples: { task: string; needs: string }[]; formal: Para[]; capabilities: Capability[] }
+  definition?: {
+    communities: { community: string; meaning: string; examples: string[]; label: ClaimLabel }[]
+    terms: { term: string; meanings: string[] }[]
+    conflicts: { question: string; positions: { view: string; who: string[] }[] }[]
+    working: { text: string; components: { id: string; name: string; phrase: string }[]
+      boundaries: { question: string; decision: string; why: string; consequence: string }[]
+      covers: { capability: string; how: string }[] }
+  }
+  decided?: string[]
+  frameworks?: Framework[]; chosen?: string
+  proposals?: { id: string; kind: string; framework: string; paper_id: string; text: string; state: 'pending' | 'accepted' | 'dismissed' }[]
+  progress?: ProgressRow[]
+  timeline?: { years: string; name: string; driver: string; text: string; turning: string[] }[]
+  trends?: { title: string; text: string; label: ClaimLabel; strength: string; based: string }[]
+  assumptions?: { text: string; keys: string[]; why: string; overturn: string; challengers: string[]; label: ClaimLabel }[]
+  problems?: MapProblem[]
+  adjacent?: { field: string; same: string; borrow: string; checks: { ok: boolean | null; text: string }[] }[]
+  sparse?: { a: string; b: string; papers: string[] }[]
+  read_next?: { key: string; paper_id: string; why: string; focus: number[] }[]
+  challenges?: MapChallenge[]
+  /** The space's ideas on the map: where each sits, and the unsolved problem it answers. */
+  ideas?: Record<string, { text: string; framework: string; values: Record<string, string>; problem: string; note: string }>
+  distribution?: { periods?: { from: number; to: number; dims: Record<string, Record<string, string[]>> }[] }
+  history?: { version: number; reason: string; at: number }[]
+  done?: string[]
+}
+export interface FieldMap {
+  map_id: string; space: string; topic: string; brief: string; vis: 'private' | 'project'
+  state: 'new' | 'building' | 'ready' | 'failed'; step: string; step_name: string; error: string; version: number
+  mine: boolean; busy: boolean; steps: { id: string; name: string; done: boolean }[]
+  content: MapContent; papers: MapPaper[]; outside: { paper_id: string; key: string; title: string; year: number | null }[]
+  versions: { version: number; reason: string; created_at: number }[]; log: { at: number; step: string; text: string }[]
+  new_papers: number
+}
+export interface FieldMapSummary { map_id: string; topic: string; state: string; version: number; vis: string; mine: boolean; updated_at: number }
+
+export interface DeepAnswer {
+  state: 'pending' | 'done' | 'failed' | 'hidden'; error?: string
+  paragraphs?: Para[]; followups?: { q: string; paragraphs: Para[] }[]
+  example?: string; steps?: { what: string; example: string }[]; none?: boolean
+  rows?: { question: string; experiment: string; answer: string }[]; claim?: string; plan?: { day: string; do: string }[]
+  idea?: string; source?: string; closest?: { key: string; paper_id: string; difference: string }[]; novelty?: string; novelty_note?: string; card_id?: string
+  moves?: { text: string; kind: string; label: ClaimLabel; support?: 'stated' | 'consistent' | 'unsupported'; quote?: string; page?: number }[]
+  summary?: Para[]; authors_say?: Para[]; context?: { intro_paragraphs_dropped: number; had_related: boolean; earlier: string[] }
+}
+export interface DeepRead {
+  read_id: string; paper_id: string; space: string; map_id: string; guess: string; revealed: boolean; ticks: number[]
+  answers: Record<string, DeepAnswer>; busy: boolean; paper: { paper_id: string; key: string; title: string }
+  questions: { n: number; title: string; key: boolean; agent: string }[]
+}
+
+export type MsgWidget =
+  | { type: 'proposal'; action: 'map_field'; topic: string; brief: string; size: number; calls: number; state: 'pending' | 'started' | 'declined'; map_id?: string }
+  | { type: 'proposal'; action: 'deep_read'; paper_id: string; key: string; title: string; state: 'pending' | 'started' | 'declined'; read_id?: string }
+  | { type: 'map_step'; map_id: string; step: string }
+  | { type: 'map_failed'; map_id: string; state?: string }
+  | { type: 'challenge'; map_id: string; challenge_id: string; state: 'pending' | 'applied'; chosen?: string }
+  | { type: 'guess'; read_id: string; state: 'waiting' | 'answered' }
+  | { type: 'path'; read_id: string; paper_id: string }

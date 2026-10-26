@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, describeError } from '../api/client'
 import type { AddFound, LitFlag, LitItem, LitPaper, LitSearch, ProjectLiterature } from '../types'
 import { ZoteroDialog } from './ZoteroDialog'
+import { readPaper } from './reader/open'
 
 export const RULE_LABELS: Record<AddFound, string> = {
   cited: 'Add the papers they cite',
@@ -163,6 +164,7 @@ export function LiteratureView({ campaignId }: { campaignId: string }) {
               ))}
               {filter !== 'flagged' && shownPapers.map((p) => (
                 <PaperRow key={p.paper_id} p={p} open={openPaper === p.paper_id} pdfHref={p.pdf_file ? api.literature.fileUrl(campaignId, p.pdf_file) : ''}
+                  onRead={() => readPaper({ paper: p.key, space: campaignId, from: 'Literature' })}
                   onCiteNewer={() => act(p.paper_id, () => api.literature.citeVersion(campaignId, p.paper_id), `${p.key}: citing v${p.arxiv_version} now.`)}
                   onZotero={lit.zotero?.can_send && !p.in_zotero ? () => act(p.paper_id, async () => { await api.zotero.push(campaignId, [p.paper_id]); return api.literature.get(campaignId) },
                     `${p.key} is in your Zotero collection now, tagged “aurora”.`) : undefined}
@@ -215,7 +217,7 @@ export function LiteratureView({ campaignId }: { campaignId: string }) {
   )
 }
 
-function PaperRow({ p, open, onToggle, onStar, onRemove, onZotero, pdfHref, onCiteNewer }: { p: LitItem; open: boolean; onToggle: () => void; onStar: () => void; onRemove: () => void; onZotero?: () => void; pdfHref: string; onCiteNewer: () => void }) {
+function PaperRow({ p, open, onToggle, onStar, onRemove, onZotero, pdfHref, onCiteNewer, onRead }: { p: LitItem; open: boolean; onToggle: () => void; onStar: () => void; onRemove: () => void; onZotero?: () => void; pdfHref: string; onCiteNewer: () => void; onRead: () => void }) {
   return (
     <>
       <tr className={open ? 'lit-open' : ''}>
@@ -250,6 +252,8 @@ function PaperRow({ p, open, onToggle, onStar, onRemove, onZotero, pdfHref, onCi
             </div>
           )}
           {p.pdf_file && <p className="lit-sub">PDF in the project’s files: <a href={pdfHref} target="_blank" rel="noreferrer" className="mono">{p.pdf_file}</a></p>}
+          {(p.pdf_file || p.pdf_url || p.arxiv_id) && <p><button className="btn-sm btn-approve" onClick={onRead}
+            title="Read it here: highlight, write notes, ask the agents about a passage">Read the PDF</button></p>}
           <div className="lit-detail-actions"><PaperLinks p={p} />
             {onZotero && <button className="link-btn" onClick={onZotero}>+ Zotero</button>}
             <button className="link-btn" onClick={onStar}>{p.starred ? 'Unstar' : 'Star'}</button>

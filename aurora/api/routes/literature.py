@@ -528,6 +528,15 @@ async def get_library() -> dict[str, Any]:
             "rule": _rule(), "rules": list(IMPORT_RULES)}
 
 
+@library_router.get("/papers/{ident}")
+async def get_paper(ident: str) -> dict[str, Any]:
+    """One checked paper by its key or ID (what the indexes say it is; no one's notes)."""
+    entry = library.paper(ident)
+    if entry is None:
+        raise HTTPException(404, "No such paper")
+    return paper_view(entry)
+
+
 @library_router.post("/search")
 async def search_library(body: SearchBody) -> dict[str, Any]:
     """Search the indexes (your searches are kept in your own library's history)."""

@@ -218,3 +218,45 @@ def test_every_brainstorm_route_has_a_rule():
     routes = [(m, r.path) for r in all_routes(create_app().routes) if getattr(r, "path", "").startswith("/api/brainstorm")
               for m in getattr(r, "methods", []) if m != "HEAD"]
     assert routes and all(x in RULES for x in routes)
+
+
+def test_the_first_message_is_answered_and_silence_is_explained(client, model):
+    """Starting a brainstorm always gets an answer; later, when nobody answers, the writer is told why."""
+    original = model.create
+
+    async def create(*, model=None, messages=None, tools=None, **kw):
+        if not tools and "opened a brainstorm" not in messages[0]["content"]:
+            return _reply("NONE")                       # "just thinking out loud"
+        return await original(model=model, messages=messages, tools=tools, **kw)
+    model.chat = SimpleNamespace(completions=SimpleNamespace(create=create))
+    chat = client.post("/api/brainstorm/spaces/global/chats", json={}).json()["chat_id"]
+    first = client.post(f"/api/brainstorm/chats/{chat}/messages", json={"text": "i'm thinking of multimodal memory"}).json()
+    assert first["agents"] == ["Librarian"]
+    wait(client, chat)
+    later = client.post(f"/api/brainstorm/chats/{chat}/messages", json={"text": "hmm, maybe episodic"}).json()
+    assert later["agents"] == []
+    notes = [m for m in client.get(f"/api/brainstorm/chats/{chat}").json()["messages"] if m["kind"] == "system"]
+    assert len(notes) == 1 and "@Skeptic" in notes[0]["text"] and "thinking out loud" in notes[0]["text"]
+    client.post(f"/api/brainstorm/chats/{chat}/messages", json={"text": "or semantic"})
+    notes = [m for m in client.get(f"/api/brainstorm/chats/{chat}").json()["messages"] if m["kind"] == "system"]
+    assert len(notes) == 1                                # not said twice in a row
+
+
+def test_very_active_always_answers_and_mentions_are_forgiving(client, model):
+    original = model.create
+
+    async def create(*, model=None, messages=None, tools=None, **kw):
+        if not tools and "NONE only if" in messages[0]["content"]:
+            return _reply("NONE")
+        if not tools:
+            return _reply("nobody in particular")          # the model names no agent
+        return await original(model=model, messages=messages, tools=tools, **kw)
+    model.chat = SimpleNamespace(completions=SimpleNamespace(create=create))
+    chat = client.post("/api/brainstorm/spaces/global/chats", json={}).json()["chat_id"]
+    assert client.post(f"/api/brainstorm/chats/{chat}/messages", json={"text": "@Skeptics what is weak here?"}).json()["agents"] == ["Skeptic"]
+    wait(client, chat)
+    client.put("/api/brainstorm/settings", json={"activity": "high"})
+    # "very": a greeting gets an answer, from the agent who spoke last when the model names nobody
+    assert client.post(f"/api/brainstorm/chats/{chat}/messages", json={"text": "hey"}).json()["agents"] == ["Skeptic"]
+    client.put("/api/brainstorm/settings", json={"activity": "moderate"})
+    assert client.post(f"/api/brainstorm/chats/{chat}/messages", json={"text": "hmm"}).json()["agents"] == []
