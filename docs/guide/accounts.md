@@ -115,6 +115,28 @@ The key a call uses:
 A run is charged to the person who started it, also when someone else resumes
 it, and it notifies that person's channels.
 
+## What AURORA may write
+
+AURORA reads your pages, your Zotero, your notes and your manuscripts freely. It writes into them only as far as
+you allow, one kind of write at a time, under the account button → **What AURORA may write**. Every kind is
+**Off** until you change it:
+
+| Level | Meaning |
+|---|---|
+| **Off** (default) | Never. AURORA offers what it would have written for you to copy (a DOI and BibTeX, a citation command). |
+| **When I do it** | Only as your own action: a click, a sentence you say. |
+| **Also on its own** | Also in the background, for example a Zotero sync sending a project's papers to its collection. |
+
+| Kind of write | Where |
+|---|---|
+| Save papers and their PDFs | Zotero |
+| Write notes on items, send the notes you keep on a PDF as annotations, mark items to read | Zotero |
+| Insert citations, add `.bib` entries | Overleaf (with the browser extension) |
+| Create notes, append to a note | Obsidian |
+
+Every write is logged (the same dialog lists the recent ones) with what undoing it takes. Changing a manuscript's
+text is never offered.
+
 ## Team rules
 
 | Rule | Default |

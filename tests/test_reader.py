@@ -272,6 +272,10 @@ async def test_notes_go_to_zotero_and_come_back(zclient):
     zotero_store.set_maps("local", [{"library": "user", "collection_key": "COLA", "name": "Methanol", "campaign_id": cid}])
     await z.sync("local", "You")
     key = "Behrens12"
+    # writing to Zotero is off until allowed: the reader says so
+    assert c.get(f"/api/reader/papers/{key}", params={"space": cid}).json()["zotero"]["state"] == "writes_off"
+    from aurora.auth import writes
+    writes.set_levels("local", {"zotero.annotate": "ask", "zotero.save": "ask"})
     r = c.get(f"/api/reader/papers/{key}", params={"space": cid}).json()
     # the highlight made in Zotero is in the reader, as the person's note
     assert r["zotero"]["state"] == "ok" and r["pdf"]["available"]
@@ -328,6 +332,8 @@ async def test_notes_go_to_zotero_and_come_back(zclient):
 async def test_notes_stay_here_when_zotero_cannot_take_them(zclient):
     c, fake = zclient, zclient.fake
     key = _paper_with_pdf()
+    from aurora.auth import writes
+    writes.set_levels("local", {"zotero.annotate": "ask", "zotero.save": "ask"})
     c.post("/api/zotero/connect", json={"method": "web", "api_key": "secret-zotero-key-123"})
     n = c.post(f"/api/reader/papers/{key}/notes", json={"text": LINES[1], "rects": RECTS}).json()
     assert (n["status"], n["why"]) == ("local", "The paper is not in your Zotero")

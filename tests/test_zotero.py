@@ -210,6 +210,9 @@ async def test_project_papers_go_to_the_collection_and_nothing_is_deleted(client
     client.post("/api/zotero/connect", json={"method": "web", "api_key": "secret-zotero-key-123"})
     zotero_store.set_maps("local", [{"library": "user", "collection_key": "COLA", "name": "Methanol", "campaign_id": cid}])
     await z.sync("local", "You")
+    # writing into Zotero on its own is off until the person allows it
+    from aurora.auth import writes
+    writes.set_levels("local", {"zotero.save": "auto"})
     # an agent cites Kuld16 (already in the person's library, in another collection) and Vaswani17 (new);
     # a made-up reference is flagged and never sent
     lit = ProjectLiterature(cid, run_id="r1")
@@ -252,6 +255,9 @@ async def test_idea_summaries_go_to_zotero_as_notes_when_asked(client, zot):
     bs_store.link(ev["card_id"], idea["card_id"], "supports")
     assert (await z.sync("local", "You")).idea_notes == 0                  # off unless asked
     zotero_store.set_options("local", {"idea_notes": True})
+    assert (await z.sync("local", "You")).idea_notes == 0                  # and only if writing notes is allowed
+    from aurora.auth import writes
+    writes.set_levels("local", {"zotero.note": "auto"})
     assert (await z.sync("local", "You")).idea_notes == 1
     note = next(c for c in zot.created if c["itemType"] == "note")
     assert note["parentItem"] == "I1" and "Zn at Cu steps is the active site." in note["note"] and "supports" in note["note"]

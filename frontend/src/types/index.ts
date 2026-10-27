@@ -1170,7 +1170,7 @@ export interface ReaderNote {
   replies: ReaderReply[]
 }
 
-export type ZoteroNotesState = 'off' | 'not_in_zotero' | 'no_pdf' | 'read_only' | 'ok'
+export type ZoteroNotesState = 'off' | 'not_in_zotero' | 'no_pdf' | 'read_only' | 'writes_off' | 'ok'
 
 export interface ReaderView {
   paper: LitPaper
@@ -1353,3 +1353,54 @@ export type MsgWidget =
       state: 'waiting' | 'taken' | 'superseded' | 'answered'; taken?: number; origin?: 'you' | 'ai' | 'edited'; share?: number; text?: string; action?: string }
   | { type: 'choice'; versions: string[]; card_id: string; state: 'waiting' | 'chosen' | 'superseded'; chosen?: number }
   | { type: 'question'; kind: 'summary' | 'candidates'; state: 'waiting' | 'confirmed' | 'superseded'; version: number; rq: ResearchQuestion; card_id?: string }
+
+// ---------------------------------------------------------------------------
+// The shared memory
+
+export type MemStance = 'challenges' | 'adds' | 'supports' | 'background' | 'tool'
+/** An idea unit as a context shows it: in a layer, with how it stands and why it is at that depth. */
+export interface MemItem {
+  unit_id: string; claim: string; gist: string; kind: string; layer: 'surface' | 'absorbed' | 'sunk'
+  stance: MemStance; why: string; relevance: number; sources: number; platforms: string[]; sunk: boolean
+  clash_with: { unit_id: string; claim: string } | null; moved: boolean
+  answers: { question: string; answer: string; at: number | null }[]
+}
+export interface MemSurface {
+  context: { key: string; kind: 'reading' | 'question' | 'paper'; label: string; chip: string; sub: string }
+  surface: MemItem[]; absorbed: MemItem[]; sunk: MemItem[]; n_sunk: number; conflicts: number
+}
+export interface MemEvidence {
+  evidence_id: string; source_id: string; quote: string; stance: string; platform: string; url: string; title: string
+  author: string; lang: string; paper_id: string; published: string; via: string; created_at: number
+}
+export interface MemUnit {
+  unit_id: string; claim: string; gist: string; kind: string; sunk: boolean; moved: boolean
+  evidence: MemEvidence[]
+  links: { rel: 'contradicts' | 'refines'; note: string; unit_id: string; claim: string; direction: 'in' | 'out' }[]
+  questions: { question_id: string; label: string; text: string; relevance: number }[]
+  answers: MemAsk[]
+}
+export interface MemSource {
+  source_id: string; platform: string; url: string; title: string; via: string; state: 'pending' | 'done' | 'failed'
+  error: string; summary?: string; created_at: number
+  result: { units?: string[]; merged?: string[]; new?: string[]; conflicts?: string[][]; questions?: string[]; duplicate_of?: string }
+}
+export interface MemQuestion { question_id: string; label: string; text: string; origin: 'manual' | 'mentor' }
+export interface MemAsk {
+  ask_id: string; question: string; basis: string[]; answer: string; created_at: number; answered_at: number | null
+  basis_units?: { unit_id: string; claim: string }[]
+}
+export interface MemReport {
+  days: number; sources: number; merged: number; new_units: number
+  questions: { question_id: string; label: string; text: string; new_units: { unit_id: string; claim: string }[]; conflicts: { a: string; b: string }[] }[]
+  conflicts: { a: string; b: string; why: string }[]
+  moved: { unit_id: string; claim: string }[]; answers: { question: string; answer: string }[]
+  archive: { unit_id: string; claim: string }[]
+}
+export type WriteLevel = 'off' | 'ask' | 'auto'
+export interface WriteSettings {
+  levels: Record<string, WriteLevel>
+  writes: Record<string, { target: string; label: string }>
+  options: WriteLevel[]
+  log: { log_id: string; write: string; detail: Record<string, unknown>; created_at: number; undone_at: number | null }[]
+}

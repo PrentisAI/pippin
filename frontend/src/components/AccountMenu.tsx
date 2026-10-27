@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, describeError } from '../api/client'
 import { useAuth } from '../auth'
-import type { KeyStatus } from '../types'
+import type { KeyStatus, WriteLevel, WriteSettings } from '../types'
 
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).map((x) => x[0]).join('').slice(0, 2).toUpperCase() || 'Y'
@@ -12,6 +12,7 @@ export function AccountButton({ onOpenTeam }: { onOpenTeam: () => void }) {
   const auth = useAuth()
   const [open, setOpen] = useState(false)
   const [keysOpen, setKeysOpen] = useState(false)
+  const [writesOpen, setWritesOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -32,11 +33,13 @@ export function AccountButton({ onOpenTeam }: { onOpenTeam: () => void }) {
             <div className="account-who"><b>Single-user console</b><span>No accounts: nothing asks for a sign-in.</span></div>
           )}
           {auth.accounts && <button role="menuitem" onClick={() => { setOpen(false); setKeysOpen(true) }}>Your API keys</button>}
+          <button role="menuitem" onClick={() => { setOpen(false); setWritesOpen(true) }}>What AURORA may write</button>
           <button role="menuitem" onClick={() => { setOpen(false); onOpenTeam() }}>{auth.accounts ? `Team: ${auth.team}` : 'Working with others'}</button>
           {auth.accounts && <button role="menuitem" onClick={() => auth.signOut()}>Sign out</button>}
         </div>
       )}
       {keysOpen && <KeysDialog onClose={() => setKeysOpen(false)} />}
+      {writesOpen && <WritesDialog onClose={() => setWritesOpen(false)} />}
     </div>
   )
 }
@@ -80,6 +83,52 @@ function KeysDialog({ onClose }: { onClose: () => void }) {
           <button className="btn-sm btn-approve" disabled={value.length < 8}>Save</button>
         </div>
       </form>
+    </div>
+  )
+}
+
+const LEVEL_LABEL: Record<WriteLevel, string> = { off: 'Off', ask: 'When I do it', auto: 'Also on its own' }
+
+/** What AURORA may write into your own tools: each kind of write is off until you allow it. */
+function WritesDialog({ onClose }: { onClose: () => void }) {
+  const [w, setW] = useState<WriteSettings | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  useEffect(() => {
+    api.me.writes().then(setW).catch((e) => setErr(describeError(e)))
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', esc)
+    return () => document.removeEventListener('keydown', esc)
+  }, [onClose])
+  const set = async (key: string, lv: WriteLevel) => {
+    try { setW(await api.me.setWrites({ [key]: lv })) } catch (e) { setErr(describeError(e)) }
+  }
+  const targets = w ? [...new Set(Object.values(w.writes).map((x) => x.target))] : []
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <div className="modal modal-wide" role="dialog" aria-modal="true" aria-label="What AURORA may write" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="modal-title">What AURORA may write</div>
+        <div className="modal-body">
+          <div className="modal-hint">AURORA reads your pages, Zotero, notes and manuscripts freely. It writes into them only as far as you allow here,
+            one kind at a time: <b>Off</b> (it offers what it would write, for you to copy), <b>When I do it</b> (only when you click or say it),
+            or <b>Also on its own</b> (a sync may write too). Every write is logged and can be undone. It never changes your manuscript’s text.</div>
+          {targets.map((t) => (
+            <div key={t} className="wr-group"><b>{t}</b>
+              {Object.entries(w!.writes).filter(([, x]) => x.target === t).map(([k, x]) => (
+                <div key={k} className="wr-row"><span>{x.label}</span>
+                  <span className="wr-seg" role="radiogroup" aria-label={x.label}>
+                    {w!.options.map((lv) => <button key={lv} type="button" role="radio" aria-checked={w!.levels[k] === lv}
+                      className={w!.levels[k] === lv ? 'on' : ''} onClick={() => set(k, lv)}>{LEVEL_LABEL[lv]}</button>)}
+                  </span></div>
+              ))}
+            </div>
+          ))}
+          {w && w.log.length > 0 && <div className="wr-group"><b>Recent writes</b>
+            {w.log.slice(0, 8).map((l) => <div key={l.log_id} className="wr-row"><span>{w.writes[l.write]?.label ?? l.write}</span>
+              <span className="lit-sub">{new Date(l.created_at * 1000).toLocaleString()}{l.undone_at ? ' · undone' : ''}</span></div>)}</div>}
+          {err && <div className="modal-error">{err}</div>}
+        </div>
+        <div className="modal-actions"><button type="button" className="btn-sm" onClick={onClose}>Close</button></div>
+      </div>
     </div>
   )
 }

@@ -36,6 +36,8 @@ from urllib.parse import urlencode
 
 import httpx
 
+from aurora.auth import writes
+from aurora.auth.writes import write_log
 from aurora.literature.check import Check, Reference, check
 from aurora.literature.indexes import indexes
 from aurora.literature.library import library
@@ -824,12 +826,13 @@ async def sync(user_id: str, who: str, *, campaign_id: str | None = None,
                     report.problems.append(str(exc))
             zotero_store.set_version(user_id, m["library"], m["collection_key"], version or m["version"])
             can_write = link["method"] == "web" and _may_write(link["access"], m["library"])
-            if options["push"] and can_write:
+            # writing into the person's Zotero on its own: only as far as they allowed (off by default)
+            if options["push"] and can_write and writes.allowed(user_id, "zotero.save", background=True):
                 try:
                     await push(user_id, m, client, report)
                 except ZoteroError as exc:
                     report.problems.append(f"Sending papers to “{m['name']}”: {exc}")
-            if options.get("idea_notes") and can_write:
+            if options.get("idea_notes") and can_write and writes.allowed(user_id, "zotero.note", background=True):
                 try:
                     await idea_notes(user_id, m, client, report)
                 except ZoteroError as exc:
@@ -1030,7 +1033,8 @@ async def push_notes(user_id: str, client: ZoteroClient) -> int:
             annotations.purge(a["ann_id"])
             continue
         target = zotero_store.attachment_of(user_id, a["paper_id"])
-        if target is None or not a["rects"] or not _may_write(link["access"], target[0]):
+        if target is None or not a["rects"] or not _may_write(link["access"], target[0]) \
+                or not writes.allowed(user_id, "zotero.annotate"):
             continue                 # it stays in AURORA; the reader says why
         lib, att = target
         card = bs_store.card(a["card_id"]) if a["card_id"] else None
@@ -1127,6 +1131,9 @@ def notes_target(user_id: str, paper_id: str) -> dict[str, Any]:
     link = zotero_store.link(user_id)
     if link is None:
         return {"state": "off"}
+    if not writes.allowed(user_id, "zotero.annotate"):
+        return {"last_sync": link["last_sync"], "error": link["last_error"], "method": link["method"],
+                "state": "writes_off"}
     can_write = link["method"] == "web" and any(_may_write(link["access"], m["library"]) for m in zotero_store.maps(user_id))
     item = zotero_store.item_of_paper(user_id, paper_id)
     base = {"last_sync": link["last_sync"], "error": link["last_error"], "method": link["method"]}
@@ -1146,6 +1153,9 @@ async def add_paper(user_id: str, who: str, paper_id: str, campaign_id: str, pdf
     link = zotero_store.link(user_id)
     if link is None or link["method"] != "web":
         raise ZoteroError("Connect your Zotero account (with a key that can write) first")
+    if not writes.allowed(user_id, "zotero.save"):
+        raise ZoteroError("Writing to Zotero is off. Turn on “Save papers and their PDFs to Zotero” under the account "
+                          "button → What AURORA may write")
     maps = [m for m in zotero_store.maps(user_id) if m["campaign_id"] == campaign_id and _may_write(link["access"], m["library"])]
     maps = maps or [m for m in zotero_store.maps(user_id) if m["campaign_id"] == "" and _may_write(link["access"], m["library"])]
     if not maps:
@@ -1167,6 +1177,9 @@ async def add_paper(user_id: str, who: str, paper_id: str, campaign_id: str, pdf
         att = await client.upload_pdf(item["library"], item["item_key"], f"{entry['key'] if entry else paper_id}.pdf",
                                       pdf.read_bytes())
         zotero_store.put_item(user_id, item["library"], item["item_key"], attachment=att)
+    write_log.record(user_id, "zotero.save", {"paper_id": paper_id, "library": item["library"],
+                                              "item_key": item["item_key"]},
+                     {"kind": "zotero_item", "library": item["library"], "item_key": item["item_key"]})
     notes_soon(user_id, delay=0.2)
     return notes_target(user_id, paper_id)
 

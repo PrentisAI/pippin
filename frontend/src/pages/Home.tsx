@@ -15,6 +15,7 @@ import { ShareDialog } from '../components/ShareDialog'
 import { TeamView } from '../components/TeamView'
 import { LiteratureView, RULE_HINTS, RULE_LABELS, RuleSelect } from '../components/LiteratureView'
 import { LibraryView } from '../components/LibraryView'
+import { MemoryView } from '../components/memory/MemoryView'
 import { CiteProvider, CiteText } from '../components/Cite'
 import { SetupCard, TEMPLATES } from '../components/Welcome'
 import { CompareView } from '../components/results/CompareView'
@@ -162,6 +163,9 @@ const TeamIcon = () => (
 const BulbIcon = () => (
   <svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 00-3.6 10.8c.7.5 1.1 1.3 1.1 2.2h5c0-.9.4-1.7 1.1-2.2A6 6 0 0012 3z"/></svg>
 )
+const WaveIcon = () => (
+  <svg viewBox="0 0 24 24"><path d="M3 9c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2M3 15c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2"/></svg>
+)
 const BooksIcon = () => (
   <svg viewBox="0 0 24 24"><path d="M4 4h4v16H4zM10 4h4v16h-4z"/><path d="M16.5 4.6l3.8-1 3.7 15.5-3.8.9z" transform="translate(-2 1)"/></svg>
 )
@@ -203,7 +207,7 @@ const FileIcon = () => svgIcon(<><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2
 const ClipIcon = () => svgIcon(<path d="M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9" />)
 
 /** A page that takes the main area instead of a project. */
-type MainPage = 'team' | 'library' | 'brainstorm' | 'examples' | null
+type MainPage = 'team' | 'library' | 'brainstorm' | 'examples' | 'memory' | null
 
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).map((x) => x[0]).join('').slice(0, 2).toUpperCase() || '?'
@@ -246,6 +250,7 @@ function ActivityBar({
       <button className={`ab-btn${activePanel === 'projects' ? ' active' : ''}`} title="Projects" onClick={() => onTogglePanel('projects')}><FolderIcon /></button>
       <button className={`ab-btn${page === 'brainstorm' ? ' active' : ''}`} title="Brainstorm" onClick={() => onOpenPage(page === 'brainstorm' ? null : 'brainstorm')}><BulbIcon /></button>
       <button className={`ab-btn${page === 'library' ? ' active' : ''}`} title="Library" onClick={() => onOpenPage(page === 'library' ? null : 'library')}><BooksIcon /></button>
+      <button className={`ab-btn${page === 'memory' ? ' active' : ''}`} title="Memory" onClick={() => onOpenPage(page === 'memory' ? null : 'memory')}><WaveIcon /></button>
       <button className={`ab-btn${activePanel === 'search' ? ' active' : ''}`} title="Search" onClick={() => onTogglePanel('search')}><SearchIcon /></button>
       <button className={`ab-btn${activePanel === 'analytics' ? ' active' : ''}`} title="Analytics" onClick={() => onTogglePanel('analytics')}><ChartIcon /></button>
       <button className={`ab-btn${explorerActive ? ' active' : ''}`} title="Explorer" onClick={() => onTogglePanel('explorer')}><ExplorerIcon /></button>
@@ -2166,7 +2171,7 @@ export default function Home() {
   const helpPanelRef = useRef<HTMLDivElement>(null)
   const sidePanels = ['skills', 'search', 'analytics', 'settings', 'help']
   // the brainstorm page has its own list of spaces and conversations
-  const sidebarCollapsed = activePanel === '' || sidePanels.includes(activePanel) || page === 'brainstorm'
+  const sidebarCollapsed = activePanel === '' || sidePanels.includes(activePanel) || page === 'brainstorm' || page === 'memory'
   const showSkills = activePanel === 'skills'
 
   // Sync URL → state on URL change
@@ -2318,7 +2323,7 @@ export default function Home() {
   const helpAction = (action: string) => {
     if (action === 'demo') runDemo()
     else if (action === 'start') goHome()
-    else if (action === 'brainstorm' || action === 'library' || action === 'team' || action === 'examples') setPage(action)
+    else if (action === 'brainstorm' || action === 'library' || action === 'team' || action === 'examples' || action === 'memory') setPage(action)
     else if (action.startsWith('settings')) setActivePanel('settings')
     else if (action === 'refresh') fetchCampaigns()
   }
@@ -2510,6 +2515,7 @@ export default function Home() {
           </Suspense>
         )}
         {view === 'team' && <TeamView />}
+        {view === 'memory' && <MemoryView />}
         {view === 'brainstorm' && <BrainstormView initialSpace={bsSpace ?? activeCampaignId} onOpenProject={(cid) => { setPage(null); selectCampaign(cid) }}
           onOpenLibrary={() => setPage('library')} />}
         {view === 'library' && <LibraryView onOpenProject={(cid) => { setPage(null); selectCampaign(cid) }} />}

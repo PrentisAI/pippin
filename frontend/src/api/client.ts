@@ -1,4 +1,4 @@
-import type { DeepRead, IdeaVersion, PlanInsight, ResearchPlan, FieldMap, FieldMapSummary, LitPaper, NotePlace, ReaderAgent, ReaderNote, ReaderView, Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { DeepRead, IdeaVersion, MemAsk, MemQuestion, MemReport, MemSource, MemSurface, MemUnit, WriteLevel, WriteSettings, PlanInsight, ResearchPlan, FieldMap, FieldMapSummary, LitPaper, NotePlace, ReaderAgent, ReaderNote, ReaderView, Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -65,6 +65,32 @@ const put = (body: unknown): RequestInit => ({ method: 'PUT', body: JSON.stringi
 const del: RequestInit = { method: 'DELETE' }
 
 export const api = {
+  memory: {
+    capture: (body: { url?: string; text?: string; title?: string; selection?: string; via?: string }) =>
+      request<MemSource>('/memory/capture', post(body)),
+    sources: (limit = 50) => request<MemSource[]>(`/memory/sources?limit=${limit}`),
+    source: (id: string) => request<MemSource>(`/memory/sources/${id}`),
+    snapshot: (id: string) => request<{ source_id: string; title: string; url: string; text: string }>(`/memory/sources/${id}/snapshot`),
+    context: (body: { app?: string; title?: string; url?: string; selection?: string; text?: string; page?: string; via?: string }) =>
+      request<unknown>('/memory/context', post(body)),
+    contexts: () => request<{ current: { label: string; app: string; at: number } | null; questions: MemQuestion[] }>('/memory/contexts'),
+    surface: (ctx: string) => request<MemSurface>(`/memory/surface?ctx=${encodeURIComponent(ctx)}`),
+    search: (q: string) => request<{ unit_id: string; claim: string; sunk: boolean; score: number; sources: number }[]>(`/memory/search?q=${encodeURIComponent(q)}`),
+    unit: (id: string) => request<MemUnit>(`/memory/units/${id}`),
+    changeUnit: (id: string, body: { claim?: string; gist?: string }) => request<MemUnit>(`/memory/units/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    mark: (id: string, kind: 'sunk' | 'raised' | 'moved' | 'unmoved') => request<MemUnit>(`/memory/units/${id}/mark`, post({ kind })),
+    split: (evidenceId: string) => request<MemUnit>(`/memory/evidence/${evidenceId}/split`, post({})),
+    merge: (id: string, into: string) => request<MemUnit>(`/memory/units/${id}/merge`, post({ into })),
+    ask: (ctx: string) => request<MemAsk>('/memory/ask', post({ ctx })),
+    answer: (askId: string, text: string) => request<MemAsk>(`/memory/asks/${askId}/answer`, post({ text })),
+    questions: () => request<MemQuestion[]>('/memory/questions'),
+    addQuestion: (text: string) => request<MemQuestion>('/memory/questions', post({ text })),
+    archiveQuestion: (id: string) => request<{ ok: boolean }>(`/memory/questions/${id}`, del),
+    synthesis: (id: string) => request<{ question: string; text: string; units: { ref: string; unit_id: string; claim: string }[] }>(`/memory/questions/${id}/synthesis`),
+    report: (days = 7) => request<MemReport>(`/memory/report?days=${days}`),
+    settings: () => request<{ language: string }>('/memory/settings'),
+    setSettings: (language: string) => request<{ language: string }>('/memory/settings', put({ language })),
+  },
   auth: {
     status: () => request<AuthStatus>('/auth/status'),
     login: (email: string, password: string) => request<{ user: AuthUser }>('/auth/login', post({ email, password })),
@@ -80,6 +106,8 @@ export const api = {
     keys: () => request<{ keys: KeyStatus[]; uses: string; team_key_allowed?: boolean; note?: string }>('/me/keys'),
     setKey: (provider: string, value: string) => request<KeyStatus>(`/me/keys/${provider}`, put({ value })),
     deleteKey: (provider: string) => request<KeyStatus>(`/me/keys/${provider}`, del),
+    writes: () => request<WriteSettings>('/me/writes'),
+    setWrites: (levels: Record<string, WriteLevel>) => request<WriteSettings>('/me/writes', put({ levels })),
   },
 
   team: {

@@ -175,6 +175,29 @@ class KeyBody(BaseModel):
     value: str
 
 
+class WriteLevels(BaseModel):
+    levels: dict[str, str]
+
+
+@me_router.get("/writes")
+async def my_writes() -> dict[str, Any]:
+    """What AURORA may write into your own tools (each off by default), and what it wrote."""
+    from aurora.auth import writes
+    uid = current_user().user_id
+    return {"levels": writes.levels(uid), "writes": writes.WRITES, "options": list(writes.LEVELS),
+            "log": writes.write_log.entries(uid, 50)}
+
+
+@me_router.put("/writes")
+async def set_my_writes(body: WriteLevels) -> dict[str, Any]:
+    from aurora.auth import writes
+    try:
+        writes.set_levels(current_user().user_id, body.levels)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    return await my_writes()
+
+
 @me_router.get("/keys")
 async def my_keys() -> dict[str, Any]:
     user = current_user()

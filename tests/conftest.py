@@ -20,6 +20,7 @@ def isolated_home(tmp_path, monkeypatch):
     monkeypatch.setattr(requirements, "available_models", lambda *a, **k: None)
     from aurora.api.routes import campaigns, skills
     from aurora.auth.store import auth_store
+    from aurora.auth.writes import write_log
     from aurora.brainstorm.store import bs_store
     from aurora.feed import sources as feed_sources
     from aurora.feed.store import feed_store
@@ -27,6 +28,7 @@ def isolated_home(tmp_path, monkeypatch):
     from aurora.literature.annotations import annotations
     from aurora.literature.library import library
     from aurora.literature.zotero import zotero_store
+    from aurora.memory.store import mem_store
     from aurora.review.store import review_store
     bs_store.reset()
     feed_store.reset()
@@ -35,6 +37,8 @@ def isolated_home(tmp_path, monkeypatch):
     zotero_store.reset()
     annotations.reset()
     review_store.reset()
+    write_log.reset()
+    mem_store.reset()
     indexes.clear_cache()
     # no network for the feed either: tests that need sources bring their own
     monkeypatch.setattr(feed_sources, "_shared", feed_sources.Sources(client=_offline()))
@@ -51,5 +55,7 @@ def isolated_home(tmp_path, monkeypatch):
     zotero_store.reset()
     annotations.reset()
     review_store.reset()
+    write_log.reset()
+    mem_store.reset()
     campaigns.store.reset()
     skills._store = None

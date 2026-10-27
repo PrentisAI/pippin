@@ -200,6 +200,7 @@ export default function PaperReader({ req, onClose }: { req: ReadRequest; onClos
   const p = view.paper
   const z = view.zotero
   const zLabel = z.state === 'off' ? 'Zotero · not connected' : z.state === 'read_only' ? 'Zotero · read-only'
+    : z.state === 'writes_off' ? 'Zotero · writing is off'
     : z.state !== 'ok' ? 'Zotero · notes stay here' : z.counts.saving ? 'Saving to Zotero…' : `Zotero · ${z.counts.synced} synced`
   const reading = AGENTS.filter((a) => view.reads[a.name])
   const authors = p.authors.length > 3 ? `${p.authors.slice(0, 3).map((a) => a.split(/[ ,]/).filter(Boolean).pop()).join(', ')} et al.` : p.authors.join(', ')
@@ -238,6 +239,7 @@ export default function PaperReader({ req, onClose }: { req: ReadRequest; onClos
             {z.state === 'ok' && <span className="rd-text-2">[{p.key}] is in your Zotero ({z.library}). Your notes, and the agents’ notes you keep,
               become annotations on its PDF there: same place, same colour. Replies go into the note’s comment. Notes you make in Zotero show up here too.</span>}
             {z.state === 'off' && <span className="rd-text-2">Connect Zotero and your notes become annotations on the paper’s PDF in your library (and the ones you make in Zotero come here).</span>}
+            {z.state === 'writes_off' && <span className="rd-note-warn">Writing to Zotero is off, so these notes stay in AURORA. Turn on “Send the notes you keep on a PDF as Zotero annotations” under the account button → What AURORA may write.</span>}
             {z.state === 'read_only' && <span className="rd-note-warn">Your Zotero key can only read, so these notes stay in AURORA for now. Connect a key that can write and they go to Zotero at the next sync.</span>}
             {(z.state === 'not_in_zotero' || z.state === 'no_pdf') && <span className="rd-note-warn">
               {z.state === 'not_in_zotero' ? 'This paper is not in your Zotero' : 'Your Zotero has this paper but not its PDF'}, so the notes stay in AURORA.

@@ -59,6 +59,10 @@ Which model plays each role.
 | `models.supervisor` | str | `"anthropic/claude-sonnet-5.5"` | Model of the live auditor (supervisor) that watches the research agent. |
 | `models.frontdesk` | str | `"anthropic/claude-haiku-5.5"` | Model of the front desk agent that talks with the human. |
 | `models.brainstorm` | str | `""` | Model of the brainstorm agents (Skeptic, Methods, Librarian). Empty: models.frontdesk. |
+| `models.review` | str | `"anthropic/claude-sonnet-5.5"` | Model that maps a field and reads papers closely (zoom out, zoom in): scoping, searching the web for papers, adjudicating screening, and every judgement of the map. A strong model matters here. |
+| `models.memory` | str | `"anthropic/claude-haiku-5.5"` | Model of the shared memory: it takes the claims out of what you save, tells whether two claims say the same thing (or the opposite), and ranks them for what you are doing. |
+| `models.embedding` | str | `"openai/text-embedding-3-large"` | Embedding model of the shared memory (an OpenRouter model): finds claims that may say the same thing, across languages, and what bears on what you are reading. |
+| `models.review_screen` | list[str] | `["anthropic/claude-haiku-5.5", "google/gemini-3.5-flash-lite"]` | Two models that screen candidate papers independently (title and abstract), and read them for their cards. Different families make the two screenings independent. |
 
 ## `ideation`
 
@@ -71,6 +75,8 @@ Multi-agent ideation: several models propose directions and a chair decides.
 | `ideation.rounds_per_item` | int | `2` | Roundtable mode: remark/response exchanges per presentation. |
 | `ideation.web_search` | bool | `true` | Let seats search the literature and the web while preparing and answering (OpenRouter web plugin, a small extra cost per call; seat models must be OpenRouter models). Turn it off when evaluating ideation on known problems, so ideas cannot simply be looked up. |
 | `ideation.live` | bool | `false` | Brainstorm with the researcher: the round table runs live in the project's brainstorm space, its seats' ideas and questions become cards there, and the researcher can speak in the meeting (the chair gives them the floor before the next turn). Web console only. |
+| `ideation.develop_objective` | bool | `false` | The objective is the researcher's own idea: the seats develop it into its strongest version instead of proposing other directions (a round table started from a brainstorm idea). |
+| `ideation.source_card` | str | `""` | The brainstorm idea the round table starts from: in a live meeting, each new version the researcher writes of it is heard before the next turn. |
 | `ideation.chair_prompt` | str | `""` | System prompt of the chair. Empty: built-in. |
 | `ideation.seat_prompt` | str | `""` | System prompt of the seats. Empty: built-in. '{seat_id}' is replaced by the seat ID. |
 

@@ -107,10 +107,15 @@ See [Results, reports and runs](docs/guide/results.md).
 - **Paper reader** — read a PDF with the agents: highlight and note passages,
   ask an agent about one, let them mark what bears on your idea; the notes you
   keep become annotations on the PDF in Zotero, and back.
+- **Memory** — everything you save, from arXiv to Zhihu, X, Reddit and Xiaohongshu, kept by
+  claim: the same claim from several sources (in any language) is one idea unit, opposite claims
+  are flagged as conflicts, and what bears on what you are reading surfaces (at most three) while
+  the rest is absorbed or sinks. AURORA writes into your Zotero, Overleaf or notes only as far as
+  you allow, each kind off by default.
 - **Feed** — new papers and posts from the people and sources you follow,
   ranked against your projects, with one sentence on why each fits.
 
-See [Literature](docs/concepts/literature.md), [Brainstorm](docs/concepts/brainstorm.md),
+See [Literature](docs/concepts/literature.md), [Brainstorm](docs/concepts/brainstorm.md), [Memory](docs/concepts/memory.md),
 [Zotero](docs/guide/zotero.md) and [The feed](docs/guide/feed.md).
 
 ### Compute
@@ -212,7 +217,7 @@ The documentation is in [`docs/`](docs/) and reads directly on GitHub:
 | | |
 |---|---|
 | Getting started | [Installation](docs/getting-started/installation.md) · [Your first campaign](docs/getting-started/first-campaign.md) |
-| Concepts | [How a campaign runs](docs/concepts/pipeline.md) · [Ideation](docs/concepts/ideation.md) · [Auditors](docs/concepts/auditors.md) · [Working with the human](docs/concepts/human-in-the-loop.md) · [Literature](docs/concepts/literature.md) · [Brainstorm](docs/concepts/brainstorm.md) · [Zoom out and zoom in](docs/concepts/zoom-out-zoom-in.md) · [Skills](docs/concepts/skills.md) |
+| Concepts | [How a campaign runs](docs/concepts/pipeline.md) · [Ideation](docs/concepts/ideation.md) · [Auditors](docs/concepts/auditors.md) · [Working with the human](docs/concepts/human-in-the-loop.md) · [Literature](docs/concepts/literature.md) · [Brainstorm](docs/concepts/brainstorm.md) · [Zoom out and zoom in](docs/concepts/zoom-out-zoom-in.md) · [Memory](docs/concepts/memory.md) · [Skills](docs/concepts/skills.md) |
 | Guides | [Command line](docs/guide/cli.md) · [Web console](docs/guide/web-console.md) · [Results, reports and runs](docs/guide/results.md) · [Accounts and sharing](docs/guide/accounts.md) · [The feed](docs/guide/feed.md) · [Zotero](docs/guide/zotero.md) · [Notifications](docs/guide/notifications.md) · [GPU jobs](docs/guide/cluster-jobs.md) · [Models and costs](docs/guide/models-and-costs.md) · [Sandbox and security](docs/guide/sandbox.md) · [Troubleshooting](docs/guide/troubleshooting.md) |
 | Reference | [Configuration](docs/reference/configuration.md) · [Campaign files](docs/reference/workspace.md) · [Events](docs/reference/events.md) |
 
