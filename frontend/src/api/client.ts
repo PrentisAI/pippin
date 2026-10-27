@@ -1,4 +1,4 @@
-import type { DeepRead, FieldMap, FieldMapSummary, LitPaper, NotePlace, ReaderAgent, ReaderNote, ReaderView, Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { DeepRead, PlanInsight, ResearchPlan, FieldMap, FieldMapSummary, LitPaper, NotePlace, ReaderAgent, ReaderNote, ReaderView, Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -320,7 +320,7 @@ export const api = {
     openRead: (body: { paper: string; space: string; map_id?: string; start?: boolean }) => request<DeepRead>('/review/reads', post(body)),
     findRead: (paper: string, space: string) => request<DeepRead | null>(`/review/reads?paper=${encodeURIComponent(paper)}&space=${encodeURIComponent(space)}`),
     read: (id: string) => request<DeepRead>(`/review/reads/${id}`),
-    changeRead: (id: string, body: { guess?: string; revealed?: boolean; ticks?: number[] }) =>
+    changeRead: (id: string, body: { guess?: string; revealed?: boolean; ticks?: number[]; question?: number; answer?: string; show?: boolean }) =>
       request<DeepRead>(`/review/reads/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     again: (id: string, questions: number[]) => request<DeepRead>(`/review/reads/${id}/again`, post({ questions })),
     followUp: (id: string, question: number, text: string) => request<DeepRead>(`/review/reads/${id}/followups`, post({ question, text })),
@@ -351,6 +351,9 @@ export const api = {
       request<{ chat: BsChat; shared_cards: number }>(`/brainstorm/chats/${chatId}/share`, post({ what, card_ids })),
     consent: (msgId: string, share: boolean) => request<{ ok: boolean }>(`/brainstorm/messages/${msgId}/consent`, post({ share })),
     act: (msgId: string, choice: string) => request<BsMessage>(`/brainstorm/messages/${msgId}/act`, post({ choice })),
+    plan: (chatId: string) => request<ResearchPlan>(`/brainstorm/chats/${chatId}/plan`),
+    changeInsight: (id: string, body: { text?: string; section?: string }) => request<PlanInsight>(`/brainstorm/insights/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    deleteInsight: (id: string) => request<{ ok: boolean }>(`/brainstorm/insights/${id}`, del),
     addCard: (space: string, body: { type?: CardType; text: string; paper_id?: string; links?: { to: string; rel: Relation }[]; vis?: string; chat_id?: string; ask_skeptic?: boolean }) =>
       request<{ card: BsCard; chat_id?: string }>(`/brainstorm/spaces/${encodeURIComponent(space)}/cards`, post(body)),
     changeCard: (cardId: string, body: { text?: string; answer?: string; vis?: 'private' | 'project' }) =>

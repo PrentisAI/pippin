@@ -48,23 +48,33 @@ def _space(space: str) -> tuple[str, str]:
     return space, space
 
 
-def _access(campaign_id: str) -> rllm.Access:
+def _cfg() -> Any:
+    from aurora.api.routes.campaigns import base_config
+    from aurora.config import AuroraConfig
+    return AuroraConfig.model_validate({**base_config(), "objective": "review"})
+
+
+def _access(campaign_id: str, model: str = "") -> rllm.Access:
+    """Access with the review model (``models.review``), or ``model``."""
     from aurora.api.routes.brainstorm import _access as bs_access
     a = bs_access()
+    model = model or _cfg().models.review or a.model
     if campaign_id:
         from aurora.auth.providers import model_problem
-        if problem := model_problem(a.model, campaign_id):
-            raise HTTPException(400, f"{problem} An admin can choose another model for the brainstorm agents.")
+        if problem := model_problem(model, campaign_id):
+            raise HTTPException(400, f"{problem} An admin can choose another model for maps (models.review).")
     if not a.api_key:
         raise HTTPException(400, f"No API key is set: {a.missing}")
-    return rllm.Access(api_key=a.api_key, base_url=a.base_url, model=a.model, missing=a.missing)
+    return rllm.Access(api_key=a.api_key, base_url=a.base_url, model=model, missing=a.missing)
 
 
 def _seat_models() -> list[str]:
-    from aurora.api.routes.campaigns import base_config
-    from aurora.config import AuroraConfig
-    cfg = AuroraConfig.model_validate({**base_config(), "objective": "review"})
-    return list(cfg.models.ideation_seats or [])
+    return list(_cfg().models.ideation_seats or [])
+
+
+def _screeners(campaign_id: str) -> list[rllm.Access]:
+    base = _access(campaign_id)
+    return [base.with_model(m) for m in (_cfg().models.review_screen or [])[:2]]
 
 
 def _lit(space: str, campaign_id: str) -> Any:
@@ -121,18 +131,25 @@ def _build(m: dict[str, Any], size: int = fieldmap.CORE_SIZE) -> fieldmap.Build:
     return fieldmap.Build(map_id=m["map_id"], space=m["space"], campaign_id=cid, owner=m["owner"], topic=m["topic"],
                           brief=m["brief"], access=_access(cid), seat_models=_seat_models(), lit=_lit(m["space"], cid),
                           content=m["content"], size=size, ideas=_ideas(m["space"], m["owner"]),
-                          on_step=converse.teller(m.get("chat_id", ""), m["map_id"]) if m.get("chat_id") else None)
+                          on_step=converse.teller(m.get("chat_id", ""), m["map_id"]) if m.get("chat_id") else None,
+                          screeners=_screeners(cid), pause=bool(m.get("chat_id")))
 
 
 def start_map(space: str, topic: str, brief: str = "", *, chat_id: str = "", size: int = fieldmap.CORE_SIZE,
-              seeds: list[str] | None = None) -> dict[str, Any]:
-    """Make a map of a direction in a space and start building it (its steps are told in ``chat_id``)."""
+              seeds: list[str] | None = None, question: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Make a map of a direction in a space and start building it (its steps are told in ``chat_id``).
+
+    ``question``: the research question the researcher settled with the Mentor; the map's scope is built from it
+    and is not asked for again."""
     key, cid = _space(space)
     if cid:
         require(cid, "comment")
     if not topic.strip():
         raise HTTPException(400, "Name the research direction")
     m = review_store.new_map(key, _uid(), topic, brief, chat_id=chat_id)
+    if question and question.get("question"):
+        m["content"] = {**m["content"], "settled": question, "confirmed": ["scope"]}
+        review_store.put_content(m["map_id"], m["content"])
     b = _build(m, max(8, min(40, size)))
     _spawn(m["map_id"], fieldmap.run(b, seeds=[e["paper_id"] for s in seeds or [] if (e := library.paper(s))]))
     return review_store.map(m["map_id"])  # type: ignore[return-value]
@@ -144,6 +161,15 @@ def latest_map(space_key: str, viewer: str) -> dict[str, Any] | None:
         if row["owner"] == viewer or (row["vis"] == "project" and not space_key.startswith("user:")):
             return review_store.map(row["map_id"])
     return None
+
+
+def start_amend(map_id: str, step: str, text: str) -> None:
+    """The researcher's word at a checkpoint (the scope, or the papers), applied in the background."""
+    _start(map_id, lambda b: fieldmap.amend(b, step, text))
+
+
+def go_on(map_id: str, step: str) -> None:
+    _start(map_id, lambda b: fieldmap.go_on(b, step))
 
 
 def start_challenge(map_id: str, text: str) -> None:
@@ -446,9 +472,12 @@ def _read_view(r: dict[str, Any]) -> dict[str, Any]:
            "questions": [{"n": q["n"], "title": q["title"], "key": bool(q.get("key")), "agent": q.get("agent", "")}
                          for q in deepread.QUESTIONS],
            "busy": _busy(r["read_id"])}
-    # until the reader has guessed (or skipped), the authors' path stays hidden
-    if not r["revealed"] and "3" in answers and answers["3"].get("state") == "done":
-        out["answers"] = {**answers, "3": {"state": "hidden"}}
+    # an AI answer shows once the reader has answered the question themselves, or asked to see it
+    visible = {int(k) for k in r["mine"]} | set(r["shown"])
+    out["answers"] = {k: (a if int(k) in visible or a.get("state") != "done" else {"state": "hidden", "ready": True})
+                      for k, a in answers.items()}
+    out["answered"] = sorted(int(k) for k in r["mine"])
+    out["ready"] = sorted(int(k) for k, a in answers.items() if a.get("state") == "done")
     return out
 
 
@@ -510,9 +539,15 @@ def _ask_for_guess(read_id: str, chat_id: str, key: str) -> None:
 def reveal(read_id: str, chat_id: str, guess: str = "") -> None:
     """The researcher guessed (or skipped): the authors' path, told in the conversation."""
     from aurora.brainstorm.store import bs_store
-    fields: dict[str, Any] = {"revealed": True}
+    r = review_store.read_by_id(read_id)
+    if r is None:
+        return
+    mine, shown = dict(r["mine"]), sorted(set(r["shown"]) | {3})
+    fields: dict[str, Any] = {"revealed": True, "shown": shown}
     if guess:
         fields["guess"] = guess
+        mine["3"] = {"text": guess, "at": time.time()}
+        fields["mine"] = mine
     review_store.update_read(read_id, **fields)
     r = review_store.read_by_id(read_id)
     if r and chat_id:
@@ -542,17 +577,36 @@ async def get_read(read_id: str) -> dict[str, Any]:
 
 
 class ReadChange(BaseModel):
-    guess: str | None = None
-    revealed: bool | None = None
+    guess: str | None = None          # question 3's answer (as the conversation and older consoles send it)
+    revealed: bool | None = None      # question 3's AI answer shown
     ticks: list[int] | None = None
+    question: int | None = None       # with answer and/or show: the reader's own answer to a question, its AI answer shown
+    answer: str | None = None
+    show: bool | None = None
 
 
 @router.patch("/reads/{read_id}")
 async def change_read(read_id: str, body: ReadChange) -> dict[str, Any]:
-    _read(read_id)
-    fields = {k: v for k, v in body.model_dump().items() if v is not None}
-    if fields:
-        review_store.update_read(read_id, **fields)
+    r = _read(read_id)
+    fields: dict[str, Any] = {k: v for k, v in body.model_dump().items() if k in ("guess", "revealed", "ticks") and v is not None}
+    mine, shown = dict(r["mine"]), list(r["shown"])
+    q = body.question or (3 if body.guess is not None or body.revealed is not None else None)
+    if q is not None and not 1 <= q <= 12:
+        raise HTTPException(400, "Questions are numbered 1 to 12")
+    text = body.answer if body.answer is not None else body.guess
+    if q is not None and text is not None:
+        if text.strip():
+            mine[str(q)] = {"text": text.strip()[:6000], "at": time.time()}
+        else:
+            mine.pop(str(q), None)
+    if q is not None and (body.show or body.revealed) and q not in shown:
+        shown.append(q)
+    fields.update(mine=mine, shown=shown)
+    if q == 3 and text is not None:
+        fields["guess"] = text.strip()
+    if q == 3 and (body.show or body.revealed):
+        fields["revealed"] = True
+    review_store.update_read(read_id, **fields)
     return _read_view(_read(read_id))
 
 
@@ -595,8 +649,8 @@ async def follow_up(read_id: str, body: FollowUp) -> dict[str, Any]:
     text, pages = await _text_of(r["paper_id"], _uid(), cid)
     prev = r["answers"].get(str(body.question)) or {}
     so_far = "\n".join(p.get("text", "") for p in prev.get("paragraphs") or [])
-    if body.question == 3 and not r["revealed"]:
-        raise HTTPException(400, "Write your guess (or skip) before asking about the authors' path")
+    if str(body.question) not in r["mine"] and body.question not in r["shown"]:
+        raise HTTPException(400, "Answer the question yourself (or show the AI's answer) before asking more")
     out = await rllm.ask(access, "deep_read_followup", f"""{deepread._context(e, text, '')}
 
 Question {body.question}: {deepread.TITLES[body.question]}
@@ -606,7 +660,7 @@ The answer so far:
 The reader asks: {body.text.strip()}
 
 Answer from the paper. Where a paragraph rests on the paper, give in "quote" a few words copied exactly from it.
-JSON: {{"paragraphs": {deepread.QPARAS}}}""")
+JSON: {{"paragraphs": {deepread.QPARAS}}}""", want="paragraphs")
     fu = {"q": body.text.strip(), "paragraphs": deepread._paras(out.get("paragraphs"), pages)}
     answer = {**prev, "followups": [*(prev.get("followups") or []), fu]}
     review_store.set_answer(read_id, body.question, answer)

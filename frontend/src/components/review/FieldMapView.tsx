@@ -157,6 +157,7 @@ function BuildBar({ map, onResume }: { map: FieldMap; onResume: () => void }) {
         ))}
       </div>
       {active && <div className="rd-sub">{map.step_name ? `${map.step_name}…` : 'Working…'} {map.log.slice(-1)[0]?.text}</div>}
+      {map.state === 'waiting' && !map.busy && <div className="rd-sub">Waiting for your word in the conversation on the {map.step === 'scope' ? 'scope and criteria' : 'papers chosen'}.</div>}
       {map.state === 'failed' && (
         <div className="rd-actions"><span className="rd-note-warn" style={{ flex: 1 }}>Stopped: {map.error}</span>
           {map.mine && <button className="rd-act keep" onClick={onResume}>Resume from here</button>}</div>
@@ -180,6 +181,8 @@ function Chain({ map, content: c, fw, papers, readOnly, onKey, act }: {
       <nav className="rv-nav" aria-label="Sections">
         {nav.map(([id, label], i) => <a key={id} href={`#rv-${id}`} className="rv-navlink"><span className="rv-num sm">{i}</span>{label}</a>)}
       </nav>
+
+      {c.scope && <Found map={map} c={c} onKey={onKey} />}
 
       {c.need && (
         <Section n={0} id="rv-need" title={`Why ${c.need.term} is needed`}
@@ -336,6 +339,53 @@ function Chain({ map, content: c, fw, papers, readOnly, onKey, act }: {
         </Section>
       )}
     </>
+  )
+}
+
+export function Found({ map, c, onKey }: { map: FieldMap; c: MapContent; onKey: (k: string) => void }) {
+  const [show, setShow] = useState<'included' | 'excluded'>('included')
+  const sc = c.scope!
+  const pr = c.prisma ?? {}
+  const ident = pr.identified ?? {}
+  const codes = Object.fromEntries((sc.criteria?.exclude ?? []).map((e) => [e.code, e.text]))
+  const rows = Object.entries(c.screening ?? {}).map(([pid, d]) => ({ pid, d, p: map.papers.find((x) => x.paper_id === pid) }))
+  const shown = rows.filter((r) => show === 'included' ? r.d.d !== 'exclude' : r.d.d === 'exclude')
+  const subName = (id: string) => sc.subquestions.find((x) => x.id === id)?.text ?? id
+  const stages: [string, number | undefined][] = [
+    ['Identified', Object.values(ident).reduce((a, b) => a + b, 0)], ['Distinct, checked', pr.after_dedupe],
+    ['Screened', pr.screened], ['Read in full text', pr.full_text_assessed], ['Included', pr.included],
+  ]
+  const max = Math.max(1, ...stages.map(([, n]) => n ?? 0))
+  return (
+    <Section n="·" id="rv-found" title="The scope, and how the papers were chosen"
+      headline={<>{sc.question} <span className="rd-sub">({sc.subquestions.length} sub-questions; criteria fixed before searching)</span></>}
+      details={<>
+        <dl className="rv-kv">
+          <dt>In scope</dt><dd>{sc.in_scope.join('; ')}</dd>
+          <dt>Out of scope</dt><dd>{sc.out_of_scope.join('; ')}</dd>
+          <dt>Sub-questions</dt><dd>{sc.subquestions.map((x) => <div key={x.id}><b>{x.id}</b> {x.text}</div>)}</dd>
+          <dt>A paper belongs if</dt><dd>{sc.criteria.include.join('; ')}</dd>
+          <dt>Left out if (in order)</dt><dd>{sc.criteria.exclude.map((e) => <div key={e.code}><b>{e.code}</b> {e.text}</div>)}</dd>
+          {(sc.amended ?? []).length > 0 && <><dt>You amended</dt><dd>{sc.amended!.join(' · ')}</dd></>}
+        </dl>
+        <div className="rv-tabs2">
+          {(['included', 'excluded'] as const).map((t) => <button key={t} className={`rd-chip${show === t ? ' on' : ''}`} onClick={() => setShow(t)}>
+            {t === 'included' ? 'Included' : 'Excluded'} <span className="rd-n">{rows.filter((r) => t === 'included' ? r.d.d !== 'exclude' : r.d.d === 'exclude').length}</span></button>)}
+        </div>
+        <div className="rv-grid-wrap"><table className="rv-table"><thead><tr><th>Paper</th><th>Decision</th><th>Why</th><th>Decided by</th><th>Sub-questions</th></tr></thead>
+          <tbody>{shown.map(({ pid, d, p }) => (
+            <tr key={pid}><td>{p ? <button className="rv-key" onClick={() => onKey(p.key)}>{p.key}</button> : null} {p?.title ?? ''}</td>
+              <td>{d.d === 'exclude' ? `${d.code}${codes[d.code] ? `: ${codes[d.code]}` : ''}` : d.d}{d.kind && d.d !== 'exclude' ? ` · ${d.kind}` : ''}</td>
+              <td>{d.why}</td><td className="rd-sub">{d.by}</td><td className="rd-sub">{(d.subs ?? []).map(subName).join('; ')}</td></tr>
+          ))}</tbody></table></div>
+      </>}>
+      <div className="rv-prisma">{stages.map(([label, n]) => (
+        <div key={label} className="rv-prisma-row"><span>{label}</span><span className="rv-bar"><span style={{ width: `${((n ?? 0) / max) * 100}%` }} /></span><b className="mono">{n ?? '–'}</b></div>
+      ))}</div>
+      <span className="rd-sub">From: {Object.entries(ident).map(([k, v]) => `${k} ${v}`).join(' · ')}{pr.not_found ? ` · ${pr.not_found} named but not found in the indexes, dropped` : ''}
+        {pr.agreement != null ? ` · the two screenings agreed on ${Math.round(pr.agreement * 100)}%, ${pr.conflicts ?? 0} adjudicated` : ''}</span>
+      {(c.coverage?.skew ?? []).map((a, i) => <div key={i} className="rd-note-warn">Skew: {a.n} of {a.known} papers are {a.value} ({a.dimension}).</div>)}
+    </Section>
   )
 }
 
@@ -543,7 +593,7 @@ function PaperDrawer({ map, fw, k, paper, outside, readOnly, onClose, onReplace,
         <button className="rd-act quiet" aria-label="Close" onClick={onClose}>✕</button></div>
       <b className="serif rv-drawer-t">{paper?.title ?? outside?.title ?? 'Not a paper of this map'}</b>
       {paper && <span className="rd-sub">{paper.role === 'held_out' ? 'Held out: used to test the map' : paper.role === 'joined' ? 'Joined after the map was built' : paper.role === 'adjacent' ? 'From an adjacent field' : paper.role === 'benchmark' ? 'A benchmark: evidence of what the field measures, not placed'
-        : paper.role === 'survey' ? 'A survey: for calibration, not placed' : 'In the map'}
+        : paper.role === 'survey' ? 'A survey: for calibration, not placed' : paper.role === 'foundation' ? 'A building block the field uses: not placed' : 'In the map'}
         · card from the {card?.source === 'pdf' ? 'PDF' : 'abstract'}</span>}
       {card && <dl className="rv-kv">
         {card.sub_problem && <><dt>Problem</dt><dd>{card.sub_problem}</dd></>}

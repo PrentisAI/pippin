@@ -15,11 +15,14 @@ Messages that carry something to act on have ``kind="action"`` and a ``widget``:
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from aurora.brainstorm.store import bs_store
 from aurora.review import fieldmap
 from aurora.review.store import review_store
+
+logger = logging.getLogger(__name__)
 
 STATUS = {"solved": "solved", "partly": "partly solved", "early": "early attempts", "open": "open"}
 CAUSE = {"signal": "no training signal", "data": "missing data", "representation": "the representation",
@@ -42,14 +45,11 @@ def step_text(step: str, m: dict[str, Any]) -> str:
         return (f"Why {term} is needed: {why}\n\nI will measure the field by {len(caps)} capabilities: "
                 + "; ".join(x["name"] for x in caps) + ".")
     if step == "papers":
-        rows = review_store.papers(m["map_id"])
-        years = sorted(e["paper"].year for r in rows if r["role"] in ("core", "held_out")
-                       and (e := fieldmap._entry(r["paper_id"])) and e["paper"].year)
-        held = sum(r["role"] == "held_out" for r in rows)
-        bench = sum(r["role"] == "benchmark" for r in rows)
-        span = f" from {years[0]} to {years[-1]}" if years else ""
-        return (f"I gathered {sum(r['role'] in ('core', 'held_out') for r in rows)} papers{span}, all checked in the indexes"
-                + (f", and held {held} out to test the map" if held else "") + (f", plus {bench} benchmarks" if bench else "") + ".")
+        pr = c.get("prisma") or {}
+        ident = pr.get("identified") or {}
+        return (f"Searching found {sum(ident.values())} records ({', '.join(f'{k} {v}' for k, v in ident.items())}), "
+                f"{pr.get('after_dedupe', 0)} distinct papers once checked in the indexes and deduplicated; "
+                f"{pr.get('not_found', 0)} named papers were not found and are dropped. Two models now screen them.")
     if step == "cards":
         rows = review_store.papers(m["map_id"])
         pdf = sum(r["card"].get("source") == "pdf" for r in rows)
@@ -91,6 +91,53 @@ def step_text(step: str, m: dict[str, Any]) -> str:
     return ""
 
 
+def scope_text(c: dict[str, Any]) -> str:
+    sc = c.get("scope") or {}
+    crit = sc.get("criteria") or {}
+    lines = [f"Before I search, this is how I would scope it. The map answers: {sc.get('question', '')}",
+             "In scope: " + "; ".join(sc.get("in_scope") or []), "Out of scope: " + "; ".join(sc.get("out_of_scope") or []),
+             "Sub-questions:\n" + "\n".join(f"- {x['text']}" for x in sc.get("subquestions") or []),
+             "A paper belongs if: " + "; ".join(crit.get("include") or []),
+             "It is left out, checked in this order, if:\n" + "\n".join(f"- {e['code']}: {e['text']}" for e in crit.get("exclude") or [])]
+    if sc.get("ask"):
+        lines.append("Two things I would like to know: " + " ".join(sc["ask"]))
+    lines.append("Tell me what to change, or go on.")
+    return "\n\n".join(lines)
+
+
+def corpus_text(map_id: str, c: dict[str, Any]) -> str:
+    from aurora.literature.library import library
+    pr = c.get("prisma") or {}
+    ident = pr.get("identified") or {}
+    sc = c.get("scope") or {}
+    exc = pr.get("excluded_by_code") or {}
+    codes = {e["code"]: e["text"] for e in (sc.get("criteria") or {}).get("exclude") or []}
+    rows = review_store.papers(map_id)
+    keys = {r["paper_id"]: (library.paper(r["paper_id"]) or {}).get("key", "") for r in rows}
+    screening = c.get("screening") or {}
+    by_sub = []
+    for sub in sc.get("subquestions") or []:
+        ks = [keys[r["paper_id"]] for r in rows if r["role"] in ("core", "held_out") and sub["id"] in (screening.get(r["paper_id"], {}).get("subs") or [])]
+        by_sub.append(f"- {sub['text']}: " + (", ".join(f"[{k}]" for k in ks) if ks else "none yet"))
+    other = [f"[{keys[r['paper_id']]}]" for r in rows if r["role"] in ("survey", "benchmark", "foundation")]
+    agreement = pr.get("agreement")
+    lines = [
+        f"Records identified: {sum(ident.values())} ({', '.join(f'{k} {v}' for k, v in ident.items())}); "
+        f"{pr.get('not_found', 0)} named but not found in the indexes, dropped. Distinct papers: {pr.get('after_dedupe', 0)}.",
+        f"Two models screened {pr.get('screened', 0)} from title and abstract"
+        + (f" (they agreed on {round(agreement * 100)}%)" if agreement is not None else "")
+        + f"; {pr.get('conflicts', 0)} disagreements were adjudicated; {pr.get('full_text_assessed', 0)} were read in full text.",
+        f"Included: {pr.get('included', 0)}. Excluded: " + (", ".join(f"{codes.get(k, k)} {v}" for k, v in exc.items()) or "none") + ".",
+        "In the map, by sub-question:\n" + "\n".join(by_sub),
+    ]
+    if other:
+        lines.append("Also kept, not placed: " + ", ".join(other))
+    for a in (c.get("coverage") or {}).get("skew") or []:
+        lines.append(f"Skew: {a['n']} of {a['known']} papers are {a['value']} ({a['dimension']}).")
+    lines.append("Tell me what to add or drop (by name is fine), or go on.")
+    return "\n\n".join(lines)
+
+
 def teller(chat_id: str, map_id: str) -> Any:
     """What a map tells the brainstorm it was started from, as its steps finish."""
     def tell(what: str) -> None:
@@ -107,6 +154,25 @@ def teller(chat_id: str, map_id: str) -> Any:
             if last.get("version", 0) > 1:
                 bs_store.add_message(chat_id, "Librarian", f"The map is now version {last['version']}: {last['reason']}.",
                                      kind="action", widget={"type": "map_step", "map_id": map_id, "step": "version"})
+            elif m["content"].get("problems"):
+                ask_mentor(chat_id, map_id)
+        elif what == "scope_settled":
+            sc = m["content"].get("scope") or {}
+            bs_store.add_message(chat_id, "Librarian", "I scoped the map from your research question, so I will not ask "
+                                 f"about the scope again. It answers: {sc.get('question', '')}\n\nIts parts:\n"
+                                 + "\n".join(f"- {x['text']}" for x in sc.get("subquestions") or [])
+                                 + "\n\nI am searching now. If it should cover something else, say so when the papers are in.",
+                                 kind="action", widget={"type": "map_step", "map_id": map_id, "step": "scope"})
+        elif what.startswith("wait:"):
+            step = what.split(":", 1)[1]
+            for old in bs_store.messages(chat_id):          # an earlier version of this checkpoint is superseded
+                w = old.get("widget") or {}
+                if w.get("map_id") == map_id and w.get("type") in ("scope", "corpus") and w.get("state") == "waiting":
+                    bs_store.update_message(old["msg_id"], widget={**w, "state": "superseded"})
+            text = scope_text(m["content"]) if step == "scope" else corpus_text(map_id, m["content"])
+            bs_store.add_message(chat_id, "Librarian", text, kind="action",
+                                 widget={"type": "scope" if step == "scope" else "corpus", "map_id": map_id,
+                                         "state": "waiting", "version": len((m["content"].get("scope") or {}).get("amended") or [])})
         elif what.startswith("challenge:"):
             cid = what.split(":", 1)[1]
             ch = next((x for x in m["content"].get("challenges") or [] if x["id"] == cid), None)
@@ -121,6 +187,15 @@ def teller(chat_id: str, map_id: str) -> Any:
             bs_store.add_message(chat_id, "Librarian", text, kind="action",
                                  widget={"type": "map_step", "map_id": map_id, "step": what})
     return tell
+
+
+def ask_mentor(chat_id: str, map_id: str) -> None:
+    """A first map is ready: the Mentor asks which of its unsolved problems the researcher cares about, and why."""
+    try:
+        from aurora.api.routes.brainstorm import mentor_after_map
+        mentor_after_map(chat_id, map_id)
+    except Exception:
+        logger.info("asking the Mentor about map %s failed", map_id, exc_info=True)
 
 
 def path_text(read: dict[str, Any]) -> str:

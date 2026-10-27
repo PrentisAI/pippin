@@ -13,6 +13,7 @@ import { NewCard, PickFile, PickPaper, Promote, ShareChat } from './dialogs'
 import { FirstTip } from '../../onboarding/FirstTip'
 import { readPaper } from '../reader/open'
 import { ActionWidget, MapPane } from '../review/ChatWidgets'
+import { PlanPane } from './Plan'
 
 type Dialog = null | { kind: 'share' } | { kind: 'projectShare' } | { kind: 'promote'; card: BsCard } | { kind: 'new'; type: 'idea' | 'question' | 'note' }
   | { kind: 'bring' } | { kind: 'attachPaper' } | { kind: 'attachFile' } | { kind: 'zotero' }
@@ -30,7 +31,7 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
   const [chatId, setChatId] = useState<string | null>(null)
   const [chat, setChat] = useState<{ chat: BsChat; messages: BsMessage[]; pending: boolean; here: { user_id: string; name: string }[] } | null>(null)
   const [focus, setFocus] = useState('')
-  const [tab, setTab] = useState<'ideas' | 'papers' | 'map'>('ideas')
+  const [tab, setTab] = useState<'ideas' | 'papers' | 'map' | 'plan'>('ideas')
   const [ideaFilter, setIdeaFilter] = useState<'all' | 'project' | 'mine'>('all')
   const [paperFilter, setPaperFilter] = useState<PaperFilter>('all')
   const [searchSel, setSearchSel] = useState<string | null>(null)
@@ -263,8 +264,9 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
       <section className="bs-center" aria-label="Conversation">
         <FirstTip id="brainstorm" doc="concepts/brainstorm.md">
           <b>Brainstorm.</b> Say what you are thinking about. The Skeptic looks for the weakest assumption, Methods turns the idea
-          into a test, the Librarian brings papers. Ideas are kept on the board with the evidence for and against; a good one
-          becomes a proposal with one click.
+          into a test, the Librarian brings papers, and the Mentor helps you think a direction through by asking, so your
+          question stays yours. Ideas are kept on the board with the evidence for and against; a good one becomes a proposal
+          with one click.
         </FirstTip>
         <div className="bs-head">
           <div className="bs-head-row">
@@ -295,8 +297,9 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
         </div>
         <div className="bs-body" ref={bodyRef}>
           {!chat?.messages.length && (
-            <div className="bs-note">A new brainstorm. Say what you are thinking about; the Skeptic, Methods and the Librarian join when you
-              ask them, or use the buttons below{space.activity !== 'off' ? ' (and when what you write calls for one of them)' : ''}.</div>
+            <div className="bs-note">A new brainstorm. Say what you are thinking about; the Skeptic, Methods, the Librarian and the Mentor
+              join when you ask them, or use the buttons below{space.activity !== 'off' ? ' (and when what you write calls for one of them)' : ''}.
+              Not sure yet what you want to ask? Say so: the Mentor will help you find your question.</div>
           )}
           {chat?.messages.map((m) => <Message key={m.msg_id} m={m} space={space} cards={cards} onIdea={showIdea} onPaper={showPaper}
             spaceId={spaceId} onChanged={() => { loadChat(); loadSpace() }}
@@ -335,7 +338,7 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
                       </div>
                     )}</span>
                 )}
-                <input aria-label="Message" placeholder={currentChat?.run_id ? 'Speak in the round table' : 'Think out loud, or @Skeptic @Methods @Librarian'}
+                <input aria-label="Message" placeholder={currentChat?.run_id ? 'Speak in the round table' : chat?.chat.guided ? 'Answer the Mentor, or name another agent' : 'Think out loud, or @Skeptic @Methods @Librarian @Mentor'}
                   value={text} onChange={(e) => setText(e.target.value)} disabled={!!currentChat?.run_id && !live} />
                 <button className="btn-sm btn-modify" disabled={busy || !text.trim()}>Send</button>
               </div>
@@ -350,6 +353,8 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
           <button role="tab" aria-selected={tab === 'ideas'} className={tab === 'ideas' ? 'on' : ''} onClick={() => setTab('ideas')}>Ideas · {ideas.length}</button>
           <button role="tab" aria-selected={tab === 'papers'} className={tab === 'papers' ? 'on' : ''} onClick={() => setTab('papers')}>Papers · {papersCount}</button>
           <button role="tab" aria-selected={tab === 'map'} className={tab === 'map' ? 'on' : ''} onClick={() => setTab('map')}>Map</button>
+          {!currentChat?.run_id && <button role="tab" aria-selected={tab === 'plan'} className={tab === 'plan' ? 'on' : ''} onClick={() => setTab('plan')}
+            title="The research plan your conversation with the Mentor builds">Plan{chat?.chat.guided ? ' ●' : ''}</button>}
         </div>
         <div className="bs-right-body">
           {tab === 'ideas' ? (
@@ -361,6 +366,8 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
               onAttach={(cid, to, rel) => act(async () => { await api.brainstorm.link(cid, to, rel); await loadSpace(); showIdea(to); setToast({ text: `Filed under “${short(cards.get(to)?.text ?? '', 40)}”.` }) })} />
           ) : tab === 'map' ? (
             <MapPane space={spaceId} cards={cards} onIdea={showIdea} />
+          ) : tab === 'plan' ? (
+            <PlanPane key={currentChat?.chat_id ?? "none"} chatId={currentChat?.run_id ? null : currentChat?.chat_id ?? null} onIdea={showIdea} />
           ) : (
             <PapersPane space={space} lit={lit} setLit={setLit} filter={paperFilter} searchId={searchSel} onSearch={setSearchSel}
               flashKey={flashKey} rule={ruleNow} onIdea={showIdea} openKey={openKey} onOpen={setOpenKey} onAsk={askAbout}
@@ -451,9 +458,9 @@ function Message({ m, space, cards, onIdea, onPaper, onConsent, spaceId, onChang
             <span><Rich text={s} cards={cards} onIdea={onIdea} onPaper={onPaper} />{m.pending && i === steps.length - 1 ? '…' : ''}</span></div>)}</div>
         )}
         {m.text && <div className="bs-text"><Rich text={m.text} cards={cards} onIdea={onIdea} onPaper={onPaper} />{m.pending && seat ? '…' : ''}</div>}
-        {m.kind === 'action' && m.widget && <ActionWidget m={m} space={spaceId} onChanged={onChanged} />}
+        {m.kind === 'action' && m.widget && <ActionWidget m={m} space={spaceId} onChanged={onChanged} onIdea={onIdea} />}
         {m.effects.map(([what, id], i) => (
-          <div key={i} className="bs-effect">↳ {what} {cards.get(id) ? <button className="bs-ichip" onClick={() => onIdea(id)}>{short(cards.get(id)!.text, 40)}</button> : 'an idea'}</div>
+          <div key={i} className="bs-effect">↳ {what} {!id ? null : cards.get(id) ? <button className="bs-ichip" onClick={() => onIdea(id)}>{short(cards.get(id)!.text, 40)}</button> : 'an idea'}</div>
         ))}
       </div>
     </div>

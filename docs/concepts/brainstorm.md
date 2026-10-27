@@ -1,6 +1,6 @@
 # Brainstorm
 
-A brainstorm is where you think out loud with three agents before you commit to
+A brainstorm is where you think out loud with four agents before you commit to
 an experiment:
 
 | Agent | What it does | What it records on the board |
@@ -8,6 +8,7 @@ an experiment:
 | **Skeptic** | finds the weakest assumption: a confounder, an alternative explanation, a measurement problem | a question on the idea; evidence against it from what is already known |
 | **Methods** | turns an idea into a test: data, comparison, the result that would refute it | a next step that builds on the idea; questions the design must answer |
 | **Librarian** | searches the literature (the real indexes, see [Literature](literature.md)) and the project's runs | papers and results as evidence for or against the idea |
+| **Mentor** | helps you think a direction through by asking, so your research question stays yours | nothing on the board; your research plan, beside the conversation |
 
 Open it with the lightbulb in the activity bar, or with **Brainstorm** in a
 project's tab bar.
@@ -57,6 +58,43 @@ file's text) with your message.
 
 The agents' model calls use your API key (the server's key in single-user mode).
 The model is `models.brainstorm` (default: the front desk's).
+
+## Finding your question with the Mentor
+
+When you are drawn to something but do not know yet what exactly to ask ("I want to work on memory for
+robots, not sure what"), the Mentor answers; name it (`@Mentor`) or press **Help me think it through** on an
+idea to bring it in yourself. It follows the Socratic Mentor of
+[Academic Research Skills](https://github.com/Imbad0202/academic-research-skills) (ARS), whose files AURORA
+reads at run time (`aurora/third_party/ars/`, CC BY-NC 4.0):
+
+- **It asks, it does not propose.** Each reply takes up what you said and asks one or two questions: what you
+  really want to know, how you would answer it, what evidence would change your mind, where a reviewer would
+  push, why it would matter. You move through these in your own time; nothing in the conversation says which
+  stage you are in.
+- **You predict first.** Before it shows you something, it asks what you expect; then it brings a counterpoint
+  to test that, from a real paper it searched for (cited by its key, never from memory). When you sound
+  certain ("obviously", "肯定"), it offers the opposite view. It surfaces one adjacent angle you have not
+  raised and leaves it to you to take in or set aside.
+- **The Skeptic joins as devil's advocate** when you have settled how you would answer the question, and when
+  you examine your own conclusions.
+- **Your question, written down.** When you can say your question in a sentence, it is written down from the
+  conversation (an RQ Summary): the question in your words, what you said about it on each FINER criterion
+  (feasible, interesting, novel, ethical, relevant), what is in and out, what is still open. Reply with what to
+  change, or confirm it: it goes on the board as your idea. A separate, collapsed FINER scoring is marked as
+  the AI's view.
+- **Your plan, beside the conversation.** The **Plan** tab keeps what you work out yourself, by section
+  (research question, method, evidence, limitations, contribution), each point with the words of yours it
+  came from. Edit, move or remove any point.
+- **Only when you ask** ("just give me some candidate questions") does it propose questions itself. It says so
+  first; the candidates come with their FINER scores, and one you take is marked as the AI's suggestion, on
+  the board and in your plan. Say you want to be guided again and it goes back to asking.
+- **It ends when you say so**, or when your thinking has converged (in an exploratory conversation, only when
+  you say so). The Librarian then offers to map the field around your question; the map starts from it and
+  does not ask for the scope again. When a map of the field is ready, the Mentor asks which of its unsolved
+  problems bothers you most, and why.
+
+While it guides a conversation, your messages go to it; name another agent to ask that one instead. Say
+"just tell me" (or "skip the predictions") whenever you would rather it worked differently.
 
 ## What the agents do on their own
 

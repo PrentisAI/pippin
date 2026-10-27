@@ -1,5 +1,6 @@
-/** Zoom in, beside the PDF: twelve questions in order. The authors' path (3) stays covered until you have
- *  written your own guess; quoted passages light up in the paper. */
+/** Zoom in, beside the PDF: twelve questions in order. The AI answers each, but its answer stays covered until you
+ *  have answered the question yourself or asked to see it, and only your own answers count as answered. The authors'
+ *  path (3) asks for your guess first; quoted passages light up in the paper. */
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import type { DeepAnswer, DeepRead } from '../../types'
@@ -64,22 +65,27 @@ export function DeepReadPanel({ paper, space, mapId, onQuote }: {
 
   const meta = read.questions.find((x) => x.n === q)!
   const a: DeepAnswer = read.answers[String(q)] ?? { state: 'pending' }
-  const done = (n: number) => ['done', 'hidden'].includes(read.answers[String(n)]?.state ?? '')
+  const answered = new Set(read.answered)
+  const ready = new Set(read.ready)
   const locked = q === 3 && !read.revealed
+  const visible = a.state === 'done'
   return (
     <div className="rv-dr">
       <div className="rd-row-between"><b className="rd-h">Deep read</b>
-        <span className="rd-sub">{read.questions.filter((x) => done(x.n)).length} of 12 answered</span></div>
+        <span className="rd-sub">You answered {read.answered.length} of 12 · AI ready {read.ready.length}</span></div>
       <div className="rv-qs" role="tablist" aria-label="Questions">
         {read.questions.map((x) => {
           const st = read.answers[String(x.n)]?.state
+          const cls = answered.has(x.n) ? ' done' : st === 'failed' ? ' fail' : ready.has(x.n) ? ' ready' : st === 'pending' ? ' wait' : ''
+          const why = answered.has(x.n) ? 'you answered it' : st === 'failed' ? 'the AI answer failed' : ready.has(x.n) ? 'the AI answer is ready' : 'the AI is answering'
           return (
-            <button key={x.n} role="tab" aria-selected={q === x.n} title={x.title}
-              className={`rv-qn${q === x.n ? ' on' : ''}${st === 'pending' ? ' wait' : st === 'failed' ? ' fail' : done(x.n) ? ' done' : ''}${x.key ? ' key' : ''}`}
+            <button key={x.n} role="tab" aria-selected={q === x.n} title={`${x.title} (${why})`}
+              className={`rv-qn${q === x.n ? ' on' : ''}${cls}${x.key ? ' key' : ''}`}
               onClick={() => setQ(x.n)}>{x.n}</button>
           )
         })}
       </div>
+      <div className="rv-legend"><span><i className="mine" />You answered</span><span><i className="ready" />AI answer ready, not opened</span></div>
 
       <div className="rv-qbox">
         <div className="rv-qtitle">
@@ -100,13 +106,23 @@ export function DeepReadPanel({ paper, space, mapId, onQuote }: {
               <button className="rd-act quiet" onClick={() => run(() => api.review.changeRead(read.read_id, { revealed: true }))}>Skip, show it</button>
             </div>
           </div>
-        ) : a.state === 'pending' ? <div className="rv-wait">Being answered from the paper…</div>
-          : a.state === 'failed' ? (
-            <div className="rd-note-warn">This question failed: {a.error}
-              <button className="rd-act" onClick={() => run(() => api.review.again(read.read_id, [q]))}>Answer again</button></div>
-          ) : <Answer n={q} a={a} read={read} onQuote={onQuote} run={run} busy={busy} />}
+        ) : (
+          <>
+            {q !== 3 && <Mine key={`${read.read_id}:${q}`} n={q} read={read} a={a} busy={busy} run={run} />}
+            {a.state === 'pending' ? <div className="rv-wait">The AI is answering from the paper…</div>
+              : a.state === 'failed' ? (
+                <div className="rd-note-warn">The AI answer failed: {a.error}
+                  <button className="rd-act" onClick={() => run(() => api.review.again(read.read_id, [q]))}>Answer again</button></div>
+              ) : visible ? (
+                <>
+                  {q !== 3 && <span className="rv-small-h">The AI's answer</span>}
+                  <Answer n={q} a={a} read={read} onQuote={onQuote} run={run} busy={busy} />
+                </>
+              ) : null}
+          </>
+        )}
 
-        {!locked && a.state === 'done' && (
+        {!locked && visible && (
           <>
             {(a.followups ?? []).map((f, i) => (
               <div key={i} className="rv-follow"><b>You: {f.q}</b><Paras items={f.paragraphs} onQuote={onQuote} /></div>
@@ -125,6 +141,40 @@ export function DeepReadPanel({ paper, space, mapId, onQuote }: {
           <button className="rd-act quiet" disabled={q === 1} onClick={() => setQ(q - 1)}>← Previous</button>
           <button className="rd-act" disabled={q === 12} onClick={() => setQ(q + 1)}>Next →</button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+/** The reader's own answer to a question: written first, then compared with the AI's, which stays covered until
+ *  they answer or ask to see it. Only their own answers count as answered. */
+function Mine({ n, read, a, busy, run }: {
+  n: number; read: DeepRead; a: DeepAnswer; busy: boolean; run: (f: () => Promise<DeepRead>) => void
+}) {
+  const saved = read.mine[String(n)]?.text ?? ''
+  const [text, setText] = useState(saved)
+  const [editing, setEditing] = useState(!saved)
+  const covered = a.state === 'hidden'
+  const save = () => run(async () => { const r = await api.review.changeRead(read.read_id, { question: n, answer: text.trim() }); setEditing(!text.trim()); return r })
+  if (saved && !editing) return (
+    <div className="rv-mine">
+      <div className="rd-row-between"><span className="rv-small-h">Your answer</span>
+        <button className="link-btn" onClick={() => { setText(saved); setEditing(true) }}>Edit</button></div>
+      <div className="rv-mine-text">{saved}</div>
+    </div>
+  )
+  return (
+    <div className="rv-mine">
+      <span className="rv-small-h">Your answer</span>
+      {covered && <p className="rv-p rd-sub">The AI's answer is ready. Write yours first and compare, or look at it now.</p>}
+      <textarea className="rd-in" rows={4} value={text} onChange={(e) => setText(e.target.value)} aria-label="Your answer"
+        placeholder="A few sentences in your own words." />
+      <div className="rd-actions">
+        <button className="rd-act keep" disabled={!text.trim() || text.trim() === saved || busy} onClick={save}>
+          {covered ? 'Save and compare' : 'Save my answer'}</button>
+        {saved && <button className="rd-act quiet" onClick={() => { setText(saved); setEditing(false) }}>Cancel</button>}
+        {covered && <button className="rd-act quiet" disabled={busy}
+          onClick={() => run(() => api.review.changeRead(read.read_id, { question: n, show: true }))}>Show the AI's answer</button>}
       </div>
     </div>
   )

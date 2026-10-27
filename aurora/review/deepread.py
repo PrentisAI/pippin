@@ -189,7 +189,7 @@ async def answer(access: Access, q: dict[str, Any], entry: dict[str, Any], text:
             + (f"What the reading found so far:\n{prior}\n\n" if prior else "")
             + f"Question {n}: {q['ask']} {extra}\n\nWhere a paragraph rests on the paper, give in \"quote\" a few words copied "
               f"exactly from the text above.\n\nJSON: {schema}")
-    out = await llm.ask(access, f"deep_read_q{n}", body, max_tokens=8000)
+    out = await llm.ask(access, f"deep_read_q{n}", body, max_tokens=8000, want=None)
     if isinstance(out, list):           # a bare list: the rows of question 7, else the paragraphs
         out = {"rows": out} if n == 7 and out and isinstance(out[0], dict) and "question" in out[0] else {"paragraphs": out}
     res: dict[str, Any] = {"state": "done", "paragraphs": _paras(out.get("paragraphs"), pages)}
@@ -221,7 +221,7 @@ async def authors_path(access: Access, entry: dict[str, Any], text: str, pages: 
 
 Which paragraphs state the paper's own contributions, method, results or organisation (as opposed to the problem, \
 the background and earlier work)?
-JSON: {{"drop": [0]}}""", temperature=0)
+JSON: {{"drop": [0]}}""", temperature=0, want="drop")
         drop = {int(i) for i in got.get("drop") or [] if str(i).isdigit()}
     before = without_contributions(intro, drop)
     related = " ".join(secs.get("related", "").split())[:12000]
@@ -249,7 +249,7 @@ result). Then "summary": one paragraph on why someone with this knowledge could 
 intuition or inspiration made the difference.
 
 JSON: {{"moves": [{{"text": "...", "kind": "...", "label": "inf|lit"}}], "summary": {PARAGRAPHS}}}"""
-    out = await llm.ask(access, "deep_read_q3", body, temperature=0.4)
+    out = await llm.ask(access, "deep_read_q3", body, temperature=0.4, want="moves")
     moves = [{"text": " ".join(str(m.get("text", "")).split()), "kind": str(m.get("kind", "")),
               "label": m.get("label") if m.get("label") in ("inf", "lit", "spec") else "inf"}
              for m in out.get("moves") or [] if isinstance(m, dict) and m.get("text")][:6]
@@ -266,7 +266,8 @@ For each move, does the introduction state it (the authors' own motivation)? Ans
 stated, but fits what they write) or "unsupported", with a few words copied from the introduction when stated. \
 Then "authors_say": one or two paragraphs on what the authors themselves give as their motivation (label "paper").
 
-JSON: {{"moves": [{{"i": 0, "support": "stated|consistent|unsupported", "quote": "..."}}], "authors_say": {QPARAS}}}""", temperature=0)
+JSON: {{"moves": [{{"i": 0, "support": "stated|consistent|unsupported", "quote": "..."}}], "authors_say": {QPARAS}}}""", temperature=0,
+                            want="moves")
     for c in check.get("moves") or []:
         if isinstance(c, dict) and str(c.get("i", "")).isdigit() and int(c["i"]) < len(moves):
             m = moves[int(c["i"])]
@@ -305,7 +306,7 @@ Papers a search found:
 {lines}
 
 Which are closest, and how does the idea differ from each? Is it new ("yes"), partly done ("partly") or done ("no")?
-JSON: {{"closest": [{{"key": "...", "difference": "..."}}], "novel": "yes|partly|no", "note": "..."}}""", temperature=0)
+JSON: {{"closest": [{{"key": "...", "difference": "..."}}], "novel": "yes|partly|no", "note": "..."}}""", temperature=0, want="closest")
     keys = {e["key"]: e["paper_id"] for e in hits}
     res["closest"] = [{**c, "key": k, "paper_id": keys[k]} for c in out.get("closest") or []
                       if isinstance(c, dict) and (k := str(c.get("key", "")).strip("[] ")) in keys][:4]

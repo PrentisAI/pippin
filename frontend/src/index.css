@@ -3757,6 +3757,14 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 .rv-qs { display: flex; flex-wrap: wrap; gap: 5px; }
 .rv-qn { width: 31px; height: 31px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-raised); font: 600 12.5px 'IBM Plex Mono', monospace; color: var(--fg-muted); cursor: pointer; position: relative; }
 .rv-qn.done { background: var(--accent-dim); color: var(--accent); }
+.rv-qn.ready { border-style: dashed; border-color: var(--accent); color: var(--accent); }
+.rv-qn.ready::before { content: ''; position: absolute; bottom: 3px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 999px; background: var(--accent); }
+.rv-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 11.5px; color: var(--fg-muted); }
+.rv-legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; border: 1px solid var(--border); vertical-align: -1px; margin-right: 4px; }
+.rv-legend i.mine { background: var(--accent-dim); border-color: var(--accent-dim); }
+.rv-legend i.ready { border: 1px dashed var(--accent); }
+.rv-mine { border: 1px solid var(--border); background: var(--bg-raised); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.rv-mine-text { white-space: pre-line; font-size: 13.5px; line-height: 1.55; }
 .rv-qn.wait { animation: rd-pulse 1.4s infinite; }
 .rv-qn.fail { border-color: #c94b80; color: #c94b80; }
 .rv-qn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -3812,3 +3820,27 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 .cw-pane .rv-def-text { font-size: 15px; }
 .cw-pline { font-size: 12.5px; line-height: 1.45; }
 .cw-idea { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
+.rv-prisma { display: flex; flex-direction: column; gap: 5px; max-width: 560px; }
+.rv-prisma-row { display: grid; grid-template-columns: 140px minmax(0, 1fr) 44px; gap: 8px; align-items: center; font-size: 12.5px; }
+.rv-prisma-row b { text-align: right; color: var(--fg-bright); }
+.rv-tabs2 { display: flex; gap: 6px; }
+
+/* the Mentor: the research question and the plan */
+.pl-pane { display: flex; flex-direction: column; gap: 14px; padding: 4px 2px; }
+.pl-sec { display: flex; flex-direction: column; gap: 8px; }
+.pl-sec h4 { margin: 0; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-muted); }
+.pl-item { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-raised); font-size: 13.5px; line-height: 1.5; }
+.pl-question { font-size: 14.5px; }
+.pl-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
+.pl-you, .pl-ai { font-size: 11px; padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
+.pl-you { background: var(--accent-dim); color: var(--accent); }
+.pl-ai { border: 1px dashed var(--amber-border); color: var(--amber); }
+.pl-quote { margin: 2px 0 0; padding: 4px 10px; border-left: 3px solid var(--accent-dim); color: var(--fg-muted); font-size: 12.5px; white-space: pre-line; }
+.pl-move { font-size: 11.5px; padding: 1px 4px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--fg-muted); }
+.pl-finer { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.pl-fin { font: 600 11px 'IBM Plex Mono', monospace; padding: 1px 5px; border-radius: 5px; background: var(--bg-raised); border: 1px solid var(--border); color: var(--fg-muted); cursor: help; }
+.pl-cands { display: flex; flex-direction: column; gap: 8px; }
+.pl-cand { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 8px 10px; border: 1px dashed var(--amber-border); border-radius: 10px; }
+.pl-q { display: flex; flex-direction: column; gap: 6px; }
+.pl-details summary { cursor: pointer; font-size: 12.5px; color: var(--fg-muted); }
+.pl-frow { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; margin-top: 4px; }

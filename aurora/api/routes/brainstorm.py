@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from aurora.auth.guard import current_user, require, rights
 from aurora.brainstorm import agents as ag
+from aurora.brainstorm import mentor
 from aurora.brainstorm.store import CARD_TYPES, bs_store
 
 logger = logging.getLogger(__name__)
@@ -109,7 +110,9 @@ def _card_view(c: dict[str, Any]) -> dict[str, Any]:
 
 
 def _chat_view(ch: dict[str, Any]) -> dict[str, Any]:
-    return {**ch, "owner_name": _name(ch["owner"]), "mine": ch["owner"] == _uid()}
+    # where the Mentor's questioning stands is its own business; the console only needs to know it is guiding
+    view = {k: v for k, v in ch.items() if k != "guide"}
+    return {**view, "guided": mentor.active(ch), "owner_name": _name(ch["owner"]), "mine": ch["owner"] == _uid()}
 
 
 def _message_view(m: dict[str, Any]) -> dict[str, Any]:
@@ -218,10 +221,133 @@ def _run_agents(ch: dict[str, Any], campaign_id: str, names: list[str], question
             board = _board(bs_store.chat(ch["chat_id"]) or ch, campaign_id)
             history = bs_store.messages(ch["chat_id"])
             await ag.answer(name, board, history, question, access, focus=focus, deep=deep, context=context)
+            if name == "Mentor":
+                await _after_mentor(ch["chat_id"], campaign_id, access)
 
     task = asyncio.create_task(go())
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
+
+
+def _llm_access(access: ag.ModelAccess) -> Any:
+    from aurora.review import llm
+    return llm.Access(api_key=access.api_key, base_url=access.base_url, model=access.model, missing=access.missing)
+
+
+async def _after_mentor(chat_id: str, campaign_id: str, access: ag.ModelAccess) -> None:
+    """What a Mentor reply set in motion: the research question written down, the Skeptic as devil's advocate,
+    the handoff at the end of a guided dialogue."""
+    for todo in mentor.take_pending(chat_id):
+        try:
+            if todo in ("rq", "rq_candidates"):
+                await _write_question(chat_id, access, candidates=todo == "rq_candidates")
+            elif todo.startswith("skeptic:"):
+                board = _board(bs_store.chat(chat_id), campaign_id)  # type: ignore[arg-type]
+                await ag.answer("Skeptic", board, bs_store.messages(chat_id), mentor.SKEPTIC[todo.split(":", 1)[1]],
+                                access, focus=board.chat["focus"])
+            elif todo == "handoff":
+                _handoff(chat_id)
+        except Exception as exc:
+            logger.warning("after the Mentor (%s) in %s failed", todo, chat_id, exc_info=True)
+            bs_store.add_message(chat_id, "Mentor", f"I could not write that down: {str(exc)[:200]}", kind="system",
+                                 only_for=_uid())
+
+
+async def _write_question(chat_id: str, access: ag.ModelAccess, *, candidates: bool = False, feedback: str = "") -> None:
+    """The research question written down from the conversation, for the researcher to confirm or change."""
+    for old in bs_store.messages(chat_id):          # an earlier version waits no longer
+        w = old.get("widget") or {}
+        if w.get("type") == "question" and w.get("state") == "waiting":
+            bs_store.update_message(old["msg_id"], widget={**w, "state": "superseded"})
+    rq = await mentor.draft_question(_llm_access(access), chat_id, _uid(), candidates=candidates, feedback=feedback)
+    bs_store.add_message(chat_id, "Mentor", mentor.rq_text(rq), kind="action",
+                         widget={"type": "question", "kind": rq["kind"], "state": "waiting", "version": rq["version"],
+                                 "rq": rq})
+
+
+def _handoff(chat_id: str) -> None:
+    """A guided dialogue ended: its question can be taken to the literature, a map of its field."""
+    ch = bs_store.chat(chat_id)
+    seed = mentor.scope_seed(ch)
+    if ch is None or seed is None:
+        return
+    from aurora.api.routes.review import latest_map
+    if latest_map(ch["space"], _uid()) is not None:
+        return
+    from aurora.review.converse import estimate_calls
+    topic = " ".join(seed["question"].split())[:200]
+    calls = estimate_calls(30)
+    bs_store.add_message(chat_id, "Librarian", f"Your question is settled. To see what the field has done around it, I "
+                         f"can map it, starting from your question and its scope. About {calls} model calls.",
+                         kind="action", widget={"type": "proposal", "action": "map_field", "topic": topic,
+                                                "brief": "", "size": 30, "calls": calls, "state": "pending"})
+
+
+def _question_word(ch: dict[str, Any], campaign_id: str, text: str) -> None:
+    """The researcher's word on their written-down research question: a change, a yes, or something else."""
+    access = _access()
+
+    async def go() -> None:
+        try:
+            verdict = await _read_word(access, ch["chat_id"], text)
+        except Exception:
+            logger.info("reading the researcher's word on the question failed", exc_info=True)
+            verdict = {"action": "other"}
+        if verdict.get("action") == "confirm":
+            _settle(ch["chat_id"], campaign_id, pick=verdict.get("pick"))
+        elif verdict.get("action") == "revise":
+            await _write_question(ch["chat_id"], access, feedback=text,
+                                  candidates=(mentor.guide_of(bs_store.chat(ch["chat_id"]) or ch).get("rq") or {}).get("kind") == "candidates")
+        else:
+            _run_agents(bs_store.chat(ch["chat_id"]) or ch, campaign_id, ["Mentor"], text, ch["focus"])
+
+    task = asyncio.create_task(go())
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+
+
+async def _read_word(access: ag.ModelAccess, chat_id: str, text: str) -> dict[str, Any]:
+    from aurora.review import llm
+    rq = mentor.guide_of(bs_store.chat(chat_id) or {}).get("rq") or {}
+    out = await llm.ask(_llm_access(access), "rq_word", f"""A researcher's research question was written down for them:
+
+{mentor.rq_text(rq)}
+
+Their reply: "{text[:2000]}"
+
+Is the reply (a) confirming it as it is ("confirm"; with candidates, which one they take, numbered from 1, as "pick"), (b) asking to change it in some way ("revise"), or (c) about something else, going on with the conversation ("other")?
+
+JSON: {{"action": "confirm|revise|other", "pick": null}}""", max_tokens=600)
+    pick = out.get("pick")
+    try:
+        out["pick"] = int(pick) - 1 if pick is not None else None
+    except (TypeError, ValueError):
+        out["pick"] = None
+    return out
+
+
+def _settle(chat_id: str, campaign_id: str, *, pick: int | None = None) -> None:
+    """The research question confirmed: on the board, in the plan, and the Mentor goes on from it."""
+    rq = mentor.settle(chat_id, _uid(), pick=pick)
+    for m in bs_store.messages(chat_id):
+        w = m.get("widget") or {}
+        if w.get("type") == "question" and w.get("state") == "waiting":
+            bs_store.update_message(m["msg_id"], widget={**w, "state": "confirmed", "card_id": rq["card_id"]})
+    ch = bs_store.chat(chat_id)
+    if ch is not None:
+        _run_agents(ch, campaign_id, ["Mentor"], f"(Console: the researcher confirmed their research question: {rq['question']})",
+                    rq["card_id"])
+
+
+def mentor_after_map(chat_id: str, map_id: str) -> None:
+    """A first map of the field is ready in a conversation: the Mentor asks about its unsolved problems."""
+    ch = bs_store.chat(chat_id)
+    if ch is None:
+        return
+    mentor.start(chat_id)
+    _run_agents(ch, "" if ch["space"].startswith("user:") else ch["space"], ["Mentor"],
+                "(Console: the map of the field is ready, and its problems attempted but not solved well are in what "
+                "you see above. Ask the researcher which of them bothers them most, and why.)", ch["focus"])
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +479,26 @@ async def say(chat_id: str, body: Say) -> dict[str, Any]:
     # a deep read waits for the researcher's guess at the authors' path: this message is it
     waiting = next((m for m in reversed(earlier) if (m.get("widget") or {}).get("type") == "guess"
                     and m["widget"].get("state") == "waiting"), None)
+    checkpoint = next((m for m in reversed(earlier) if (m.get("widget") or {}).get("type") in ("scope", "corpus")
+                       and m["widget"].get("state") == "waiting"), None)
+    if checkpoint and not ag.mentioned(text) and _map_owner(checkpoint["widget"]["map_id"]):
+        # a map waits for the researcher's word on its scope or its papers: this message is it
+        msg = bs_store.add_message(chat_id, _uid(), text)
+        from aurora.api.routes.review import start_amend
+        step = "scope" if checkpoint["widget"]["type"] == "scope" else "screen"
+        try:
+            start_amend(checkpoint["widget"]["map_id"], step, text)
+        except HTTPException as exc:
+            bs_store.add_message(chat_id, "system", f"The map could not take that now: {exc.detail}", kind="system",
+                                 only_for=_uid())
+        return {"message": _message_view(msg), "agents": []}
+    asked = next((m for m in reversed(earlier) if (m.get("widget") or {}).get("type") == "question"
+                  and m["widget"].get("state") == "waiting"), None)
+    if asked and not ag.mentioned(text) and ch["owner"] == _uid():
+        # the research question waits for the researcher's word: a change, a yes, or the conversation goes on
+        msg = bs_store.add_message(chat_id, _uid(), text)
+        _question_word(ch, cid, text)
+        return {"message": _message_view(msg), "agents": ["Mentor"]}
     if waiting and _guess_owner(waiting["widget"]["read_id"]):
         msg = bs_store.add_message(chat_id, _uid(), text)
         bs_store.update_message(waiting["msg_id"], widget={**waiting["widget"], "state": "answered"})
@@ -367,13 +513,24 @@ async def say(chat_id: str, body: Say) -> dict[str, Any]:
     if ch["title"] == "New brainstorm" and ch["owner"] == _uid():
         bs_store.update_chat(chat_id, title=_title(text))
     activity = _activity()
-    names = ag.mentioned(text) or await ag.pick(text, activity, _access(), opening=opening, fallback=last_agent)
+    if not ag.mentioned(text) and mentor.active(ch) and ch["owner"] == _uid():
+        names = ["Mentor"]                  # a guided conversation: the researcher is answering the Mentor
+    else:
+        names = ag.mentioned(text) or await ag.pick(text, activity, _access(), opening=opening, fallback=last_agent)
+    if "Mentor" in names:
+        mentor.start(chat_id)
     if body.attachments and not names:       # something brought along is meant to be looked at
         names = ["Librarian"]
     if not names:
         _say_why_quiet(chat_id, activity)
     _run_agents(ch, cid, names, text, body.focus or ch["focus"], attachments=body.attachments)
     return {"message": _message_view(msg), "agents": names}
+
+
+def _map_owner(map_id: str) -> bool:
+    from aurora.review.store import review_store
+    m = review_store.map(map_id)
+    return m is not None and m["owner"] == _uid()
 
 
 def _guess_owner(read_id: str) -> bool:
@@ -404,7 +561,8 @@ async def act(msg_id: str, body: Act) -> dict[str, Any]:
             w["state"] = "declined"
         elif w.get("action") == "map_field":
             started = rv.start_map(ch["space"] if not ch["space"].startswith("user:") else "global", w["topic"],
-                                   w.get("brief", ""), chat_id=ch["chat_id"], size=int(w.get("size") or 30))
+                                   w.get("brief", ""), chat_id=ch["chat_id"], size=int(w.get("size") or 30),
+                                   question=mentor.scope_seed(ch))
             w.update(state="started", map_id=started["map_id"])
         elif w.get("action") == "deep_read":
             r = await rv.start_read(w["paper_id"], ch["space"] if not ch["space"].startswith("user:") else "global",
@@ -420,6 +578,27 @@ async def act(msg_id: str, body: Act) -> dict[str, Any]:
             raise HTTPException(409, "Already answered")
         w["state"] = "answered"
         rv.reveal(w["read_id"], ch["chat_id"])
+    elif kind in ("scope", "corpus"):
+        if w.get("state") != "waiting" or not _map_owner(w["map_id"]):
+            raise HTTPException(409, "Already decided")
+        rv.go_on(w["map_id"], "scope" if kind == "scope" else "screen")
+        w["state"] = "confirmed"
+    elif kind == "question":
+        if w.get("state") != "waiting" or ch["owner"] != _uid():
+            raise HTTPException(409, "Already decided")
+        pick = None
+        if body.choice.startswith("take:"):
+            try:
+                pick = int(body.choice.split(":", 1)[1])
+            except ValueError:
+                raise HTTPException(400, "take:<number>") from None
+        elif body.choice != "confirm":
+            raise HTTPException(400, "confirm, or take:<number>")
+        try:
+            _settle(ch["chat_id"], cid, pick=pick)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        return _message_view(bs_store.message(msg_id))  # type: ignore[arg-type]
     elif kind == "map_failed":
         rv._start(w["map_id"], lambda b: rv.fieldmap.run(b, start=rv.fieldmap.resume_from(b.content)))
         w["state"] = "resumed"
@@ -497,9 +676,11 @@ async def ask(chat_id: str, body: Ask) -> dict[str, Any]:
     if ch["vis"] == "project" and card["vis"] != "project":
         raise HTTPException(400, "Share the idea with the project before discussing it in a shared brainstorm")
     what = {"Skeptic": "what could be wrong with", "Librarian": "what evidence is there for",
-            "Methods": "how would we test"}[body.agent]
-    text = f"@{body.agent} {what} “{card['text'][:200]}”?"
+            "Methods": "how would we test", "Mentor": "help me think through"}[body.agent]
+    text = f"@{body.agent} {what} “{card['text'][:200]}”" + ("" if body.agent == "Mentor" else "?")
     msg = bs_store.add_message(chat_id, _uid(), text)
+    if body.agent == "Mentor":
+        mentor.start(chat_id)
     bs_store.update_chat(chat_id, focus=card["card_id"])
     _run_agents(ch, cid, [body.agent], text, card["card_id"])
     return {"message": _message_view(msg), "agents": [body.agent]}
@@ -527,6 +708,46 @@ async def share_chat(chat_id: str, body: Share) -> dict[str, Any]:
     if body.what == "all":
         bs_store.update_chat(chat_id, vis="project")
     return {"chat": _chat_view(bs_store.chat(chat_id)), "shared_cards": shared}  # type: ignore[arg-type]
+
+
+@router.get("/chats/{chat_id}/plan")
+async def get_plan(chat_id: str) -> dict[str, Any]:
+    """The research plan the Mentor's guided conversation builds: the question and the researcher's insights."""
+    ch, _ = _chat(chat_id)
+    return mentor.plan(ch)
+
+
+class InsightChange(BaseModel):
+    text: str | None = None
+    section: str | None = None
+
+
+def _insight(insight_id: str) -> dict[str, Any]:
+    i = bs_store.insight(insight_id)
+    if i is None:
+        raise HTTPException(404, "No such point in the plan")
+    _chat(i["chat_id"])
+    if i["owner"] != _uid():
+        raise HTTPException(403, "Only the researcher whose plan it is changes it")
+    return i
+
+
+@router.patch("/insights/{insight_id}")
+async def change_insight(insight_id: str, body: InsightChange) -> dict[str, Any]:
+    _insight(insight_id)
+    if body.section is not None and body.section not in mentor.SECTIONS:
+        raise HTTPException(400, f"section must be one of {list(mentor.SECTIONS)}")
+    if body.text is not None and not body.text.strip():
+        raise HTTPException(400, "The point is empty")
+    bs_store.update_insight(insight_id, text=body.text.strip()[:1500] if body.text else None, section=body.section)
+    return bs_store.insight(insight_id)  # type: ignore[return-value]
+
+
+@router.delete("/insights/{insight_id}")
+async def delete_insight(insight_id: str) -> dict[str, Any]:
+    _insight(insight_id)
+    bs_store.delete_insight(insight_id)
+    return {"ok": True}
 
 
 class Consent(BaseModel):

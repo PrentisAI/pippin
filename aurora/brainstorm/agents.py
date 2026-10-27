@@ -1,4 +1,4 @@
-"""The Skeptic, Methods and the Librarian: the brainstorm's agents.
+"""The Skeptic, Methods, the Librarian and the Mentor: the brainstorm's agents.
 
 Each answers in a conversation and records what it contributes on the board through tools: a question
 on an idea, evidence for or against it (a real paper from the indexes, or a run's result), a next step
@@ -9,6 +9,9 @@ What an agent may use follows who can see it. In a private brainstorm: the owner
 everything shared with the project. In a shared brainstorm: only what is shared; the asking person's
 private ideas are named to the agent as private, and if one bears on the question it asks that person,
 in a message only they see, before using it.
+
+The Mentor is different: it asks, so that the researcher thinks their direction through themselves, and records
+nothing on the board; its protocol and what it keeps are in ``mentor.py``.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ AGENTS: dict[str, dict[str, str]] = {
     "Skeptic": {"initials": "SK", "role": "finds the weak points"},
     "Methods": {"initials": "ME", "role": "turns ideas into designs"},
     "Librarian": {"initials": "LI", "role": "brings evidence from the Library"},
+    "Mentor": {"initials": "MT", "role": "helps you think it through, by asking"},
 }
 ACTIVITY = ("off", "moderate", "high")
 MAX_ROUNDS = 6
@@ -74,6 +78,7 @@ propose a deep read (deep_read).
 - Record each relevant paper as evidence for or against the idea (add_evidence with its key), with one \
 sentence on what it shows. Say plainly when the evidence is indirect or weak, or when you found none.
 - Use the project's runs too: a run's finding can support or challenge an idea (add_evidence with run_id).""",
+    "Mentor": "",          # its protocol is the ARS Socratic Mentor's (mentor.py)
 }
 
 DEEP_RULES = """\
@@ -428,6 +433,7 @@ ROLE_TOOLS = {
     "Methods": {"add_next_step", "add_question", "add_idea", "set_assessment", "read_paper", "annotate", "revise_map"},
     "Librarian": {"search_papers", "add_evidence", "add_question", "add_idea", "read_paper", "annotate", "map_field",
                   "deep_read", "revise_map"},
+    "Mentor": {"search_papers"},          # for a counterpoint from the literature; it writes nothing on the board
 }
 
 
@@ -475,7 +481,11 @@ async def answer(agent: str, board: Board, history: list[dict[str, Any]], questi
     if not access.api_key:
         bs_store.update_message(msg["msg_id"], text=f"No API key is set: {access.missing}", pending=False)
         return bs_store.message(msg["msg_id"])  # type: ignore[return-value]
-    system = _COMMON.format(name=agent, role=AGENTS[agent]["role"], role_rules=ROLE_RULES[agent])
+    from aurora.brainstorm import mentor
+    if agent == "Mentor":
+        system = mentor.system_prompt(board)
+    else:
+        system = _COMMON.format(name=agent, role=AGENTS[agent]["role"], role_rules=ROLE_RULES[agent])
     if deep:
         system += "\n\n" + DEEP_RULES
     messages: list[dict[str, Any]] = [{"role": "system", "content": system},
@@ -488,7 +498,11 @@ async def answer(agent: str, board: Board, history: list[dict[str, Any]], questi
         messages.append({"role": "assistant" if who == agent else "user", "content": f"{speaker}: {h['text']}"})
     if context:
         messages.append({"role": "user", "content": f"What {board.viewer_name} attached:\n\n{context}"})
-    messages.append({"role": "user", "content": f"{board.viewer_name} asks you: {question}"})
+    if agent == "Mentor":
+        messages.append({"role": "user", "content": mentor.state_note(board.chat, question)})
+        messages.append({"role": "user", "content": f"{board.viewer_name}: {question}"})
+    else:
+        messages.append({"role": "user", "content": f"{board.viewer_name} asks you: {question}"})
     client = client or _client(access)
     text = ""
     try:
@@ -517,6 +531,10 @@ async def answer(agent: str, board: Board, history: list[dict[str, Any]], questi
     except Exception as exc:
         logger.warning("Brainstorm agent %s failed", agent, exc_info=True)
         text = f"I could not answer: {str(exc)[:300]}"
+    if agent == "Mentor" and text:
+        text, extra = mentor.after_turn(board.chat["chat_id"], board.viewer, text, console=question.startswith("(Console:"))
+        for e in extra:
+            turn.effect(*e)
     # references in the answer are checked like any agent's
     if board.literature is not None and text:
         try:
@@ -529,7 +547,7 @@ async def answer(agent: str, board: Board, history: list[dict[str, Any]], questi
     return bs_store.message(msg["msg_id"])  # type: ignore[return-value]
 
 
-_MENTION = re.compile(r"@(Skeptic|Method|Librarian)s?\b", re.I)      # @Skeptics, @Method: close enough
+_MENTION = re.compile(r"@(Skeptic|Method|Librarian|Mentor)s?\b", re.I)      # @Skeptics, @Method: close enough
 
 
 def mentioned(text: str) -> list[str]:
@@ -555,7 +573,10 @@ async def pick(text: str, activity: str, access: ModelAccess, client: Any = None
     n = 2 if activity == "high" else 1
     must = opening or activity == "high"
     agents = ("Skeptic (finds weak points), Methods (turns ideas into tests), Librarian (finds what is known "
-              "in the literature)")
+              "in the literature, maps a field, reads a paper closely), Mentor (helps the researcher think a direction "
+              "through by asking questions, without proposing ideas: for a vague or early interest, a direction they are "
+              "unsure about, wanting to sharpen their own research question, or asking to be guided or challenged to "
+              "think)")
     if must:
         lead = (f"A researcher opened a brainstorm with: \"{text[:1500]}\"" if opening
                 else f"A researcher wrote in a brainstorm: \"{text[:1500]}\"")

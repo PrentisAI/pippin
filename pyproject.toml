@@ -54,7 +54,7 @@ aurora = "aurora.cli:main"
 include = ["aurora*"]
 
 [tool.setuptools.package-data]
-aurora = ["web/**/*", "examples/**/*", "_docs/**/*"]
+aurora = ["web/**/*", "examples/**/*", "_docs/**/*", "third_party/**/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

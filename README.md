@@ -97,7 +97,8 @@ See [Results, reports and runs](docs/guide/results.md).
 - **Library** — the papers of all your projects, with your notes; two-way sync
   with a Zotero collection, including PDFs and highlights.
 - **Brainstorm** — think out loud with a *Skeptic*, *Methods* and a
-  *Librarian* agent, keep ideas as arguments (evidence for and against, open
+  *Librarian* agent, or let a *Mentor* help you find your own research question by
+  asking (your plan builds up beside the conversation), keep ideas as arguments (evidence for and against, open
   questions, next steps), and turn one into an experiment proposal.
 - **Zoom out, zoom in** — map a research direction as a chain (why it is needed, what the
   field means by it, the design space, how far each need is met, where it moves, what is attempted
@@ -278,3 +279,8 @@ commands that recompute every reported number offline. See
 ## License
 
 MIT — see [LICENSE](LICENSE). The released experiment data is CC-BY-4.0.
+
+`aurora/third_party/ars/` holds unmodified files from
+[Academic Research Skills](https://github.com/Imbad0202/academic-research-skills) by Cheng-I Wu, under
+CC BY-NC 4.0 (not for commercial use; see the [README](aurora/third_party/ars/README.md) there). The paper
+search of a field map and the brainstorm's Mentor read them at run time as their protocol.

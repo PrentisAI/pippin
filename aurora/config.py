@@ -221,6 +221,16 @@ class ModelConfig(_Section):
         default="",
         description="Model of the brainstorm agents (Skeptic, Methods, Librarian). Empty: models.frontdesk.",
     )
+    review: str = Field(
+        default="anthropic/claude-sonnet-5.5",
+        description="Model that maps a field and reads papers closely (zoom out, zoom in): scoping, searching the web "
+                    "for papers, adjudicating screening, and every judgement of the map. A strong model matters here.",
+    )
+    review_screen: list[str] = Field(
+        default=["anthropic/claude-haiku-5.5", "google/gemini-3.5-flash-lite"],
+        description="Two models that screen candidate papers independently (title and abstract), and read them for "
+                    "their cards. Different families make the two screenings independent.",
+    )
 
     def for_phase(self, phase: str) -> str:
         """Model of the agent that runs *phase* (screening, planning, research, analysis, writing)."""
@@ -786,6 +796,8 @@ class AuroraConfig(_Section):
             auditor="mock-auditor",
             supervisor="mock-supervisor",
             frontdesk="mock-frontdesk",
+            review="mock-review",
+            review_screen=["mock-screen-a", "mock-screen-b"],
         )
         self.ideation.seats = [sc.model_copy(update={"model": ""}) for sc in self.ideation.seats]
         self.ideation.web_search = False

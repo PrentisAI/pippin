@@ -9,7 +9,9 @@ A **space** is a project (its ID) or a person's own global space (``user:<id>``)
 * **links** between cards: evidence *supports* or *challenges* an idea, a question asks about it,
   an idea *builds on* another;
 * **messages**, some of them meant for one person only (an agent asking before it uses their
-  private material in a shared conversation).
+  private material in a shared conversation);
+* a conversation's **guide**: where the Mentor's guided questioning stands (see ``mentor.py``), and the
+  **insights** of the research plan it builds, each from the researcher's own words or marked as the AI's.
 
 Nobody else sees a private chat or card, project owners and admins included.
 """
@@ -90,6 +92,20 @@ CREATE TABLE IF NOT EXISTS bs_suggestions (   -- what an agent brings up on its 
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS bs_suggestions_space ON bs_suggestions(space, owner, created_at);
+CREATE TABLE IF NOT EXISTS bs_insights (     -- the research plan a guided conversation builds
+    insight_id TEXT PRIMARY KEY,
+    chat_id    TEXT NOT NULL,
+    space      TEXT NOT NULL,
+    owner      TEXT NOT NULL,
+    section    TEXT NOT NULL,                     -- question | method | evidence | limits | contribution
+    text       TEXT NOT NULL,
+    quote      TEXT NOT NULL DEFAULT '',          -- the researcher's words it came from
+    msg_id     TEXT NOT NULL DEFAULT '',          -- their message
+    origin     TEXT NOT NULL DEFAULT 'you',       -- you | ai (an AI-generated starting point the researcher took)
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS bs_insights_chat ON bs_insights(chat_id, created_at);
 CREATE TABLE IF NOT EXISTS bs_links (
     from_card TEXT NOT NULL,
     to_card   TEXT NOT NULL,
@@ -116,8 +132,11 @@ class BrainstormStore:
             self._conn.execute("ALTER TABLE bs_messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'")
         if "widget" not in cols:             # something to act on in the message: a proposal, a step of a map, options
             self._conn.execute("ALTER TABLE bs_messages ADD COLUMN widget TEXT NOT NULL DEFAULT ''")
-        if "status" not in {r[1] for r in self._conn.execute("PRAGMA table_info(bs_chats)")}:
+        chat_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(bs_chats)")}
+        if "status" not in chat_cols:
             self._conn.execute("ALTER TABLE bs_chats ADD COLUMN status TEXT NOT NULL DEFAULT ''")   # a live meeting's
+        if "guide" not in chat_cols:        # the Mentor's guided questioning in this conversation
+            self._conn.execute("ALTER TABLE bs_chats ADD COLUMN guide TEXT NOT NULL DEFAULT '{}'")
         card_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(bs_cards)")}
         for col in ("source", "url"):     # material from the feed that is not a paper: a post, a blog
             if col not in card_cols:
@@ -147,16 +166,24 @@ class BrainstormStore:
                 "VALUES (?,?,?,?,?,?,?,?)", (cid, space, owner, title[:200], vis, run_id, now, now))
         return self.chat(cid)  # type: ignore[return-value]
 
+    @staticmethod
+    def _chat(r: dict[str, Any]) -> dict[str, Any]:
+        r["guide"] = json.loads(r.get("guide") or "{}")
+        return r
+
     def chat(self, chat_id: str) -> dict[str, Any] | None:
         rows = self._all("SELECT * FROM bs_chats WHERE chat_id=?", (chat_id,))
-        return rows[0] if rows else None
+        return self._chat(rows[0]) if rows else None
 
     def chats(self, space: str) -> list[dict[str, Any]]:
-        return self._all("SELECT * FROM bs_chats WHERE space=? ORDER BY updated_at DESC", (space,))
+        return [self._chat(r) for r in self._all("SELECT * FROM bs_chats WHERE space=? ORDER BY updated_at DESC", (space,))]
 
     def chat_for_run(self, run_id: str) -> dict[str, Any] | None:
         rows = self._all("SELECT * FROM bs_chats WHERE run_id=?", (run_id,))
-        return rows[0] if rows else None
+        return self._chat(rows[0]) if rows else None
+
+    def set_guide(self, chat_id: str, guide: dict[str, Any]) -> None:
+        self._x("UPDATE bs_chats SET guide=? WHERE chat_id=?", (json.dumps(guide), chat_id))
 
     def update_chat(self, chat_id: str, **fields: Any) -> None:
         allowed = {k: v for k, v in fields.items() if k in ("title", "vis", "focus", "status")}
@@ -167,6 +194,7 @@ class BrainstormStore:
     def delete_chat(self, chat_id: str) -> None:
         with self._lock:
             self._x("DELETE FROM bs_messages WHERE chat_id=?", (chat_id,))
+            self._x("DELETE FROM bs_insights WHERE chat_id=?", (chat_id,))
             self._x("DELETE FROM bs_chats WHERE chat_id=?", (chat_id,))
 
     # ------------------------------------------------------------------ messages
@@ -286,6 +314,33 @@ class BrainstormStore:
         rows = self._all("SELECT chat_id, COUNT(*) AS n FROM bs_messages WHERE chat_id LIKE 'card:%' GROUP BY chat_id")
         return {r["chat_id"][5:]: r["n"] for r in rows if r["chat_id"][5:] in card_ids}
 
+    # ------------------------------------------------------------------ the research plan's insights
+
+    def add_insight(self, chat_id: str, space: str, owner: str, section: str, text: str, *, quote: str = "",
+                    msg_id: str = "", origin: str = "you") -> dict[str, Any]:
+        iid = _new("i")
+        now = time.time()
+        self._x("INSERT INTO bs_insights (insight_id, chat_id, space, owner, section, text, quote, msg_id, origin, "
+                "created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (iid, chat_id, space, owner, section, text.strip()[:1500], quote.strip()[:1500], msg_id, origin, now, now))
+        return self.insight(iid)  # type: ignore[return-value]
+
+    def insight(self, insight_id: str) -> dict[str, Any] | None:
+        rows = self._all("SELECT * FROM bs_insights WHERE insight_id=?", (insight_id,))
+        return rows[0] if rows else None
+
+    def insights(self, chat_id: str) -> list[dict[str, Any]]:
+        return self._all("SELECT * FROM bs_insights WHERE chat_id=? ORDER BY created_at", (chat_id,))
+
+    def update_insight(self, insight_id: str, **fields: Any) -> None:
+        allowed = {k: v for k, v in fields.items() if k in ("text", "section") and v is not None}
+        if allowed:
+            sets = ", ".join(f"{k}=?" for k in allowed)
+            self._x(f"UPDATE bs_insights SET {sets}, updated_at=? WHERE insight_id=?", (*allowed.values(), time.time(), insight_id))
+
+    def delete_insight(self, insight_id: str) -> None:
+        self._x("DELETE FROM bs_insights WHERE insight_id=?", (insight_id,))
+
     # ------------------------------------------------------------------ suggestions ("What's new")
 
     def add_suggestion(self, space: str, owner: str, by: str, kind: str, short: str, act: str, *,
@@ -340,6 +395,7 @@ class BrainstormStore:
             self._x("DELETE FROM bs_cards WHERE space=?", (space,))
             for ch in self.chats(space):
                 self._x("DELETE FROM bs_messages WHERE chat_id=?", (ch["chat_id"],))
+                self._x("DELETE FROM bs_insights WHERE chat_id=?", (ch["chat_id"],))
             self._x("DELETE FROM bs_chats WHERE space=?", (space,))
             self._x("DELETE FROM bs_suggestions WHERE space=?", (space,))
 

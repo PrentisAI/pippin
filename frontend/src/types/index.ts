@@ -783,6 +783,8 @@ export interface BsChat {
   updated_at: number
   /** A live round table's state: preparing, item 2 of 3, decided, finished. */
   status?: string
+  /** The Mentor is guiding this conversation: the researcher's next message is for it. */
+  guided?: boolean
 }
 
 export interface BsMessage {
@@ -1219,7 +1221,7 @@ export interface PaperCard {
 }
 export interface MapPaper {
   paper_id: string; key: string; title: string; year: number | null; venue: string; authors: string[]; abstract: string
-  doi: string; arxiv_id: string; url: string; role: 'core' | 'held_out' | 'joined' | 'adjacent' | 'survey' | 'benchmark'; card: PaperCard
+  doi: string; arxiv_id: string; url: string; role: 'core' | 'held_out' | 'joined' | 'adjacent' | 'survey' | 'benchmark' | 'foundation'; card: PaperCard
 }
 export interface Capability { id: string; name: string; info: string; timescale: string; example: string }
 export interface ProgressRow {
@@ -1248,6 +1250,15 @@ export interface MapContent {
       covers: { capability: string; how: string }[] }
   }
   decided?: string[]
+  scope?: {
+    topic: string; question: string; concepts: string[]; in_scope: string[]; out_of_scope: string[]; timeframe: string
+    assumptions: string[]; subquestions: { id: string; text: string }[]
+    criteria: { include: string[]; exclude: { code: string; text: string }[] }; keywords: string[]; ask: string[]; amended?: string[]
+  }
+  prisma?: { identified?: Record<string, number>; not_found?: number; after_dedupe?: number; screened?: number; conflicts?: number
+    agreement?: number | null; full_text_assessed?: number; full_text_excluded?: number; excluded_by_code?: Record<string, number>; included?: number }
+  screening?: Record<string, { d: string; code: string; why: string; subs?: string[]; kind?: string; by?: string }>
+  coverage?: { per_sub: Record<string, number>; skew: { dimension: string; value: string; n: number; known: number }[] }
   frameworks?: Framework[]; chosen?: string
   proposals?: { id: string; kind: string; framework: string; paper_id: string; text: string; state: 'pending' | 'accepted' | 'dismissed' }[]
   progress?: ProgressRow[]
@@ -1267,7 +1278,7 @@ export interface MapContent {
 }
 export interface FieldMap {
   map_id: string; space: string; topic: string; brief: string; vis: 'private' | 'project'
-  state: 'new' | 'building' | 'ready' | 'failed'; step: string; step_name: string; error: string; version: number
+  state: 'new' | 'building' | 'waiting' | 'ready' | 'failed'; step: string; step_name: string; error: string; version: number
   mine: boolean; busy: boolean; steps: { id: string; name: string; done: boolean }[]
   content: MapContent; papers: MapPaper[]; outside: { paper_id: string; key: string; title: string; year: number | null }[]
   versions: { version: number; reason: string; created_at: number }[]; log: { at: number; step: string; text: string }[]
@@ -1276,7 +1287,7 @@ export interface FieldMap {
 export interface FieldMapSummary { map_id: string; topic: string; state: string; version: number; vis: string; mine: boolean; updated_at: number }
 
 export interface DeepAnswer {
-  state: 'pending' | 'done' | 'failed' | 'hidden'; error?: string
+  state: 'pending' | 'done' | 'failed' | 'hidden'; error?: string; ready?: boolean
   paragraphs?: Para[]; followups?: { q: string; paragraphs: Para[] }[]
   example?: string; steps?: { what: string; example: string }[]; none?: boolean
   rows?: { question: string; experiment: string; answer: string }[]; claim?: string; plan?: { day: string; do: string }[]
@@ -1288,6 +1299,38 @@ export interface DeepRead {
   read_id: string; paper_id: string; space: string; map_id: string; guess: string; revealed: boolean; ticks: number[]
   answers: Record<string, DeepAnswer>; busy: boolean; paper: { paper_id: string; key: string; title: string }
   questions: { n: number; title: string; key: boolean; agent: string }[]
+  /** the reader's own answers, by question; the questions whose AI answer they asked to see */
+  mine: Record<string, { text: string; at: number }>; shown: number[]
+  /** questions the reader answered; questions whose AI answer is written (shown or not) */
+  answered: number[]; ready: number[]
+}
+
+export type FinerKey = 'feasible' | 'interesting' | 'novel' | 'ethical' | 'relevant'
+export type FinerScores = Partial<Record<FinerKey, { score: number; why: string }>>
+/** A research question written down from a guided conversation (an RQ Summary), or AI-generated candidates. */
+export interface ResearchQuestion {
+  kind: 'summary' | 'candidates'
+  state: 'draft' | 'settled'
+  origin: 'you' | 'ai'
+  question?: string; tightened?: string
+  /** what the researcher said about each FINER criterion */
+  self?: Partial<Record<FinerKey, string>>
+  /** the formal FINER scoring (the AI's) */
+  formal?: FinerScores
+  quality?: string[]
+  candidates?: { question: string; type: string; finer: FinerScores }[]
+  focus: string[]; excluded: string[]; to_confirm: string[]
+  version: number; card_id?: string
+}
+export interface PlanInsight {
+  insight_id: string; chat_id: string; section: string; text: string; quote: string; msg_id: string
+  origin: 'you' | 'ai'; created_at: number
+}
+export interface ResearchPlan {
+  active: boolean; started: boolean; ended: string; suggesting: boolean
+  question: ResearchQuestion | null
+  sections: { id: string; name: string }[]
+  insights: PlanInsight[]
 }
 
 export type MsgWidget =
@@ -1298,3 +1341,5 @@ export type MsgWidget =
   | { type: 'challenge'; map_id: string; challenge_id: string; state: 'pending' | 'applied'; chosen?: string }
   | { type: 'guess'; read_id: string; state: 'waiting' | 'answered' }
   | { type: 'path'; read_id: string; paper_id: string }
+  | { type: 'scope' | 'corpus'; map_id: string; state: 'waiting' | 'confirmed' | 'superseded' }
+  | { type: 'question'; kind: 'summary' | 'candidates'; state: 'waiting' | 'confirmed' | 'superseded'; version: number; rq: ResearchQuestion; card_id?: string }

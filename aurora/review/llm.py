@@ -77,8 +77,12 @@ def parse_json(text: str) -> Any:
 
 
 async def ask(access: Access, task: str, body: str, *, temperature: float = 0.3, max_tokens: int = 8000,
-              system: str = "", retries: int = 2) -> Any:
-    """One call: ``TASK: <task>``, the style, the body; returns the parsed JSON."""
+              system: str = "", retries: int = 2, web: int = 0, want: str | None = "") -> Any:
+    """One call: ``TASK: <task>``, the style, the body; returns the parsed JSON.
+
+    ``web``: let the model search the web first (OpenRouter's web plugin, this many results per search).
+    ``want``: the answer is an object; a bare list that came instead is taken as its ``want`` field (or, with
+    ``want=""``, its first object). ``None``: the answer as it came."""
     if not access.api_key:
         raise ModelError(f"No API key is set: {access.missing}")
     prompt = f"TASK: {task}\n\n{STYLE}\n\n{body}\n\nAnswer with JSON only."
@@ -86,10 +90,11 @@ async def ask(access: Access, task: str, body: str, *, temperature: float = 0.3,
     last = ""
     for attempt in range(retries + 1):
         try:
+            extra = {"extra_body": {"plugins": [{"id": "web", "max_results": web}]}} if web else {}
             resp = await _client(access).chat.completions.create(model=access.model, messages=messages,
-                                                                 temperature=temperature, max_tokens=max_tokens)
+                                                                 temperature=temperature, max_tokens=max_tokens, **extra)
             last = resp.choices[0].message.content or ""
-            return parse_json(last)
+            return shape(parse_json(last), want)
         except ValueError:
             messages = [*messages, {"role": "assistant", "content": last},
                         {"role": "user", "content": "That was not valid JSON. Answer again with the JSON only."}]
@@ -98,6 +103,27 @@ async def ask(access: Access, task: str, body: str, *, temperature: float = 0.3,
                 raise ModelError(f"{access.model}: {str(exc)[:300]}") from exc
             await asyncio.sleep(RETRY_WAIT * (attempt + 1))
     raise ModelError(f"{access.model} did not answer with JSON: {last[:200]}")
+
+
+def shape(out: Any, want: str | None) -> Any:
+    """An answer in the shape asked for: models sometimes answer an object with the list it holds."""
+    if want is None or isinstance(out, dict):
+        return out
+    if isinstance(out, list):
+        if want:
+            return {want: out}
+        return next((x for x in out if isinstance(x, dict)), {})
+    return {}
+
+
+_LABEL_PREFIX = re.compile(r"^\s*(?:\[\s*)?(?:paper|lit|inf|spec)\s*(?:\]\s*)?[:：|]+\s*|^\s*\[(?:paper|lit|inf|spec)\]\s*", re.I)
+
+
+def unlabel(text: Any) -> str:
+    """A plain string field without the claim label a model sometimes puts in front of it ("spec: ...", "[inf]")
+    or the separators it leaves ("||")."""
+    t = _LABEL_PREFIX.sub("", str(text or ""))
+    return " ".join(t.replace("||", " ").split())
 
 
 def paragraphs(items: Any) -> list[dict[str, str]]:

@@ -43,10 +43,13 @@ from aurora.review.store import review_store
 
 logger = logging.getLogger(__name__)
 
-STEPS = ("need", "papers", "cards", "definition", "frameworks", "progress", "trends", "assumptions", "problems",
-         "read_next")
+STEPS = ("scope", "need", "papers", "screen", "cards", "definition", "frameworks", "progress", "trends", "assumptions",
+         "problems", "read_next")
+# the researcher has a say after these steps (when the map was started from a conversation)
+CHECKPOINTS = ("scope", "screen")
 STEP_NAMES = {
-    "need": "Why it is needed", "papers": "Gathering papers", "cards": "Reading the papers", "definition": "Definitions",
+    "scope": "Scope and criteria", "screen": "Screening the papers",
+    "need": "Why it is needed", "papers": "Finding papers", "cards": "Reading the papers", "definition": "Definitions",
     "frameworks": "Design space", "progress": "How well it is solved", "trends": "Trends", "assumptions": "Shared assumptions",
     "problems": "Unsolved problems", "read_next": "What to read next",
 }
@@ -76,6 +79,14 @@ class Build:
     on_step: Any = None
     # the space's ideas ({card_id, text}), placed on the map when it is built or rebuilt
     ideas: list[dict[str, Any]] = field(default_factory=list)
+    # two models of different families that screen papers independently and read them for their cards
+    screeners: list[Access] = field(default_factory=list)
+    # stop for the researcher's word at the checkpoints (scope, screening)
+    pause: bool = False
+
+    @property
+    def reader(self) -> Access:
+        return self.screeners[0] if self.screeners else self.access
 
     def tell(self, what: str) -> None:
         if self.on_step is not None:
@@ -180,99 +191,6 @@ JSON: {{"term": "...", "why": {PARAGRAPHS}, "examples": [{{"task": "...", "needs
 # Gathering and reading the papers
 
 
-async def step_papers(b: Build, seeds: list[str] | None = None) -> None:
-    body = f"""Research direction: {b.topic}
-{('Scope and interest: ' + b.brief) if b.brief else ''}
-Capabilities a solution needs:
-{_capabilities(b.content)}
-
-1. Write 8 to 12 search queries (a few specific words each) that together find: the foundational papers, the papers \
-that changed how people approach the problem, recent surveys, high-impact work of the last two years, approaches \
-that differ from the mainstream, and the closest work in adjacent fields.
-2. List up to 12 landmark papers of this direction you are confident exist, from every period of its history, by \
-exact title, first author and year. They are looked up in the indexes; one that is not found is dropped, so do \
-not guess.
-
-JSON: {{"queries": [{{"q": "...", "aim": "foundational|turning point|survey|recent|minority|adjacent"}}], \
-"landmarks": [{{"title": "...", "author": "...", "year": 2020}}]}}"""
-    out = await llm.ask(b.access, "queries", body)
-    queries = [q for q in out.get("queries") or [] if isinstance(q, dict) and q.get("q")][:12]
-    found: dict[str, dict[str, Any]] = {}
-    landmarks: set[str] = set()
-    for pid in seeds or []:
-        if e := _entry(pid):
-            found[e["paper_id"]] = e
-    from aurora.literature.check import Reference
-    for lm in [x for x in out.get("landmarks") or [] if isinstance(x, dict) and x.get("title")][:12]:
-        try:
-            year = int(lm["year"]) if str(lm.get("year", "")).isdigit() else None
-            res = await b.lit.check_reference(Reference(title=str(lm["title"]), authors=str(lm.get("author", "")), year=year))
-        except Exception:
-            continue
-        if res.verified and res.paper is not None:
-            e = library.upsert_paper(res.paper)
-            found.setdefault(e["paper_id"], e)
-            landmarks.add(e["paper_id"])
-    b.log("papers", f"{len(landmarks)} landmark papers named by the model and found in the indexes")
-    for q in queries:
-        try:
-            hits = await b.lit.search(str(q["q"]), by="Field map", context=f"Map · {b.topic[:40]}", limit=8)
-        except Exception as exc:
-            b.log("papers", f"search “{q['q']}” failed: {exc}")
-            continue
-        for e in hits:
-            found.setdefault(e["paper_id"], e)
-        b.log("papers", f"searched “{q['q']}”: {len(hits)} checked papers")
-    candidates = [e for e in found.values() if e["paper"].title]
-    if not candidates:
-        raise llm.ModelError("The searches found no checked papers; the indexes may be unreachable")
-
-    def line(e: dict[str, Any]) -> str:
-        p = e["paper"]
-        cites = f", cited {p.cited_by} times" if p.cited_by else ""
-        mark = " [landmark]" if e["paper_id"] in landmarks else ""
-        return _brief_line({"key": e["key"], "paper": p}, 50).replace("\n", f"{cites}{mark}\n", 1)
-
-    lines = "\n".join(line(e) for e in sorted(candidates, key=lambda e: e["paper"].year or 0))
-    years = sorted(e["paper"].year for e in candidates if e["paper"].year)
-    early = years[len(years) // 3] if years else 0
-    body = f"""Research direction: {b.topic}
-Capabilities a solution needs:
-{_capabilities(b.content)}
-
-Candidate papers (all checked against the indexes):
-{lines}
-
-Choose the papers for a map of this direction: up to {b.size} "core" papers that address it directly, and up to 5 \
-"adjacent" papers from other fields with a structurally similar problem. The core must cover the whole history: \
-the foundational papers and turning points (keep the landmarks unless they are off topic; at least a third of the \
-core from before {early or 'the recent years'} when such candidates exist), high-impact recent work, and minority \
-approaches. Benchmarks and datasets are not methods: give them the role "benchmark" (at most four); they are \
-evidence of what the field measures. Leave out surveys from the core (keep at most two as "survey"), and anything \
-off topic.
-
-JSON: {{"keep": [{{"key": "...", "role": "core|benchmark|adjacent|survey", "why": "..."}}]}}"""
-    out = await llm.ask(b.access, "select", body)
-    keys = {e["key"]: e for e in candidates}
-    kept = [(k, str(x.get("role", "core"))) for x in out.get("keep") or [] if isinstance(x, dict)
-            and (k := str(x.get("key", "")).strip("[] ")) in keys]
-    core = [keys[k] for k, role in kept if role == "core"][: b.size]
-    if seeds:          # the papers the person gave are always in
-        core += [e for pid, e in found.items() if pid in seeds and e not in core]
-    # held out: the most recent papers and a spread of the rest, kept out of building the framework
-    by_year = sorted(core, key=lambda e: -(e["paper"].year or 0))
-    n_held = min(HELD_OUT, max(2, round(len(core) * 0.15))) if len(core) >= 6 else 0
-    rest = by_year[2:]
-    held = (by_year[:min(2, n_held)] + rest[1::max(2, len(rest) // max(1, n_held - 2))][: max(0, n_held - 2)]) if n_held else []
-    for e in core:
-        review_store.add_paper(b.map_id, e["paper_id"], "held_out" if e in held else "core")
-    for k, role in kept:
-        if role in ("adjacent", "survey", "benchmark") and keys[k] not in core:
-            review_store.add_paper(b.map_id, keys[k]["paper_id"], role)
-    b.content["queries"] = queries
-    b.log("papers", f"{len(core)} papers in the map, {len(held)} of them held out to test it")
-
-
 async def _paper_text(b: Build, pid: str) -> tuple[str, str]:
     """(text to read, where it came from): the PDF's start and its limitations or conclusion, else the abstract."""
     from aurora.literature import reading
@@ -321,7 +239,7 @@ Extract a card, from the text only:
 JSON: {{"sub_problem": "...", "choice": "...", "assumptions": ["..."], "baselines": ["..."], \
 "limitations": [{{"text": "...", "stated": true}}], "results": [{{"claim": "...", "benchmark": "..."}}], \
 "capabilities": ["c1"], "term_use": "...", "quotes": [{{"field": "choice", "text": "..."}}]}}"""
-    out = await llm.ask(b.access, "card", body, max_tokens=3000)
+    out = await llm.ask(b.reader, "card", body, max_tokens=3000)
     caps = {c["id"] for c in (b.content.get("need") or {}).get("capabilities") or []}
     quotes = [{"field": str(q.get("field", "")), "text": " ".join(str(q.get("text", "")).split())}
               for q in out.get("quotes") or [] if isinstance(q, dict)]
@@ -443,7 +361,7 @@ the task, the venue).
 
 JSON: {{"name": "a short name for the framework", "dims": [{{"id": "d1", "name": "...", "component": "k1", \
 "values": [{{"id": "a", "label": "...", "meaning": "..."}}], "explains": "..."}}]}}"""
-    out = await llm.ask(b.access.with_model(model), "framework", body, temperature=0.5)
+    out = await llm.ask(b.access.with_model(model), "framework", body, temperature=0.5, want="dims")
     dims = []
     for i, d in enumerate(out.get("dims") or []):
         if not isinstance(d, dict) or not d.get("values"):
@@ -478,7 +396,7 @@ from its card, quote or abstract that justify the placement.
 {papers}
 
 JSON: {{"placements": [{{"key": "...", "values": {{"d1": "a"}}, "strain": false, "note": "...", "evidence": "..."}}]}}"""
-        got = await llm.ask(b.access, "place", body, temperature=0.1)
+        got = await llm.ask(b.access, "place", body, temperature=0.1, want="placements")
         keys = {r["key"]: r for r in batch}
         for p in got.get("placements") or []:
             if not isinstance(p, dict) or (k := str(p.get("key", "")).strip("[] ")) not in keys:
@@ -765,7 +683,7 @@ people accept it (history, evidence or convenience), what change of conditions o
 papers already challenge it, and the label of the claim ("inf" or "lit").
 
 JSON: {{"assumptions": [{{"text": "...", "keys": ["Key"], "why": "...", "overturn": "...", "challengers": ["Key"], "label": "inf|lit"}}]}}"""
-    out = await llm.ask(b.access, "assumptions", body)
+    out = await llm.ask(b.access, "assumptions", body, want="assumptions")
     b.content["assumptions"] = [a for a in out.get("assumptions") or [] if isinstance(a, dict) and a.get("text")]
     b.log("assumptions", f"{len(b.content['assumptions'])} shared assumptions")
 
@@ -814,15 +732,20 @@ JSON: {{"problems": [{{"title": "...", "capability": "c1", "importance": "high",
 "diagnosis": {{"cause": "...", "text": "..."}}, "why_now": "...", "approaches": [{{"text": "...", "from": "...", "label": "inf"}}], \
 "first_experiment": "...", "failure": "...", "search": "..."}}], \
 "adjacent": [{{"field": "...", "same": "...", "borrow": "...", "checks": [{{"ok": true, "text": "..."}}]}}]}}"""
-    out = await llm.ask(b.access, "problems", body)
+    out = await llm.ask(b.access, "problems", body, want="problems")
     problems = []
     for i, p in enumerate(out.get("problems") or []):
         if not isinstance(p, dict) or not p.get("title"):
             continue
         diag = p.get("diagnosis") or {}
+        if not isinstance(diag, dict):
+            diag = {"text": str(diag)}
         cause = str(diag.get("cause", "")).lower()
+        approaches = [a if isinstance(a, dict) else {"text": str(a), "from": "", "label": "spec"}
+                      for a in p.get("approaches") or []]
         problems.append({**p, "id": f"q{i + 1}", "diagnosis": {"cause": cause if cause in CAUSES else "assumption",
                                                                  "text": str(diag.get("text", ""))},
+                         "approaches": approaches, "evidence": [str(k).strip("[] ") for k in p.get("evidence") or []],
                          "closest": [], "novelty": "", "novelty_note": ""})
     b.content["problems"] = problems
     b.content["adjacent"] = [a for a in out.get("adjacent") or [] if isinstance(a, dict)]
@@ -858,7 +781,7 @@ Which are closest, and how does the problem or its approaches differ from each? 
 partly done ("partly") or done ("no")?
 
 JSON: {{"closest": [{{"key": "...", "difference": "..."}}], "novel": "yes|partly|no", "note": "..."}}"""
-    out = await llm.ask(b.access, "closest", body, temperature=0)
+    out = await llm.ask(b.access, "closest", body, temperature=0, want="closest")
     keys = {e["key"] for e in hits}
     p["closest"] = [c for c in out.get("closest") or [] if isinstance(c, dict) and str(c.get("key", "")).strip("[] ") in keys][:4]
     novel = str(out.get("novel", "")).lower()
@@ -892,7 +815,7 @@ the twelve deep-read questions to focus on (1 problem, 2 prior work, 3 the autho
 11 counterexample, 12 follow-up idea).
 
 JSON: {{"read": [{{"key": "...", "why": "...", "focus": [3, 9]}}]}}"""
-    out = await llm.ask(b.access, "read_next", body)
+    out = await llm.ask(b.access, "read_next", body, want="read")
     keys = _by_key(b.map_id)
     for c in closest:            # the closest work is not in the map; it may still be recommended
         e = library.paper(c)
@@ -908,12 +831,14 @@ JSON: {{"read": [{{"key": "...", "why": "...", "focus": [3, 9]}}]}}"""
 # Running it
 
 
-RUNNERS = {"need": step_need, "papers": step_papers, "cards": step_cards, "definition": step_definition,
-           "frameworks": step_frameworks, "progress": step_progress, "trends": step_trends,
-           "assumptions": step_assumptions, "problems": step_problems, "read_next": step_read_next}
+def _runners() -> dict[str, Any]:
+    from aurora.review import search
+    return {"scope": search.step_scope, "need": step_need, "papers": search.step_papers, "screen": search.step_screen,
+            "cards": step_cards, "definition": step_definition, "frameworks": step_frameworks, "progress": step_progress,
+            "trends": step_trends, "assumptions": step_assumptions, "problems": step_problems, "read_next": step_read_next}
 
 
-async def run(b: Build, *, start: str = "need", until: str = "read_next", reason: str = "Built",
+async def run(b: Build, *, start: str = "scope", until: str = "read_next", reason: str = "Built",
               seeds: list[str] | None = None, tell_steps: bool = True) -> None:
     """Run the steps from ``start`` to ``until``, saving after each, then keep the result as a version.
 
@@ -925,12 +850,20 @@ async def run(b: Build, *, start: str = "need", until: str = "read_next", reason
             review_store.set_state(b.map_id, step=step)
             b.log(step, f"{STEP_NAMES[step]}…")
             if step == "papers":
-                await step_papers(b, seeds)
+                await _runners()["papers"](b, seeds)
             else:
-                await RUNNERS[step](b)
+                await _runners()[step](b)
             b.content["done"] = sorted(set(b.content.get("done") or []) | {step}, key=STEPS.index)
             b.save()
-            if tell_steps:
+            if step == "scope" and b.content.get("settled") and tell_steps:
+                b.tell("scope_settled")     # scoped from the researcher's own question: said, not asked
+            if step in CHECKPOINTS and b.pause and step not in (b.content.get("confirmed") or []):
+                # the researcher's word first: the build goes on when they confirm
+                review_store.set_state(b.map_id, state="waiting", step=step)
+                b.log(step, "Waiting for the researcher")
+                b.tell(f"wait:{step}")
+                return
+            if tell_steps and step not in CHECKPOINTS:
                 b.tell(step)
         if b.ideas:
             try:
@@ -973,7 +906,8 @@ A researcher's ideas:
 
 For each idea: the value it would take on each dimension (leave out a dimension it does not decide), the problem \
 it answers (its id, or "" when none), and one sentence on where it sits relative to the papers.
-JSON: {{"ideas": [{{"card_id": "...", "values": {{"d1": "a"}}, "problem": "q1", "note": "..."}}]}}""", temperature=0)
+JSON: {{"ideas": [{{"card_id": "...", "values": {{"d1": "a"}}, "problem": "q1", "note": "..."}}]}}""", temperature=0,
+                        want="ideas")
     known = {i["card_id"]: i for i in ideas}
     valid = {d["id"]: {v["id"] for v in d["values"]} for d in fw["dims"]}
     probs_ids = {p["id"] for p in b.content.get("problems") or []}
@@ -1020,6 +954,31 @@ def summary_for_agents(m: dict[str, Any], max_chars: int = 5000) -> str:
 def resume_from(content: dict[str, Any]) -> str:
     done = set(content.get("done") or [])
     return next((s for s in STEPS if s not in done), "read_next")
+
+
+async def go_on(b: Build, step: str) -> None:
+    """The researcher confirmed a checkpoint: the build goes on from the step after it."""
+    b.content["confirmed"] = sorted(set(b.content.get("confirmed") or []) | {step})
+    b.save()
+    nxt = STEPS[STEPS.index(step) + 1]
+    await run(b, start=nxt)
+
+
+async def amend(b: Build, step: str, text: str) -> dict[str, Any]:
+    """The researcher's word at a checkpoint: the scope amended, or papers added and removed; it waits again."""
+    from aurora.review import search
+    review_store.set_state(b.map_id, state="building", step=step)
+    try:
+        if step == "scope":
+            await search.step_scope(b, feedback=text)
+            result: dict[str, Any] = {}
+        else:
+            result = await search.amend_corpus(b, text)
+    finally:
+        b.save()
+        review_store.set_state(b.map_id, state="waiting", step=step)
+    b.tell(f"wait:{step}")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1167,7 +1126,7 @@ Papers that just joined the literature:
 {lines}
 
 Which belong in a map of this direction?
-JSON: {{"relevant": ["Key"]}}""", temperature=0)
+JSON: {{"relevant": ["Key"]}}""", temperature=0, want="relevant")
     keys = {e["key"]: e for e in cands}
     joined = [keys[k]["paper_id"] for k in (str(x).strip("[] ") for x in out.get("relevant") or []) if k in keys]
     if not joined:

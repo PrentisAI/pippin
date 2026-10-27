@@ -100,4 +100,4 @@ export const ACTIVITY: Record<'off' | 'moderate' | 'high', [string, string]> = {
   moderate: ['Moderately', 'A few suggestions a day, when new material or an unanswered question calls for one; the most useful agent answers a message that calls for it. A few cents a day.'],
   high: ['Very', 'Agents keep reading, extending and debating in the background, and up to two answer most messages. Can cost a few dollars a day.'],
 }
-export const AGENT_ASK: [string, string][] = [['Skeptic', 'What could be wrong?'], ['Librarian', 'Find evidence'], ['Methods', 'How to test it?']]
+export const AGENT_ASK: [string, string][] = [['Skeptic', 'What could be wrong?'], ['Librarian', 'Find evidence'], ['Methods', 'How to test it?'], ['Mentor', 'Help me think it through']]

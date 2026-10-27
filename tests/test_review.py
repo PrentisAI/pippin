@@ -65,13 +65,39 @@ class FieldModel:
                    "formal": [{"text": "A POMDP: the action depends on the history.", "label": "lit"}],
                    "capabilities": [{"name": "Remember where things are", "info": "positions", "timescale": "minutes", "example": "cup"},
                                     {"name": "Remember what happened", "info": "events", "timescale": "hours", "example": "stove"}]}
-        elif task == "queries":
-            out = {"queries": [{"q": "keyframes controller", "aim": "recent"}, {"q": "robot memory", "aim": "foundational"},
-                               {"q": "8 9 10 11 12", "aim": "recent"}],
-                   "landmarks": [{"title": WORLD[0].title, "author": "Authora", "year": 2016},
-                                 {"title": "A paper the model made up about memory", "author": "Nobody", "year": 2019}]}
-        elif task == "select":
-            out = {"keep": [{"key": k, "role": "benchmark" if k == "Authorm18" else "core", "why": "on topic"} for k in reversed(keys)]}
+        elif task == "scope":
+            out = {"topic": "Memory for robots", "question": "How do robots keep what is out of view?",
+                   "in_scope": ["robot memory methods"], "out_of_scope": ["generic vision-language models: building blocks"],
+                   "subquestions": [{"text": "memory inside policies"}, {"text": "memory for planners"}],
+                   "criteria": {"include": ["a method or system that keeps information for a robot"],
+                                "exclude": [{"text": "not about memory"}, {"text": "a building block only"}]},
+                   "keywords": ["robot", "memory"], "ask": ["Navigation too?"] if "amends" not in text else []}
+        elif task == "discover":
+            if any(f"Find: {x}" in text for x in ("recent surveys", "foundational", "peer-reviewed")):
+                out = {"papers": []}
+            elif "Find: papers on this sub-question: memory inside policies" in text:
+                out = {"papers": [{"title": WORLD[i].title, "year": WORLD[i].year, "first_author": WORLD[i].authors[0]}
+                                  for i in (0, 2, 4, 6, 8, 10, 12)] + [{"title": "A made-up paper on memory", "year": 2024}]}
+            else:
+                out = {"papers": [{"title": WORLD[i].title, "year": WORLD[i].year, "first_author": WORLD[i].authors[0]}
+                                  for i in (13, 9, 1, 3, 5, 7, 11)]}
+        elif task == "landmarks":
+            out = {"papers": [{"title": WORLD[0].title, "first_author": "Ann Authora", "year": 2016},
+                              {"title": "A paper the model made up about memory", "first_author": "Nobody", "year": 2019}]}
+        elif task in ("screen", "screen_fulltext", "adjudicate"):
+            second = model.startswith("google/")
+            recs = []
+            for k in keys:
+                y = int(k[-2:])
+                rec = {"id": k, "d": "include", "code": "", "why": "a memory method", "subs": ["s2" if y % 2 else "s1"],
+                       "kind": "benchmark" if k == "Authorm18" else "method"}
+                if task == "screen" and second and k == "Authorl17":
+                    rec = {"id": k, "d": "exclude", "code": "E1", "why": "not about memory", "subs": [], "kind": "other"}
+                recs.append(rec)
+            out = {"records": recs}
+        elif task == "corpus_edit":
+            out = {"remove": ["Authorb17"], "add": [{"title": WORLD[11].title, "first_author": "Ann Authorl", "year": 2017}],
+                   "note": "dropped one, added one"}
         elif task == "card":
             abstract = re.search(r"its abstract only\):\n(.*?)\n\nExtract", text, re.S).group(1)
             out = {"sub_problem": "keeping what the robot saw", "choice": f"store frames ({keys[0]})", "assumptions": ["static scene"],
@@ -211,10 +237,17 @@ def test_a_map_is_built_as_a_chain_and_revised_by_its_loops(client, model):
     c = r["content"]
     # 0. why, with the capabilities that anchor the rest
     assert [x["id"] for x in c["need"]["capabilities"]] == ["c1", "c2"] and c["need"]["term"] == "memory"
-    # landmarks the model named are kept only when the indexes have them; the choice sees them marked, oldest first
-    sel = model.prompts["select"][0]
-    assert "[Authora16] Robot memory method number 0" in sel and "[landmark]" in sel and "made up" not in sel
-    assert sel.index("Authora16") < sel.index("Authorn25")
+    # scope first: the protocol given to the model is ARS's own text
+    assert "Topic Decomposition" in model.prompts["scope"][0] and "Inclusion/Exclusion Criteria" in model.prompts["scope"][0]
+    assert [x["id"] for x in c["scope"]["subquestions"]] == ["s1", "s2"] and c["scope"]["criteria"]["exclude"][0]["code"] == "E1"
+    # papers named by the web search or the model are kept only when the indexes have them
+    pr = c["prisma"]
+    assert pr["not_found"] == 2 and pr["identified"]["web"] == 15 and pr["identified"]["known to the model"] == 2
+    assert not any("made up" in p["title"] for p in r["papers"])
+    # two screenings with ARS's decision rules; the disagreement was adjudicated
+    assert "Labels and codes" in model.prompts["screen"][0] and len(model.prompts["screen"]) >= 2
+    assert pr["conflicts"] == 1 and "Conflicts" in model.prompts["adjudicate"][0]
+    assert c["screening"][library.paper("Authorl17")["paper_id"]]["by"] == "adjudicated"
     # the papers: checked ones only, some held out, cards keep only quotes the text has
     roles = {p["key"]: p["role"] for p in r["papers"]}
     assert roles["Authorn25"] == "held_out" and list(roles.values()).count("held_out") >= 2
@@ -310,7 +343,7 @@ def test_a_build_that_stops_can_resume(client, model, monkeypatch):
     m = client.post("/api/review/spaces/global/maps", json={"topic": "Memory for robots", "size": 12}).json()
     r = ready(client, m["map_id"])
     assert r["state"] == "failed" and "provider is down" in r["error"]
-    assert [s["done"] for s in r["steps"]][:5] == [True] * 5 and not r["steps"][5]["done"]
+    assert [s["done"] for s in r["steps"]][:7] == [True] * 7 and not r["steps"][7]["done"]
     model.chat.completions.create = real
     client.post(f"/api/review/maps/{m['map_id']}/run", json={})
     r = ready(client, m["map_id"])
@@ -351,7 +384,15 @@ def test_a_deep_read_answers_twelve_questions_and_hides_the_path_until_you_guess
     rid = r["read_id"]
     r = settle(client, f"/api/review/reads/{rid}",
                lambda x: not x["busy"] and all(a.get("state") in ("done", "hidden", "failed") for a in x["answers"].values()))
-    assert len(r["answers"]) == 12 and r["answers"]["3"] == {"state": "hidden"}
+    # the AI answered all twelve, but none counts as answered and none shows until the reader answers or asks to see it
+    assert len(r["answers"]) == 12 and all(a == {"state": "hidden", "ready": True} for a in r["answers"].values())
+    assert r["answered"] == [] and r["ready"] == list(range(1, 13))
+    assert client.post(f"/api/review/reads/{rid}/followups", json={"question": 1, "text": "why?"}).status_code == 400
+    r = client.patch(f"/api/review/reads/{rid}", json={"question": 1, "answer": "Robots forget; the paper keeps tokens."}).json()
+    assert r["answered"] == [1] and r["mine"]["1"]["text"].startswith("Robots forget")
+    r = client.patch(f"/api/review/reads/{rid}", json={"question": 7, "show": True}).json()
+    assert r["answered"] == [1] and r["answers"]["2"]["state"] == "hidden"
+    r = client.patch(f"/api/review/reads/{rid}", json={"question": 5, "show": True}).json()
     a1 = r["answers"]["1"]
     # a quote the paper has keeps its page; one it does not have is dropped
     assert a1["paragraphs"][0]["quote"] == "We merge tokens" and a1["paragraphs"][0]["page"] == 0
@@ -364,12 +405,15 @@ def test_a_deep_read_answers_twelve_questions_and_hides_the_path_until_you_guess
     assert "[Authorc18]" in q3                                       # an earlier paper of the literature
     # question 12 waited for 9 and 11, and its closest work was searched for
     assert "What the reading found so far" in model.prompts["deep_read_q12"][0]
+    r = client.patch(f"/api/review/reads/{rid}", json={"question": 12, "show": True}).json()
     assert r["answers"]["12"]["novelty"] == "partly" and r["answers"]["12"]["closest"]
     # you guess first, then the path shows, with what the authors themselves say
     r = client.patch(f"/api/review/reads/{rid}", json={"guess": "They saw static maps fail.", "revealed": True, "ticks": [0]}).json()
     q3a = r["answers"]["3"]
     assert [m["support"] for m in q3a["moves"]] == ["stated", "consistent"] and q3a["moves"][0]["page"] == 0
     assert q3a["authors_say"][0]["label"] == "paper" and r["guess"] == "They saw static maps fail." and r["ticks"] == [0]
+    assert r["answered"] == [1, 3]
+    client.patch(f"/api/review/reads/{rid}", json={"question": 9, "show": True})
     # more questions, one more round, and the idea into the brainstorm
     r = client.post(f"/api/review/reads/{rid}/followups", json={"question": 9, "text": "Is it tested anywhere?"}).json()
     assert r["answers"]["9"]["followups"][0]["q"] == "Is it tested anywhere?"
@@ -444,11 +488,31 @@ def test_the_map_lives_in_the_conversation(client, model, agents):
     m = client.post(f"/api/brainstorm/messages/{prop['msg_id']}/act", json={"choice": "start"}).json()
     assert m["widget"]["state"] == "started"
     map_id = m["widget"]["map_id"]
+    # first the scope and the criteria, before any search: amended in conversation, then confirmed
+    msgs = settle_chat(client, cid, lambda ms: widgets(ms, "scope"))
+    (sc,) = widgets(msgs, "scope")
+    assert "The map answers" in sc["text"] and "E1: not about memory" in sc["text"] and "Navigation too?" in sc["text"]
+    assert review_store.map(map_id)["state"] == "waiting" and "pool" not in review_store.map(map_id)["content"]
+    r = client.post(f"/api/brainstorm/chats/{cid}/messages", json={"text": "Leave navigation out, please"}).json()
+    assert r["agents"] == []
+    msgs = settle_chat(client, cid, lambda ms: len(widgets(ms, "scope")) == 2 and widgets(ms, "scope")[-1]["widget"]["state"] == "waiting")
+    assert widgets(msgs, "scope")[0]["widget"]["state"] == "superseded"
+    assert review_store.map(map_id)["content"]["scope"]["amended"] == ["Leave navigation out, please"]
+    client.post(f"/api/brainstorm/messages/{widgets(msgs, 'scope')[-1]['msg_id']}/act", json={"choice": "go"})
+    # then the papers, with the counts at each stage: amended in conversation, then confirmed
+    msgs = settle_chat(client, cid, lambda ms: widgets(ms, "corpus"))
+    (cp,) = widgets(msgs, "corpus")
+    assert "Records identified" in cp["text"] and "In the map, by sub-question" in cp["text"]
+    client.post(f"/api/brainstorm/chats/{cid}/messages", json={"text": "Drop Authorb17, and add the eleventh memory paper"})
+    msgs = settle_chat(client, cid, lambda ms: len(widgets(ms, "corpus")) == 2 and widgets(ms, "corpus")[-1]["widget"]["state"] == "waiting")
+    roles = {library.paper(r["paper_id"])["key"]: r["role"] for r in review_store.papers(map_id)}
+    assert "Authorb17" not in roles and roles.get("Authorl17") in ("core", "held_out")
+    client.post(f"/api/brainstorm/messages/{widgets(msgs, 'corpus')[-1]['msg_id']}/act", json={"choice": "go"})
     ready(client, map_id)
     # each step's finding is told in the conversation
     msgs = settle_chat(client, cid, lambda ms: any(w["widget"]["step"] == "read_next" for w in widgets(ms, "map_step")))
     steps = [w["widget"]["step"] for w in widgets(msgs, "map_step")]
-    assert steps[:2] == ["need", "papers"] and {"definition", "frameworks", "progress", "problems", "read_next"} <= set(steps)
+    assert steps[0] == "need" and {"papers", "definition", "frameworks", "progress", "problems", "read_next"} <= set(steps)
     told = {w["widget"]["step"]: w["text"] for w in widgets(msgs, "map_step")}
     assert "2 capabilities" in told["need"] and "Working definition" in told["definition"] and "say so here" in told["definition"]
     assert "Remembering objects that move" in told["problems"]
@@ -493,3 +557,9 @@ def test_a_deep_read_asks_for_your_guess_in_the_conversation(client, model, agen
     read = review_store.read_by_id(g["widget"]["read_id"])
     assert read["guess"] == "They saw that static maps fail." and read["revealed"]
     assert widgets(msgs, "guess")[0]["widget"]["state"] == "answered"
+
+
+def test_answers_in_another_shape_are_taken_as_meant():
+    assert rllm.shape([{"title": "a"}], "papers") == {"papers": [{"title": "a"}]}
+    assert rllm.shape([{"x": 1}, 2], "") == {"x": 1}
+    assert rllm.shape("text", "") == {} and rllm.shape([1], None) == [1] and rllm.shape({"a": 1}, "b") == {"a": 1}

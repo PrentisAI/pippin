@@ -23,6 +23,25 @@ Ask the Librarian to deep-read a paper and it proposes one; when the reading is 
 have come to the paper's idea, your next message is your guess, and the authors' path follows. The twelve
 answers are in the paper reader's **Deep read** tab.
 
+## Finding the papers
+
+Before any step, the papers are found the way a careful literature review finds them, following
+[Academic Research Skills](https://github.com/Imbad0202/academic-research-skills) (ARS; its protocol text is
+read at run time from `aurora/third_party/ars/`, CC BY-NC 4.0):
+
+1. **Scope first.** The question the map answers, what is in and out of scope, two to four sub-questions, and
+   inclusion and exclusion criteria fixed before searching. The map stops here for your word in the
+   conversation: reply with what to change, or go on. A map started from a research question you settled
+   with the Mentor is scoped from it and does not stop.
+2. **Search.** Web searches per sub-question and for surveys and lists, the papers of your conversation and
+   your space, and searches of the indexes; every paper named is checked in the indexes, and one that is not
+   found is dropped.
+3. **Screening.** Two models of different families screen each paper by title and abstract against the
+   criteria; where they disagree, a third adjudicates; uncertain ones are read in full text. A sub-question
+   with too few papers, or a skew (most papers from one year or venue), gets a targeted search.
+4. **Your word again**, with the counts at each stage (PRISMA style) and every decision: add or drop papers by
+   name, or go on.
+
 ## The map is a chain
 
 Each step uses only what the steps before it produced. That makes every part traceable, and every

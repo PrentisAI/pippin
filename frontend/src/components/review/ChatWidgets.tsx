@@ -6,6 +6,7 @@ import { api } from '../../api/client'
 import type { BsMessage, FieldMap, MsgWidget } from '../../types'
 import { openMap, readPaper } from '../reader/open'
 import { Definition } from './FieldMapView'
+import { QuestionCard } from '../brainstorm/Plan'
 
 const STATUS: Record<string, [string, string]> = {
   solved: ['Solved', 'st-solved'], partly: ['Partly solved', 'st-partly'], early: ['Early attempts', 'st-early'], open: ['Open', 'st-open'],
@@ -34,7 +35,7 @@ function useMap(mapId: string | undefined): FieldMap | null {
   return m
 }
 
-export function ActionWidget({ m, space, onChanged }: { m: BsMessage; space: string; onChanged: () => void }) {
+export function ActionWidget({ m, space, onChanged, onIdea }: { m: BsMessage; space: string; onChanged: () => void; onIdea?: (id: string) => void }) {
   const w = m.widget as MsgWidget
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -63,6 +64,16 @@ export function ActionWidget({ m, space, onChanged }: { m: BsMessage; space: str
       ? <div className="cw-row"><span className="lit-sub">Write your guess in the message box below.</span>
           <button className="btn-sm lit-btn" disabled={busy} onClick={() => act('skip')}>Skip, show it</button></div>
       : <span className="lit-sub">Answered.</span>
+    if (w.type === 'scope' || w.type === 'corpus') {
+      if (w.state === 'waiting') return (
+        <div className="cw-row">
+          <button className="btn-sm btn-modify" disabled={busy} onClick={() => act('go')}>{w.type === 'scope' ? 'Looks right, search' : 'Go on with these papers'}</button>
+          <span className="lit-sub">or reply below with what to change</span>
+          {w.type === 'corpus' && <button className="link-btn" onClick={() => openMap({ space, mapId: w.map_id, from: 'Brainstorm' })}>See every decision</button>}
+        </div>)
+      return <span className="lit-sub">{w.state === 'confirmed' ? 'Confirmed.' : 'Replaced by the version below.'}</span>
+    }
+    if (w.type === 'question') return <QuestionCard w={w} busy={busy} onAct={act} onIdea={onIdea} />
     if (w.type === 'path') return (
       <div className="cw-row"><button className="btn-sm lit-btn" onClick={() => readPaper({ paper: w.paper_id, space, from: 'Brainstorm', tab: 'deep' })}>
         The twelve questions, in the reader</button></div>)

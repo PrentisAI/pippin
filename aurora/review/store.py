@@ -91,8 +91,12 @@ class ReviewStore:
         if "chat_id" not in {r[1] for r in self._conn.execute("PRAGMA table_info(rv_maps)")}:
             # the brainstorm it was started from: its steps are told there
             self._conn.execute("ALTER TABLE rv_maps ADD COLUMN chat_id TEXT NOT NULL DEFAULT ''")
-        if "chat_id" not in {r[1] for r in self._conn.execute("PRAGMA table_info(rv_reads)")}:
+        read_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(rv_reads)")}
+        if "chat_id" not in read_cols:
             self._conn.execute("ALTER TABLE rv_reads ADD COLUMN chat_id TEXT NOT NULL DEFAULT ''")
+        if "mine" not in read_cols:          # the reader's own answers ({"9": {"text", "at"}}), and the AI answers shown
+            self._conn.execute("ALTER TABLE rv_reads ADD COLUMN mine TEXT NOT NULL DEFAULT '{}'")
+            self._conn.execute("ALTER TABLE rv_reads ADD COLUMN shown TEXT NOT NULL DEFAULT '[]'")
         self._conn.commit()
         self._lock = threading.RLock()
 
@@ -212,6 +216,13 @@ class ReviewStore:
         r["answers"] = json.loads(r["answers"] or "{}")
         r["ticks"] = json.loads(r["ticks"] or "[]")
         r["revealed"] = bool(r["revealed"])
+        r["mine"] = json.loads(r.get("mine") or "{}")
+        r["shown"] = json.loads(r.get("shown") or "[]")
+        # question 3's guess and reveal are its own answer and its showing
+        if r["guess"] and "3" not in r["mine"]:
+            r["mine"]["3"] = {"text": r["guess"], "at": r["updated_at"]}
+        if r["revealed"] and 3 not in r["shown"]:
+            r["shown"].append(3)
         return r
 
     def open_read(self, owner: str, paper_id: str, space: str, map_id: str = "", chat_id: str = "") -> dict[str, Any]:
@@ -237,10 +248,10 @@ class ReviewStore:
     def update_read(self, read_id: str, **fields: Any) -> None:
         sets, args = [], []
         for k, v in fields.items():
-            if k not in ("guess", "revealed", "ticks"):
+            if k not in ("guess", "revealed", "ticks", "mine", "shown"):
                 raise ValueError(k)
             sets.append(f"{k}=?")
-            args.append(json.dumps(v) if k == "ticks" else int(v) if k == "revealed" else v)
+            args.append(json.dumps(v) if k in ("ticks", "mine", "shown") else int(v) if k == "revealed" else v)
         self._x(f"UPDATE rv_reads SET {', '.join(sets)}, updated_at=? WHERE read_id=?", (*args, time.time(), read_id))
 
 
