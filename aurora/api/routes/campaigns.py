@@ -646,6 +646,8 @@ class StartExperimentRequest(BaseModel):
     autonomy_mode: str = ""            # supervised | autonomous
     ideation_mode: str = ""            # roundtable | independent
     ideation_live: bool = False        # the round table runs live in the project's brainstorm space
+    ideation_develop: bool = False     # the seats develop the instruction as the researcher's own idea
+    source_card: str = ""              # the brainstorm idea it starts from
     add_found: str = ""                # literature.add_found: all | cited | none
     max_cost_usd: float | None = None
     mock_mode: bool | None = None
@@ -700,6 +702,10 @@ def _experiment_config(campaign: CampaignState, run_id: str, req: StartExperimen
         raw.setdefault("ideation", {})["mode"] = req.ideation_mode
     if req.ideation_live:
         raw.setdefault("ideation", {}).update({"live": True, "mode": "roundtable"})
+    if req.ideation_develop:
+        raw.setdefault("ideation", {})["develop_objective"] = True
+    if req.source_card:
+        raw.setdefault("ideation", {})["source_card"] = req.source_card
     from aurora.literature.library import library
     add_found = req.add_found or library.project_rule(campaign.campaign_id)
     if add_found:
@@ -805,7 +811,8 @@ async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any,
     meeting = None
     if getattr(config.ideation, "live", False):
         from aurora.brainstorm.live import LiveMeeting
-        meeting = LiveMeeting(campaign.campaign_id, run.run_id, run.task_name, run.started_by)
+        meeting = LiveMeeting(campaign.campaign_id, run.run_id, run.task_name, run.started_by,
+                              source_card=config.ideation.source_card)
 
     async def mirror(event: Any) -> None:
         name, data = event.name, event.data
@@ -1819,6 +1826,7 @@ async def confirm_proposal(campaign_id: str, proposal_id: str, body: ConfirmProp
         skip_phases=body.skip_phases if body.skip_phases is not None else proposal.suggested_skip,
         ideation_mode=body.ideation_mode or p.get("ideation_mode", ""),
         ideation_live=body.ideation_live if body.ideation_live is not None else bool(p.get("ideation_live")),
+        ideation_develop=bool(p.get("ideation_develop")), source_card=str(p.get("source_card") or ""),
         add_found=body.add_found or p.get("add_found", ""),
         # what the card says, over what the front desk proposed
         models={**(p.get("models") or {}), **(body.models or {})} or None,

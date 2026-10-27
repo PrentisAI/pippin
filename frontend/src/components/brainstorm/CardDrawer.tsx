@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, describeError } from '../../api/client'
 import type { BsCard, BsLink, BsMessage, BsSpace, Relation } from '../../types'
 import { Avatar, BULB, LENS, REL_COLOR, Rich, short } from './common'
+import { VersionHistory } from './Moves'
 
 const TYPE_LABEL: Record<string, string> = { idea: 'Idea', question: 'Question', material: 'Evidence', note: 'Note' }
 const RELS: Relation[] = ['supports', 'challenges', 'builds on', 'asks about', 'related']
@@ -64,6 +65,7 @@ export function CardDrawer({ cardId, space, cards, projects, onClose, onOpen, on
       </div>
       <div className="bs-drawer-body" ref={body}>
         <div className="bs-drawer-text">{c.paper ? c.paper.title : c.text}</div>
+        {c.type === 'idea' && <VersionHistory key={`${c.card_id}:${c.text}`} cardId={c.card_id} />}
         {c.paper && <div className="lit-sub">{c.paper.byline} · <button className="bs-kchip" onClick={() => onPaper(c.paper!.key)}>{c.paper.key}</button></div>}
         {!c.paper && c.source && <div className="lit-sub">{c.source}{c.url && <> · <a href={c.url} target="_blank" rel="noreferrer">Open it</a></>}</div>}
         {c.answer && <div className="lit-sub"><span className="lit-ok">Answered</span> by {c.answered_by_name}: {c.answer}</div>}
@@ -71,7 +73,8 @@ export function CardDrawer({ cardId, space, cards, projects, onClose, onOpen, on
           <div className="bs-row"><span className="lit-sub">Ask</span>
             <button className="btn-sm lit-btn" onClick={() => ask('Skeptic', 'what is the weakest point?')}>Skeptic: critique</button>
             <button className="btn-sm lit-btn" onClick={() => ask('Librarian', 'what evidence is there?')}>Librarian: find evidence</button>
-            <button className="btn-sm lit-btn" onClick={() => ask('Methods', 'how would you take this further?')}>Methods: extend</button></div>
+            <button className="btn-sm lit-btn" onClick={() => ask('Methods', 'how would you take this further?')}>Methods: extend</button>
+            {c.type === 'idea' && <button className="btn-sm lit-btn" onClick={() => ask('Mentor', 'help me think this through')}>Mentor: think it through</button>}</div>
         )}
         {data.links.length > 0 && (
           <div className="bs-linked"><div className="bs-eyebrow">Linked</div>

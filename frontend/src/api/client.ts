@@ -1,4 +1,4 @@
-import type { DeepRead, PlanInsight, ResearchPlan, FieldMap, FieldMapSummary, LitPaper, NotePlace, ReaderAgent, ReaderNote, ReaderView, Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { DeepRead, IdeaVersion, PlanInsight, ResearchPlan, FieldMap, FieldMapSummary, LitPaper, NotePlace, ReaderAgent, ReaderNote, ReaderView, Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -350,7 +350,8 @@ export const api = {
     share: (chatId: string, what: 'all' | 'ideas', card_ids: string[]) =>
       request<{ chat: BsChat; shared_cards: number }>(`/brainstorm/chats/${chatId}/share`, post({ what, card_ids })),
     consent: (msgId: string, share: boolean) => request<{ ok: boolean }>(`/brainstorm/messages/${msgId}/consent`, post({ share })),
-    act: (msgId: string, choice: string) => request<BsMessage>(`/brainstorm/messages/${msgId}/act`, post({ choice })),
+    act: (msgId: string, choice: string, text?: string) => request<BsMessage>(`/brainstorm/messages/${msgId}/act`, post({ choice, text: text ?? '' })),
+    versions: (cardId: string) => request<IdeaVersion[]>(`/brainstorm/cards/${cardId}/versions`),
     plan: (chatId: string) => request<ResearchPlan>(`/brainstorm/chats/${chatId}/plan`),
     changeInsight: (id: string, body: { text?: string; section?: string }) => request<PlanInsight>(`/brainstorm/insights/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     deleteInsight: (id: string) => request<{ ok: boolean }>(`/brainstorm/insights/${id}`, del),

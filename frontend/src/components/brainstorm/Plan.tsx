@@ -3,6 +3,7 @@
  *  researcher's own words. */
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api/client'
+import { VersionHistory } from './Moves'
 import type { FinerKey, FinerScores, MsgWidget, PlanInsight, ResearchPlan } from '../../types'
 
 const FINER: [FinerKey, string][] = [['feasible', 'Feasible'], ['interesting', 'Interesting'], ['novel', 'Novel'], ['ethical', 'Ethical'], ['relevant', 'Relevant']]
@@ -71,7 +72,7 @@ export function PlanPane({ chatId, onIdea }: { chatId: string | null; onIdea: (i
   if (!chatId) return <div className="panel-empty">Open a brainstorm to see its plan.</div>
   if (err) return <div className="panel-message error">{err}</div>
   if (!plan) return <div className="panel-empty">Loading…</div>
-  if (!plan.started && !plan.insights.length) return (
+  if (!plan.started && !plan.insights.length && !plan.idea) return (
     <div className="cw-empty">
       <b>No research plan yet</b>
       <span>Talk a direction through with the Mentor: say what you are drawn to and that you are not sure yet, or write
@@ -84,6 +85,16 @@ export function PlanPane({ chatId, onIdea }: { chatId: string | null; onIdea: (i
     <div className="pl-pane">
       <span className="lit-sub">{plan.active ? (plan.suggesting ? 'The Mentor is giving suggestions at your request (marked as the AI’s).' : 'The Mentor is guiding this conversation. Say so if you would rather it just answered.')
         : plan.ended ? 'The guided conversation has ended. Ask the Mentor again to go on.' : ''}</span>
+      {plan.idea && (
+        <section className="pl-sec">
+          <h4>The idea you are working on</h4>
+          <div className="pl-item">
+            <span>{plan.idea.text}</span>
+            <VersionHistory key={plan.idea.versions.length} cardId={plan.idea.card_id} versions={plan.idea.versions} />
+            <span className="pl-meta"><button className="link-btn" onClick={() => onIdea(plan.idea!.card_id)}>on the board</button></span>
+          </div>
+        </section>
+      )}
       <section className="pl-sec">
         <h4>Research question</h4>
         {q?.state === 'settled' ? (

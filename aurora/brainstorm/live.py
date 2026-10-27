@@ -6,7 +6,11 @@ While the run's ideation meets, the meeting appears as a brainstorm shared with 
 * a presentation becomes an idea card ("live · from the round table"); a seat's question or concern
   becomes a question on it, a suggestion or build-on becomes an idea that builds on it;
 * the chair's decision marks the chosen idea;
-* the researcher speaks in it: the remark reaches the meeting before the next turn.
+* the researcher speaks in it: the remark reaches the meeting before the next turn;
+* started from one of the researcher's ideas, the seats develop it, and each new version the researcher writes of
+  it reaches the meeting;
+* the chair's decision comes back as drafts: the chosen direction, the others presented, and the researcher's own
+  idea, each editable; the researcher goes on with one, changed or not, or has the seats go another round.
 """
 
 from __future__ import annotations
@@ -33,8 +37,10 @@ def _first_sentence(text: str, n: int = 220) -> str:
 class LiveMeeting:
     """Follows one run's ideation events and keeps its brainstorm in step."""
 
-    def __init__(self, campaign_id: str, run_id: str, run_name: str, owner: str) -> None:
+    def __init__(self, campaign_id: str, run_id: str, run_name: str, owner: str, source_card: str = "") -> None:
         self.space, self.run_id, self.run_name, self.owner = campaign_id, run_id, run_name, owner
+        self.source_card = source_card
+        self.decided: dict[str, Any] = {}
         self.chat_id = ""
         self.ideas: dict[str, str] = {}             # seat -> its idea card
         self.streaming: dict[tuple, str] = {}       # (seat, kind, item, round) -> pending message
@@ -65,8 +71,16 @@ class LiveMeeting:
         if name == "phase_started" and data.get("phase") == "ideation":
             self._chat()
             self._status("preparing")
-            bs_store.add_message(self.chat_id, "Chair", "The round table begins. The seats prepare their ideas; you can "
-                                 "speak at any time, and the chair gives you the floor before the next turn.", kind="text")
+            source = bs_store.card(self.source_card) if self.source_card else None
+            if source is not None:
+                bs_store.add_message(self.chat_id, "Chair", "The round table begins from your idea: the seats develop it "
+                                     "into its strongest version rather than proposing others. Speak at any time, or "
+                                     "rewrite the idea itself (open it on the right and edit it): the meeting hears each "
+                                     "new version before the next turn.", kind="text", effects=[["Starts from", source["card_id"]]])
+            else:
+                bs_store.add_message(self.chat_id, "Chair", "The round table begins. The seats prepare their ideas; you "
+                                     "can speak at any time, and the chair gives you the floor before the next turn.",
+                                     kind="text")
         elif name == "ideation_progress":
             step = data.get("step")
             chat = self._chat()
@@ -86,6 +100,8 @@ class LiveMeeting:
             elif step == "decided":
                 self._status("decided")
                 chosen = str(data.get("chosen", ""))
+                self.decided = {"chosen": chosen, "headline": str(data.get("headline", "")),
+                                "rationale": str(data.get("rationale", ""))}
                 bs_store.add_message(chat, "Chair", f"Decided: {chosen}'s direction — {data.get('headline', '')}. "
                                      f"{data.get('rationale', '')}".strip(),
                                      effects=[["Chose", self.ideas[chosen]]] if chosen in self.ideas else None)
@@ -101,10 +117,38 @@ class LiveMeeting:
                 bs_store.update_message(self.streaming[key], text=text)
         elif name == "ideation_turn":
             self._turn(data)
+        elif name == "human_gate_opened" and data.get("source") == "direction":
+            self._directions(str(data.get("gate_id", "")))
+        elif name == "human_gate_resolved" and data.get("source") == "direction":
+            for m in bs_store.messages(self._chat()):
+                w = m.get("widget") or {}
+                if w.get("type") == "drafts" and w.get("gate_id") == data.get("gate_id") and w.get("state") == "waiting":
+                    bs_store.update_message(m["msg_id"], widget={**w, "state": "answered", "action": data.get("action")})
         elif name == "ideation_complete":
             self._status("finished")
             bs_store.add_message(self._chat(), "Chair", f"The meeting is over. The proposal: {data.get('title', '')}. "
                                  "The run goes on to screening and planning.")
+
+    def _directions(self, gate_id: str) -> None:
+        """The chair's decision as drafts: the chosen direction first, the others, and the researcher's own idea."""
+        chosen = self.decided.get("chosen", "")
+        items: list[dict[str, Any]] = []
+        if chosen:
+            items.append({"text": self.decided.get("headline") or (bs_store.card(self.ideas.get(chosen, "")) or {}).get("text", ""),
+                          "seat": chosen, "chosen": True})
+        for seat, card_id in self.ideas.items():
+            card = bs_store.card(card_id)
+            if seat != chosen and card is not None:
+                items.append({"text": card["text"], "seat": seat})
+        source = bs_store.card(self.source_card) if self.source_card else None
+        if source is not None:
+            items.append({"text": source["text"], "yours": True, "card_id": source["card_id"]})
+        items = [x for x in items if x["text"].strip()]
+        bs_store.add_message(self._chat(), "Chair", "The chair's choice is a draft, not the final word. Go on with it, "
+                             "or with another direction, changed or not (edit it in place first), or have the seats go "
+                             "another round from one. The run waits for you.", kind="action",
+                             widget={"type": "drafts", "purpose": "direction", "gate_id": gate_id, "run_id": self.run_id,
+                                     "agent": "Chair", "card_id": self.source_card, "drafts": items, "state": "waiting"})
 
     def _turn(self, data: dict[str, Any]) -> None:
         seat, kind = str(data.get("seat", "")), str(data.get("kind", ""))

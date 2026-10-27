@@ -46,7 +46,7 @@ RERUN_PHASES = ("ideation", "screening")    # what a chosen direction may go thr
 @dataclass
 class GateRequest:
     gate_id: str
-    source: str            # milestone_audit | supervisor | screening | termination
+    source: str            # milestone_audit | supervisor | screening | direction | termination
     title: str             # one line, shown as the headline
     detail: str            # what happened and why a decision is needed
     options: list[str] = field(default_factory=lambda: list(ACTIONS))

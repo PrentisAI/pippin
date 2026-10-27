@@ -51,6 +51,9 @@ attached to the idea it concerns. If the researcher's idea is not on the board y
 (add_idea: their idea in one clear sentence, in their terms), then attach your contribution to it. Say in \
 your answer what you added. Never talk about your tools or what you cannot do.
 - The researcher decides; you advise. Disagree when you have a reason.
+- When the researcher asks you to write or rewrite their idea ("write it up", "give me a few versions"), call \
+draft_versions with two or three drafts that differ in substance, instead of writing them in your answer: they edit \
+any of them in place, take one, or ask for another round from it. Say in a sentence what the drafts vary.
 - When a map of the field is given below, place what you say on it: the region of the design space an idea is in, \
 the unsolved problem it answers, the nearest papers. If the researcher disputes the map (its definition, a boundary, \
 where a paper sits), call revise_map with their point.
@@ -141,6 +144,14 @@ _TOOLS_ALL = [
          "what": {"type": "string", "enum": ["definition", "placement"]},
          "text": {"type": "string", "description": "the researcher's point, in their words"},
          "paper_key": {"type": "string"}}, "required": ["what", "text"]}},
+    {"name": "draft_versions", "description": "Write two or three drafts of an idea when the researcher asks you to "
+                                              "write or rewrite it. They appear in the conversation; the researcher "
+                                              "edits one in place, takes it, or asks for another round from it.",
+     "parameters": {"type": "object", "properties": {
+         "card_id": {"type": "string", "description": "the idea on the board they are versions of, if it is there"},
+         "drafts": {"type": "array", "items": {"type": "string"},
+                    "description": "two or three drafts, each self-contained, one to four sentences"}},
+         "required": ["drafts"]}},
     {"name": "set_assessment", "description": "Set the one-sentence assessment of where an idea stands.",
      "parameters": {"type": "object", "properties": {
          "card_id": {"type": "string"}, "text": {"type": "string"}}, "required": ["card_id", "text"]}},
@@ -316,6 +327,8 @@ class BoardTools:
             return self._paper_tool(name, args)
         if name in ("map_field", "deep_read", "revise_map"):
             return await self._review_tool(name, args)
+        if name == "draft_versions":
+            return self._drafts(args)
         if name == "set_assessment":
             idea = self._idea(str(args.get("card_id")))
             bs_store.update_card(idea["card_id"], stand=str(args.get("text", ""))[:600])
@@ -330,6 +343,36 @@ class BoardTools:
             return {"ok": True, "note": "Asked the researcher privately; do not use the idea until they share it."}
         return {"error": f"unknown tool {name}"}
 
+
+    def _drafts(self, args: dict[str, Any]) -> Any:
+        from aurora.brainstorm import ideas, mentor
+        b = self.board
+        drafts = [str(d) for d in args.get("drafts") or [] if str(d).strip()]
+        if len(drafts) < 2:
+            return {"error": "give two or three drafts"}
+        card_id = str(args.get("card_id") or "")
+        if card_id and not any(c["card_id"] == card_id for c in b.cards):
+            card_id = ""
+        if self.agent == "Mentor":        # model-led work leaves guided questioning, visibly
+            chat = bs_store.chat(b.chat["chat_id"])
+            if chat is not None:
+                g = mentor.guide_of(chat)
+                if not g["suggesting"]:
+                    g["suggesting"] = True
+                    bs_store.set_guide(chat["chat_id"], g)
+                    self.turn.effect(mentor.EXIT, "")
+        yours = ""
+        for m in reversed(bs_store.messages(b.chat["chat_id"])):      # another round: their version comes first
+            w = m.get("widget") or {}
+            if w.get("type") == "drafts" and w.get("purpose", "idea") == "idea":
+                if w.get("state") == "taken" and w.get("again") and not w.get("followed"):
+                    yours, card_id = w.get("text", ""), card_id or w.get("card_id", "")
+                    bs_store.update_message(m["msg_id"], widget={**w, "followed": True})
+                break
+        ideas.post_drafts(b.chat, self.agent, drafts, card_id=card_id, yours=yours)
+        self.turn.step("Writing drafts")
+        return {"ok": True, "note": "The drafts are in the conversation; the researcher edits, takes one, or asks for "
+                                    "another round. Do not repeat them in your answer."}
 
     async def _review_tool(self, name: str, args: dict[str, Any]) -> Any:
         """Zoom out and zoom in from the conversation: proposals the researcher starts, revisions of the map."""
@@ -429,11 +472,14 @@ class BoardTools:
 # each agent records what its role brings, so they do not do each other's work
 ROLE_TOOLS = {
     # every agent may write down the researcher's idea when it is not on the board yet
-    "Skeptic": {"add_question", "add_evidence", "add_idea", "set_assessment", "read_paper", "annotate", "revise_map"},
-    "Methods": {"add_next_step", "add_question", "add_idea", "set_assessment", "read_paper", "annotate", "revise_map"},
+    "Skeptic": {"add_question", "add_evidence", "add_idea", "set_assessment", "read_paper", "annotate", "revise_map",
+                "draft_versions"},
+    "Methods": {"add_next_step", "add_question", "add_idea", "set_assessment", "read_paper", "annotate", "revise_map",
+                "draft_versions"},
     "Librarian": {"search_papers", "add_evidence", "add_question", "add_idea", "read_paper", "annotate", "map_field",
-                  "deep_read", "revise_map"},
-    "Mentor": {"search_papers"},          # for a counterpoint from the literature; it writes nothing on the board
+                  "deep_read", "revise_map", "draft_versions"},
+    # a counterpoint, a piece of knowledge or an analogy from the literature; drafts only when asked, visibly
+    "Mentor": {"search_papers", "draft_versions"},
 }
 
 
@@ -572,7 +618,8 @@ async def pick(text: str, activity: str, access: ModelAccess, client: Any = None
         return []
     n = 2 if activity == "high" else 1
     must = opening or activity == "high"
-    agents = ("Skeptic (finds weak points), Methods (turns ideas into tests), Librarian (finds what is known "
+    agents = ("Skeptic (finds weak points), Methods (turns ideas into tests, and writes versions of an idea when "
+              "asked to write or rewrite it), Librarian (finds what is known "
               "in the literature, maps a field, reads a paper closely), Mentor (helps the researcher think a direction "
               "through by asking questions, without proposing ideas: for a vague or early interest, a direction they are "
               "unsure about, wanting to sharpen their own research question, or asking to be guided or challenged to "

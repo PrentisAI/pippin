@@ -427,6 +427,37 @@ class ResearchEngine:
                     proposal = await self._run_roundtable(guidance)
                     guidance = ""
                     following = after(current)
+                    if self._config.ideation.live:
+                        # with the researcher in the meeting, the chair's decision is a draft: they go on with it,
+                        # take another direction or this one changed, or have the seats go another round
+                        decision = await self.human_gate.request(
+                            "direction", "The round table decided",
+                            f"The chair chose '{proposal.title}'. {proposal.hypothesis}\n"
+                            "continue: go on with it (a message goes to planning); propose: pursue another of the "
+                            "meeting's directions, this one changed, or your own, in your words (screened only if "
+                            "you ask); instruct: the seats go another round, developing what you say; stop: end "
+                            "the campaign.",
+                            options=["continue", "propose", "instruct", "stop"])
+                        if decision.action == "stop":
+                            self._stopped_by_user = decision.decided_by in ("human", "frontdesk")
+                            raise CampaignStopped(f"stopped after ideation: {decision.message or 'human decision'}")
+                        if decision.action == "instruct":
+                            guidance = _DEVELOP_DIRECTION.format(direction=decision.message)
+                            self._save_checkpoint(current, research_cycle, metadata=meta(guidance=guidance))
+                            continue
+                        if decision.action == "propose":
+                            proposal = await self._adopt_researcher_proposal(decision.message, decision.rerun)
+                            if "ideation" in decision.rerun:      # the seats develop it, as at the screening gate
+                                guidance = _DEVELOP_DIRECTION.format(direction=self._direction_text(proposal))
+                                skip_screening = "screening" not in decision.rerun
+                                self._save_checkpoint(current, research_cycle, metadata=meta(guidance=guidance))
+                                continue
+                            if "screening" in decision.rerun:
+                                proposal = proposal.model_copy(update={"selected": False})
+                            else:
+                                following = after(CampaignPhase.SCREENING)
+                        else:
+                            guidance = decision.message
 
                 elif current == CampaignPhase.SCREENING:
                     proposal = proposal or self._load_latest_proposal()
@@ -1825,6 +1856,8 @@ Be specific: cite file names and concrete observations.
                             seats=self._config.models.ideation_seats)
         ctx = self._build_agent_context(artifacts)
         topic = (artifacts.current_goal if artifacts else "") or self._config.objective
+        if self._config.ideation.develop_objective and not guidance:
+            topic = _DEVELOP_DIRECTION.format(direction=topic)     # the researcher's own idea, developed
         if guidance:
             topic = f"{topic}\n\nGuidance for this round: {guidance}"
         rt = Roundtable(config=self._config, router=self._router, progress=self._publish,

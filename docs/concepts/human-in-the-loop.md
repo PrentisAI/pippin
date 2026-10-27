@@ -11,6 +11,9 @@ A gate opens when
 - the **milestone auditor** escalates, or a phase keeps failing its audit;
 - the **live auditor** escalates during research;
 - **screening** keeps rejecting proposals;
+- a **live round table** has decided (its decision comes back to you as drafts
+  in the brainstorm: go on with it, with another direction or your own, changed
+  or not, or have the seats go another round);
 - **pre-flight** still finds problems in the plan after planning revised it;
 - the campaign is about to finish and `human.approve_termination` is on.
 
@@ -20,7 +23,7 @@ Each gate shows what happened and asks for one of these answers:
 |---|---|
 | **continue** | go on as planned; a message, if you write one, is passed on as a note (at the screening gate: to planning) |
 | **instruct** | go on, following your message (it is sent to the agent or the next phase) |
-| **propose** | screening gate only: say in your own words which direction to pursue — one of the proposals ("the latest one is fine"), one of them with changes, or your own idea. A model reads your message against the proposals and the meeting's ideas on file, and the stream shows how it was understood. By default planning starts from it at once; you can also have it go through ideation (the seats develop your direction without changing it), screening (it is scored; if rejected, the gate asks you again), or both |
+| **propose** | screening gate and the live round table's decision only: say in your own words which direction to pursue — one of the proposals ("the latest one is fine"), one of them with changes, or your own idea. A model reads your message against the proposals and the meeting's ideas on file, and the stream shows how it was understood. By default planning starts from it at once; you can also have it go through ideation (the seats develop your direction without changing it), screening (it is scored; if rejected, the gate asks you again), or both |
 | **stop** | end the campaign (it can be resumed later) |
 
 To start a campaign from your own idea in the first place, skip ideation

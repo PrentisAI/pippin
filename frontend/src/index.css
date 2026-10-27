@@ -3844,3 +3844,12 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 .pl-q { display: flex; flex-direction: column; gap: 6px; }
 .pl-details summary { cursor: pointer; font-size: 12.5px; color: var(--fg-muted); }
 .pl-frow { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; margin-top: 4px; }
+
+/* the moves of ideation: drafts, the researcher's own versions, an idea's versions */
+.mv-drafts { display: flex; flex-direction: column; gap: 8px; }
+.mv-draft { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-raised); }
+.mv-draft.on { border-color: var(--accent); }
+.mv-draft.dim { opacity: .55; }
+.mv-text { font-size: 13.5px; line-height: 1.55; white-space: pre-line; }
+.mv-history { display: flex; flex-direction: column; gap: 6px; }
+.mv-ver { display: flex; flex-direction: column; gap: 2px; padding-left: 8px; border-left: 2px solid var(--border); font-size: 12.5px; }

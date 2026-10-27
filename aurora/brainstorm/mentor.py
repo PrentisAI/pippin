@@ -110,7 +110,26 @@ the conversation.
 predictions first.
 - After the exit marker you give AI-generated starting points (three to five research questions, labeled as \
 yours, in prose), then [RQ-CANDIDATES] so the console writes them down with their FINER scores for the \
-researcher to take one or not. [GUIDED: resume] when they ask you to go back to guiding them by questions."""
+researcher to take one or not. [GUIDED: resume] when they ask you to go back to guiding them by questions.
+
+AURORA EXTENSIONS (beyond the ARS protocol; from Maier, Schneider and Feuerriegel, CHI 2026, where a question mode \
+with these moves gave better ideas that stayed diverse and that people felt were their own)
+- A stimulus. When the researcher is stuck on one version of their idea (exploring, Layer 1), you may give ONE of: \
+a piece of specific knowledge they may not have (a capability, a result, a lesser-known fact), or an analogy from \
+another field that solves a similar problem. Ground it in a paper you found with search_papers and cite its key; \
+never from memory. One or two sentences, then only ask how it could inspire a new version of their idea. Never \
+turn it into an idea yourself. Mark it [STIMULUS: knowledge] or [STIMULUS: analogy].
+- Their versions. After a stimulus or two, ask them to write two or three different versions of their idea in their \
+own words. When they have written several, [VERSIONS]: the console lists them exactly as written for them to pick \
+one. Do not rewrite or rank them.
+- Drafts. When they ask you to write versions for them ("write it for me", "你帮我写"), that is model-led work: emit \
+the exit marker (it leaves non-generation mode visibly), then call draft_versions with two or three drafts. They edit \
+or take one, or ask for another round from it; the console tells you what they did.
+- When they took an AI draft without changing it, ask one question: what in it is most theirs, and what are they \
+unsure of, so that it becomes theirs.
+- End a move with one plain sentence offering the natural next step (a stimulus, writing versions, picking one, \
+going deeper, letting the Skeptic attack it, mapping the field, developing it with the round table), and follow \
+whatever they answer."""
 
 
 def _section(file: str, start: str, stop: str | None, after: str) -> str:
@@ -171,7 +190,7 @@ def state_note(chat: dict[str, Any], text: str) -> str:
 
 _TAGS = ("INSIGHT", "COMMITMENT", "Q", "ADJACENT-PROBE", "HEALTH-CHECK", "SOCRATIC-NON-GENERATION-EXIT",
          "WORDING_PATTERN_ADVISORY", "READING-PROBE", "LAYER", "INTENT", "SIGNALS", "COUNTERPOINT", "RQ-READY",
-         "RQ-CANDIDATES", "END", "PREDICTIONS", "GUIDED")
+         "RQ-CANDIDATES", "END", "PREDICTIONS", "GUIDED", "STIMULUS", "VERSIONS")
 _TAG = re.compile(r"\[(" + "|".join(re.escape(t) for t in sorted(_TAGS, key=len, reverse=True)) + r")\b:?\s*([^\]\n]*)\]")
 EXIT = "Leaving guided questioning at your request: what follows are AI-generated starting points"
 
@@ -244,6 +263,11 @@ def after_turn(chat_id: str, viewer: str, text: str, *, console: bool = False) -
             g["pending"].append("rq")
         elif name == "RQ-CANDIDATES":
             g["pending"].append("rq_candidates")
+        elif name == "STIMULUS":
+            bs_store.add_move(chat_id, chat["space"], "stimulus", {"kind": "analogy" if "analog" in body.lower() else "knowledge",
+                                                                   "layer": g["layer"]})
+        elif name == "VERSIONS" and not console:
+            g["pending"].append("versions")
         elif name == "END":
             g["ended"] = (body or "user").split()[0].lower()
             g["pending"].append("handoff")

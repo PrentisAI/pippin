@@ -298,6 +298,16 @@ class IdeationConfig(_Section):
                     "its seats' ideas and questions become cards there, and the researcher can speak in the "
                     "meeting (the chair gives them the floor before the next turn). Web console only.",
     )
+    develop_objective: bool = Field(
+        default=False,
+        description="The objective is the researcher's own idea: the seats develop it into its strongest version "
+                    "instead of proposing other directions (a round table started from a brainstorm idea).",
+    )
+    source_card: str = Field(
+        default="",
+        description="The brainstorm idea the round table starts from: in a live meeting, each new version the "
+                    "researcher writes of it is heard before the next turn.",
+    )
     chair_prompt: str = Field(default="", description="System prompt of the chair. Empty: built-in.")
     seat_prompt: str = Field(
         default="",

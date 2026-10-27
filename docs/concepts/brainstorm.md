@@ -96,6 +96,43 @@ reads at run time (`aurora/third_party/ars/`, CC BY-NC 4.0):
 While it guides a conversation, your messages go to it; name another agent to ask that one instead. Say
 "just tell me" (or "skip the predictions") whenever you would rather it worked differently.
 
+## Drafts, your own versions, and whose words an idea is
+
+Every way of working on an idea leaves room for you, after the modes compared by
+Maier, Schneider and Feuerriegel (CHI 2026): a model rewriting an idea once gave
+good ideas that converged and that people did not feel were theirs; a model that
+gives a piece of knowledge or an analogy and asks, while the person writes, gave
+good ideas that stayed diverse and theirs; going round in rounds avoided the
+convergence.
+
+- **Drafts.** Ask any agent to write or rewrite your idea ("write a few versions
+  of it"): two or three drafts come into the conversation. Edit any of them in
+  place, **Take this**, or **Another round from this**: the next round shows your
+  version first and new drafts built on it. Take a draft as it is and the Mentor
+  asks what in it is most yours.
+- **A stimulus, then your versions.** When you are stuck, the Mentor may give one
+  piece of knowledge or an analogy from another field, from a paper it searched
+  for, and asks how it could inspire a new version; then it asks you to write two
+  or three versions yourself. They are listed exactly as you wrote them; pick one
+  to go on with. (This goes beyond the ARS protocol, which gives no content; it is
+  AURORA's extension.)
+- **Versions of an idea.** Whatever you take, pick or edit becomes the idea's next
+  version, marked as yours, an AI draft you edited (with how much of the text is
+  your own words), or the AI's draft as it was. The history is on the idea and
+  in the **Plan** tab.
+- **One step leads to the next.** Each step ends with one sentence offering the
+  natural next one (a stimulus, writing versions, picking one, going deeper,
+  letting the Skeptic attack it, mapping the field, the round table); answer in
+  words, or say what you would rather do.
+
+For evaluation, AURORA keeps what happens (stimuli, drafts, what was taken and how
+much was changed) without showing it. `GET /api/brainstorm/spaces/{space}/ideation-metrics`
+gives the diversity of a space's ideas (each idea's distance to the centroid of the
+others, embedded with `openai/text-embedding-3-large`, or word overlap when
+embeddings are unavailable) and how much of them is the researcher's;
+`POST /api/brainstorm/chats/{chat_id}/depth` codes how far the researcher
+elaborated in each answer, on the paper's five levels (a few cents).
+
 ## What the agents do on their own
 
 | How active | On their own |
@@ -195,8 +232,8 @@ Choose how the run starts:
 - **Start from this idea**: no ideation and no screening; planning works on the
   idea directly.
 - **Brainstorm with me**: the round table meets live in the brainstorm (below).
-- **Round table, agents only**: the seats develop the idea and compare it with
-  alternatives; you choose at screening.
+- **Round table, agents only**: the seats develop the idea (its current
+  version) into its strongest form instead of proposing other directions.
 
 You also choose, for this run, which of the papers the agents find go into the
 project's literature. Check the proposal in the project's chat and start it
@@ -215,10 +252,19 @@ space, in a brainstorm shared with the project (a green dot while it meets):
   that builds on it. The chosen direction is marked;
 - **you can speak**. Whatever you write is heard before the next turn ("the
   chair gives you the floor"). The seats are told a researcher is in the room
-  and answer your points.
+  and answer your points;
+- **it starts from your idea**, and you can **rewrite the idea itself** while
+  the meeting runs (open it on the right and edit it): each new version is heard
+  before the next turn;
+- **the chair's decision is a draft.** It comes back as drafts: the chosen
+  direction, the others presented, and your own idea. Edit any of them in place,
+  then go on with it, or have the seats **go another round** from it. The run
+  waits for you (`human.autonomy: supervised`; in autonomous mode it goes on with
+  the chair's choice). A direction you take or change becomes your idea's next
+  version, and the run pursues it without screening it again (tick *screening*
+  in the approval bar if you want it scored).
 
 Speaking in a run's meeting steers the run, so it needs the right to start runs
-in the project. When the meeting ends, the run goes on as usual, and its ideas
-and questions stay on the board.
+in the project. When the meeting ends, its ideas and questions stay on the board.
 
 In the configuration this is `ideation.live: true` (web console only).

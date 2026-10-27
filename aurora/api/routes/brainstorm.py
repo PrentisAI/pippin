@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from aurora.auth.guard import current_user, require, rights
 from aurora.brainstorm import agents as ag
-from aurora.brainstorm import mentor
+from aurora.brainstorm import ideas, mentor
 from aurora.brainstorm.store import CARD_TYPES, bs_store
 
 logger = logging.getLogger(__name__)
@@ -247,6 +247,11 @@ async def _after_mentor(chat_id: str, campaign_id: str, access: ag.ModelAccess) 
                                 access, focus=board.chat["focus"])
             elif todo == "handoff":
                 _handoff(chat_id)
+            elif todo == "versions":
+                ch = bs_store.chat(chat_id)
+                found = await ideas.extract_versions(_llm_access(access), chat_id, _uid())
+                if ch is not None:
+                    ideas.post_choice(ch, found, card_id=ch["focus"])
         except Exception as exc:
             logger.warning("after the Mentor (%s) in %s failed", todo, chat_id, exc_info=True)
             bs_store.add_message(chat_id, "Mentor", f"I could not write that down: {str(exc)[:200]}", kind="system",
@@ -337,6 +342,48 @@ def _settle(chat_id: str, campaign_id: str, *, pick: int | None = None) -> None:
     if ch is not None:
         _run_agents(ch, campaign_id, ["Mentor"], f"(Console: the researcher confirmed their research question: {rq['question']})",
                     rq["card_id"])
+
+
+async def _direction_word(m: dict[str, Any], ch: dict[str, Any], campaign_id: str, i: int, text: str, *,
+                          again: bool) -> dict[str, Any]:
+    """The researcher's word on the round table's decision: go on with a direction (changed or not), or have the
+    seats go another round from it. It answers the run's gate."""
+    require(campaign_id, "run")
+    w = dict(m["widget"])
+    items = w.get("drafts") or []
+    if not 0 <= i < len(items):
+        raise HTTPException(400, "No such direction")
+    item = items[i]
+    final = " ".join((text or item["text"]).split())
+    from aurora.api.routes.campaigns import _ensure_campaign
+    run = _ensure_campaign(campaign_id).experiments.get(w.get("run_id", ""))
+    engine = getattr(run, "engine", None)
+    gate = next((g for g in (engine.human_gate.pending if engine is not None else []) if g.gate_id == w.get("gate_id")), None)
+    if gate is None:
+        raise HTTPException(409, "The run no longer waits for this decision")
+    edited = " ".join(item["text"].split()) != final
+    who = _name(_uid())
+    if again:
+        action, message = "instruct", final
+    elif item.get("chosen") and not edited:
+        action, message = "continue", ""
+    else:
+        whose = "my own idea" if item.get("yours") else f"{item.get('seat', 'a seat')}'s direction from the meeting"
+        action, message = "propose", f"Pursue this direction ({whose}{', as I changed it' if edited else ''}): {final}"
+    try:
+        engine.human_gate.resolve(gate.gate_id, action, message, by=who)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    taken: dict[str, Any] = {"state": "taken", "taken": i, "action": action, "text": final}
+    source = bs_store.card(w.get("card_id") or "") if w.get("card_id") else None
+    if source is not None and source["owner"] == _uid() and (item.get("yours") or edited or action == "propose"):
+        v = ideas.keep(source, final, viewer=_uid(), base="" if item.get("yours") else item["text"],
+                       agent=str(item.get("seat", "")), chat_id=ch["chat_id"])
+        taken.update(origin=v["origin"], share=v["share"])
+    bs_store.update_message(m["msg_id"], widget={**w, **taken})
+    bs_store.add_move(ch["chat_id"], ch["space"], "direction", {"action": action, "yours": bool(item.get("yours")),
+                                                               "chosen": bool(item.get("chosen")), "edited": edited})
+    return _message_view(bs_store.message(m["msg_id"]))  # type: ignore[arg-type]
 
 
 def mentor_after_map(chat_id: str, map_id: str) -> None:
@@ -540,7 +587,8 @@ def _guess_owner(read_id: str) -> bool:
 
 
 class Act(BaseModel):
-    choice: str          # start | decline | skip | resume | an option's id
+    choice: str          # start | decline | skip | resume | an option's id | take:<i> | again:<i> | pick:<i>
+    text: str = ""       # a draft as the researcher edited it
 
 
 @router.post("/messages/{msg_id}/act")
@@ -598,6 +646,49 @@ async def act(msg_id: str, body: Act) -> dict[str, Any]:
             _settle(ch["chat_id"], cid, pick=pick)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from None
+        return _message_view(bs_store.message(msg_id))  # type: ignore[arg-type]
+    elif kind == "drafts":
+        if w.get("state") != "waiting":
+            raise HTTPException(409, "Already decided")
+        verb, _, n = body.choice.partition(":")
+        if verb not in ("take", "again") or not n.isdigit():
+            raise HTTPException(400, "take:<number> or again:<number>")
+        if w.get("purpose") == "direction":
+            return await _direction_word(m, ch, cid, int(n), body.text, again=verb == "again")
+        try:
+            got = ideas.take(m, int(n), body.text, _uid())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        bs_store.update_chat(ch["chat_id"], focus=got["card_id"])
+        agent = got["agent"] if got["agent"] in ag.AGENTS else "Methods"
+        if verb == "again":
+            done = bs_store.message(msg_id) or m
+            bs_store.update_message(msg_id, widget={**(done.get("widget") or {}), "again": True})
+            _run_agents(bs_store.chat(ch["chat_id"]) or ch, cid, [agent],
+                        f"(Console: the researcher took draft {int(n) + 1}{' and edited it' if got['origin'] != 'ai' else ''} "
+                        f"and asks for another round from it: “{got['text']}”. Call draft_versions with two new drafts that "
+                        f"build on their version (it is shown first); vary them in substance.)", got["card_id"])
+        elif got["origin"] == "ai":
+            # taken as it was: the Mentor asks what in it is theirs (people tend to accept a rewrite without a thought)
+            _run_agents(bs_store.chat(ch["chat_id"]) or ch, cid, ["Mentor"],
+                        f"(Console: the researcher took the AI's draft without changing it: “{got['text']}”. Ask them, in "
+                        f"one question, what in it is most theirs and what they are unsure of.)", got["card_id"])
+        return _message_view(bs_store.message(msg_id))  # type: ignore[arg-type]
+    elif kind == "choice":
+        if w.get("state") != "waiting":
+            raise HTTPException(409, "Already decided")
+        verb, _, n = body.choice.partition(":")
+        if verb != "pick" or not n.isdigit():
+            raise HTTPException(400, "pick:<number>")
+        try:
+            got = ideas.choose(m, int(n), _uid())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        bs_store.update_chat(ch["chat_id"], focus=got["card_id"])
+        mentor.start(ch["chat_id"])
+        _run_agents(bs_store.chat(ch["chat_id"]) or ch, cid, ["Mentor"],
+                    f"(Console: the researcher picked this version of their idea to go on with: “{got['text']}”. "
+                    f"Help them elaborate it.)", got["card_id"])
         return _message_view(bs_store.message(msg_id))  # type: ignore[arg-type]
     elif kind == "map_failed":
         rv._start(w["map_id"], lambda b: rv.fieldmap.run(b, start=rv.fieldmap.resume_from(b.content)))
@@ -714,7 +805,11 @@ async def share_chat(chat_id: str, body: Share) -> dict[str, Any]:
 async def get_plan(chat_id: str) -> dict[str, Any]:
     """The research plan the Mentor's guided conversation builds: the question and the researcher's insights."""
     ch, _ = _chat(chat_id)
-    return mentor.plan(ch)
+    out = mentor.plan(ch)
+    card = bs_store.card(ch["focus"]) if ch["focus"] else None
+    out["idea"] = ({"card_id": card["card_id"], "text": card["text"], "versions": ideas.history(card["card_id"])}
+                   if card is not None and card["type"] == "idea" and _sees_card(card, _uid()) else None)
+    return out
 
 
 class InsightChange(BaseModel):
@@ -843,7 +938,15 @@ async def change_card(card_id: str, body: CardChange) -> dict[str, Any]:
     if body.text is not None:
         if not mine:
             raise HTTPException(403, "Only its author edits a card")
-        bs_store.update_card(card_id, text=body.text.strip()[:4000])
+        text = body.text.strip()[:4000]
+        if not text:
+            raise HTTPException(400, "The card is empty")
+        if text != c["text"]:
+            if c["type"] == "idea":
+                ideas.researcher_edit(c, text, _uid())       # its next version, and how much of it is theirs
+                _tell_meeting(c, cid, text)
+            else:
+                bs_store.update_card(card_id, text=text)
     if body.answer is not None:
         if c["type"] != "question":
             raise HTTPException(400, "Only questions are answered")
@@ -861,6 +964,53 @@ async def change_card(card_id: str, body: CardChange) -> dict[str, Any]:
                     if src and src["owner"] == _uid() and src["type"] in ("material", "question"):
                         bs_store.update_card(src["card_id"], vis="project")
     return _card_view(bs_store.card(card_id))  # type: ignore[arg-type]
+
+
+def _tell_meeting(card: dict[str, Any], campaign_id: str, text: str) -> None:
+    """A live round table that started from this idea hears its new version before the next turn."""
+    if not campaign_id:
+        return
+    from aurora.api.routes.campaigns import _ensure_campaign
+    for run in _ensure_campaign(campaign_id).experiments.values():
+        engine = getattr(run, "engine", None)
+        cfg = getattr(engine, "_config", None)
+        if cfg is None or cfg.ideation.source_card != card["card_id"]:
+            continue
+        name = _name(_uid())
+        if engine.meeting_say("the researcher" if name == "You" else name, f"I revised my idea. It is now: {text}"):
+            ch = bs_store.chat_for_run(run.run_id)
+            if ch is not None:
+                bs_store.add_message(ch["chat_id"], "Chair", f"The researcher revised their idea: “{text[:300]}”. The "
+                                     "meeting hears it before the next turn.", kind="system")
+
+
+@router.get("/cards/{card_id}/versions")
+async def card_versions(card_id: str) -> list[dict[str, Any]]:
+    """An idea's versions: who wrote each, and how much of it is the researcher's."""
+    c, _ = _card(card_id)
+    return ideas.history(c["card_id"])
+
+
+@router.get("/spaces/{space}/ideation-metrics")
+async def ideation_metrics(space: str) -> dict[str, Any]:
+    """For evaluation: the diversity of the space's ideas, the researcher's share of them, and the moves."""
+    key, _ = _space(space)
+    uid = _uid()
+    cards = [c for c in bs_store.cards(key) if c["type"] == "idea" and c["owner"] == uid and not c["live"]]
+    from collections import Counter
+    moves = bs_store.moves(space=key)
+    return {"ideas": len(cards), "diversity": await ideas.diversity(_llm_access(_access()), [c["text"] for c in cards]),
+            "ownership": ideas.ownership(cards), "moves": dict(Counter(mv["kind"] for mv in moves)),
+            "taken": [mv["data"] for mv in moves if mv["kind"] == "taken"]}
+
+
+@router.post("/chats/{chat_id}/depth")
+async def chat_depth(chat_id: str) -> dict[str, Any]:
+    """For evaluation: how far the researcher elaborated their idea in each answer (0 to 5, a few cents)."""
+    ch, _ = _chat(chat_id)
+    levels = await ideas.elaboration_depth(_llm_access(_access()), ch["chat_id"], ch["owner"])
+    worked = [x["level"] for x in levels if x["level"] > 0]
+    return {"levels": levels, "mean": round(sum(worked) / len(worked), 2) if worked else None}
 
 
 @router.delete("/cards/{card_id}")
@@ -925,6 +1075,9 @@ async def promote(card_id: str, body: Promote) -> dict[str, Any]:
         params["add_found"] = body.add_found
     if body.ideation == "brainstorm":        # the round table, live in this space, with you
         params.update({"ideation_mode": "roundtable", "ideation_live": True})
+    if body.ideation in ("roundtable", "brainstorm"):
+        # the seats start from your idea (its current version) and develop it, rather than proposing their own
+        params.update({"ideation_develop": True, "source_card": card_id})
     proposal = ExperimentProposal(params, skip, f"From the brainstorm: {c['text'][:90]}")
     for p in camp.proposals.values():
         if not p.confirmed:

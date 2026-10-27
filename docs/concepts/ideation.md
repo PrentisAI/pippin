@@ -37,6 +37,16 @@ proposal in `phases/ideation/round_N/`. In the paper's evaluation the meeting
 tended to merge directions rather than choose among them and cost about four
 times as much as independent selection.
 
+## Starting from the researcher's idea
+
+`ideation.develop_objective: true` makes the objective the researcher's own idea:
+the seats develop it into its strongest version (a sharper question, a testable
+hypothesis, a concrete method) and raise what is wrong with it, instead of
+proposing other directions. A round table started from a brainstorm idea does
+this. With `ideation.live` the meeting runs in the brainstorm, hears each new
+version of the idea the researcher writes, and hands its decision back to them as
+drafts (see [Brainstorm](brainstorm.md#brainstorm-with-me-a-runs-round-table-live)).
+
 ## Customising seats
 
 ```yaml

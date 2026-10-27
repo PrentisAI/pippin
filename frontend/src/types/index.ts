@@ -77,13 +77,14 @@ export function isActiveStatus(status: string | undefined): boolean {
 export type GateAction = 'continue' | 'instruct' | 'propose' | 'stop'
 
 /** Where a human gate came from (`GateRequest.source`). */
-export type GateSource = 'milestone_audit' | 'supervisor' | 'screening' | 'termination'
+export type GateSource = 'milestone_audit' | 'supervisor' | 'screening' | 'direction' | 'termination'
 
 /** How the console names the source of a human gate. */
 export const GATE_SOURCE_LABELS: Record<string, string> = {
   milestone_audit: 'Milestone auditor',
   supervisor: 'Live auditor',
   screening: 'Screening',
+  direction: 'The round table decided',
   preflight: 'Pre-flight',
   termination: 'Before finishing',
 }
@@ -1326,7 +1327,12 @@ export interface PlanInsight {
   insight_id: string; chat_id: string; section: string; text: string; quote: string; msg_id: string
   origin: 'you' | 'ai'; created_at: number
 }
+/** A version of an idea: who wrote it, and how much of the text is the researcher's own (0 to 1). */
+export interface IdeaVersion {
+  version_id: string; card_id: string; n: number; text: string; origin: 'you' | 'ai' | 'edited'; share: number; by: string; created_at: number
+}
 export interface ResearchPlan {
+  idea?: { card_id: string; text: string; versions: IdeaVersion[] } | null
   active: boolean; started: boolean; ended: string; suggesting: boolean
   question: ResearchQuestion | null
   sections: { id: string; name: string }[]
@@ -1342,4 +1348,8 @@ export type MsgWidget =
   | { type: 'guess'; read_id: string; state: 'waiting' | 'answered' }
   | { type: 'path'; read_id: string; paper_id: string }
   | { type: 'scope' | 'corpus'; map_id: string; state: 'waiting' | 'confirmed' | 'superseded' }
+  | { type: 'drafts'; purpose: 'idea' | 'direction'; agent: string; card_id: string; round?: number; gate_id?: string; run_id?: string
+      drafts: { text: string; yours?: boolean; seat?: string; chosen?: boolean }[]
+      state: 'waiting' | 'taken' | 'superseded' | 'answered'; taken?: number; origin?: 'you' | 'ai' | 'edited'; share?: number; text?: string; action?: string }
+  | { type: 'choice'; versions: string[]; card_id: string; state: 'waiting' | 'chosen' | 'superseded'; chosen?: number }
   | { type: 'question'; kind: 'summary' | 'candidates'; state: 'waiting' | 'confirmed' | 'superseded'; version: number; rq: ResearchQuestion; card_id?: string }

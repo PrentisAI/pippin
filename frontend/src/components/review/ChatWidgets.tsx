@@ -7,6 +7,7 @@ import type { BsMessage, FieldMap, MsgWidget } from '../../types'
 import { openMap, readPaper } from '../reader/open'
 import { Definition } from './FieldMapView'
 import { QuestionCard } from '../brainstorm/Plan'
+import { ChoiceCard, DraftsCard } from '../brainstorm/Moves'
 
 const STATUS: Record<string, [string, string]> = {
   solved: ['Solved', 'st-solved'], partly: ['Partly solved', 'st-partly'], early: ['Early attempts', 'st-early'], open: ['Open', 'st-open'],
@@ -39,9 +40,9 @@ export function ActionWidget({ m, space, onChanged, onIdea }: { m: BsMessage; sp
   const w = m.widget as MsgWidget
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const act = async (choice: string) => {
+  const act = async (choice: string, text?: string) => {
     setBusy(true); setErr(null)
-    try { await api.brainstorm.act(m.msg_id, choice); onChanged() } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+    try { await api.brainstorm.act(m.msg_id, choice, text); onChanged() } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
   const body = (() => {
     if (w.type === 'proposal') {
@@ -73,6 +74,8 @@ export function ActionWidget({ m, space, onChanged, onIdea }: { m: BsMessage; sp
         </div>)
       return <span className="lit-sub">{w.state === 'confirmed' ? 'Confirmed.' : 'Replaced by the version below.'}</span>
     }
+    if (w.type === 'drafts') return <DraftsCard w={w} busy={busy} onAct={act} />
+    if (w.type === 'choice') return <ChoiceCard w={w} busy={busy} onAct={act} />
     if (w.type === 'question') return <QuestionCard w={w} busy={busy} onAct={act} onIdea={onIdea} />
     if (w.type === 'path') return (
       <div className="cw-row"><button className="btn-sm lit-btn" onClick={() => readPaper({ paper: w.paper_id, space, from: 'Brainstorm', tab: 'deep' })}>

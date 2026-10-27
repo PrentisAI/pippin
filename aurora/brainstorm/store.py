@@ -106,6 +106,27 @@ CREATE TABLE IF NOT EXISTS bs_insights (     -- the research plan a guided conve
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS bs_insights_chat ON bs_insights(chat_id, created_at);
+CREATE TABLE IF NOT EXISTS bs_versions (     -- an idea's versions: who wrote each, and how much of it is the researcher's
+    version_id TEXT PRIMARY KEY,
+    card_id    TEXT NOT NULL,
+    n          INTEGER NOT NULL,
+    text       TEXT NOT NULL,
+    origin     TEXT NOT NULL,                     -- you | ai | edited (an AI draft the researcher changed)
+    share      REAL NOT NULL DEFAULT 1,           -- how much of the text is the researcher's own (0 to 1)
+    by         TEXT NOT NULL DEFAULT '',          -- the researcher, or the agent whose draft it was
+    chat_id    TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS bs_versions_card ON bs_versions(card_id, n);
+CREATE TABLE IF NOT EXISTS bs_moves (         -- what happened in ideation, kept for evaluation (not shown)
+    move_id    TEXT PRIMARY KEY,
+    chat_id    TEXT NOT NULL,
+    space      TEXT NOT NULL,
+    kind       TEXT NOT NULL,                     -- stimulus | drafts | taken | versions | chosen | edited | depth
+    data       TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS bs_moves_chat ON bs_moves(chat_id, created_at);
 CREATE TABLE IF NOT EXISTS bs_links (
     from_card TEXT NOT NULL,
     to_card   TEXT NOT NULL,
@@ -272,6 +293,7 @@ class BrainstormStore:
 
     def delete_card(self, card_id: str) -> None:
         with self._lock:
+            self._x("DELETE FROM bs_versions WHERE card_id=?", (card_id,))
             self._x("DELETE FROM bs_links WHERE from_card=? OR to_card=?", (card_id, card_id))
             self._x("DELETE FROM bs_cards WHERE card_id=?", (card_id,))
 
@@ -313,6 +335,32 @@ class BrainstormStore:
     def thread_counts(self, card_ids: set[str]) -> dict[str, int]:
         rows = self._all("SELECT chat_id, COUNT(*) AS n FROM bs_messages WHERE chat_id LIKE 'card:%' GROUP BY chat_id")
         return {r["chat_id"][5:]: r["n"] for r in rows if r["chat_id"][5:] in card_ids}
+
+    # ------------------------------------------------------------------ an idea's versions, and the moves
+
+    def add_version(self, card_id: str, text: str, origin: str, *, share: float = 1.0, by: str = "",
+                    chat_id: str = "") -> dict[str, Any]:
+        vid = _new("v")
+        with self._lock:
+            n = (self._all("SELECT MAX(n) AS n FROM bs_versions WHERE card_id=?", (card_id,))[0]["n"] or 0) + 1
+            self._x("INSERT INTO bs_versions (version_id, card_id, n, text, origin, share, by, chat_id, created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)", (vid, card_id, n, text.strip()[:4000], origin,
+                                                   max(0.0, min(1.0, share)), by, chat_id, time.time()))
+        return self._all("SELECT * FROM bs_versions WHERE version_id=?", (vid,))[0]
+
+    def versions(self, card_id: str) -> list[dict[str, Any]]:
+        return self._all("SELECT * FROM bs_versions WHERE card_id=? ORDER BY n", (card_id,))
+
+    def add_move(self, chat_id: str, space: str, kind: str, data: dict[str, Any] | None = None) -> None:
+        self._x("INSERT INTO bs_moves (move_id, chat_id, space, kind, data, created_at) VALUES (?,?,?,?,?,?)",
+                (_new("mv"), chat_id, space, kind, json.dumps(data or {}), time.time()))
+
+    def moves(self, *, chat_id: str = "", space: str = "") -> list[dict[str, Any]]:
+        if chat_id:
+            rows = self._all("SELECT * FROM bs_moves WHERE chat_id=? ORDER BY created_at", (chat_id,))
+        else:
+            rows = self._all("SELECT * FROM bs_moves WHERE space=? ORDER BY created_at", (space,))
+        return [{**r, "data": json.loads(r["data"])} for r in rows]
 
     # ------------------------------------------------------------------ the research plan's insights
 
@@ -392,6 +440,8 @@ class BrainstormStore:
         with self._lock:
             for c in self.cards(space):
                 self._x("DELETE FROM bs_links WHERE from_card=? OR to_card=?", (c["card_id"], c["card_id"]))
+                self._x("DELETE FROM bs_versions WHERE card_id=?", (c["card_id"],))
+            self._x("DELETE FROM bs_moves WHERE space=?", (space,))
             self._x("DELETE FROM bs_cards WHERE space=?", (space,))
             for ch in self.chats(space):
                 self._x("DELETE FROM bs_messages WHERE chat_id=?", (ch["chat_id"],))
