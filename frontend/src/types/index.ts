@@ -1404,3 +1404,14 @@ export interface WriteSettings {
   options: WriteLevel[]
   log: { log_id: string; write: string; detail: Record<string, unknown>; created_at: number; undone_at: number | null }[]
 }
+export interface MemDigest {
+  hours: number; sources: number; from_feed: number
+  groups: { question_id: string; label: string; text: string
+    merged: { unit_id: string; claim: string; sources: number; from: string; platform: string; via: string }[]
+    new: { unit_id: string; claim: string; sources: number; from: string; platform: string; via: string }[]
+    conflicts: { a: string; b: string; a_id: string; b_id: string }[] }[]
+}
+export interface MemFollow {
+  follow_id: string; platform: string; url: string; label: string; via: 'extension' | 'server'; every_min: number
+  seen: number; last_run: number; last_error: string; paused: number
+}

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AURORA",
+  "version": "0.1.0",
+  "identifier": "ai.prentis.aurora",
+  "build": { "frontendDist": "../ui" },
+  "app": {
+    "macOSPrivateApi": true,
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "orb",
+        "title": "AURORA",
+        "url": "orb.html",
+        "width": 76,
+        "height": 76,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "dragDropEnabled": false,
+        "visibleOnAllWorkspaces": true
+      }
+    ],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns"],
+    "category": "Productivity",
+    "macOS": { "minimumSystemVersion": "12.0" }
+  }
+}

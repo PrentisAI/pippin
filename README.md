@@ -110,13 +110,14 @@ See [Results, reports and runs](docs/guide/results.md).
 - **Memory** — everything you save, from arXiv to Zhihu, X, Reddit and Xiaohongshu, kept by
   claim: the same claim from several sources (in any language) is one idea unit, opposite claims
   are flagged as conflicts, and what bears on what you are reading surfaces (at most three) while
-  the rest is absorbed or sinks. AURORA writes into your Zotero, Overleaf or notes only as far as
-  you allow, each kind off by default.
+  the rest is absorbed or sinks. A browser extension (Chrome, Safari) and a macOS desktop orb save
+  pages and posts, follow people and threads, and show the memory where you read. AURORA writes
+  into your Zotero, Overleaf or notes only as far as you allow, each kind off by default.
 - **Feed** — new papers and posts from the people and sources you follow,
   ranked against your projects, with one sentence on why each fits.
 
 See [Literature](docs/concepts/literature.md), [Brainstorm](docs/concepts/brainstorm.md), [Memory](docs/concepts/memory.md),
-[Zotero](docs/guide/zotero.md) and [The feed](docs/guide/feed.md).
+[Zotero](docs/guide/zotero.md), [The feed](docs/guide/feed.md) and [Browser extension and desktop app](docs/guide/extension-and-desktop.md).
 
 ### Compute
 
@@ -257,6 +258,8 @@ If you are an agent asked to use or change AURORA:
 |---|---|
 | `aurora/` | the Python package (engine, agents, auditors, web API) |
 | `frontend/` | the web console (React) |
+| `extension/` | the browser extension (Chrome; Safari through `extension/safari/build.sh`) |
+| `desktop/` | the macOS desktop app (Tauri): the orb and the memory panel |
 | `examples/` | quickstart, an open-ended campaign, the materials case study |
 | `experiments/` | scripts and released data to reproduce the paper's evaluations |
 | `docs/` | documentation (MkDocs) |

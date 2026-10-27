@@ -38,6 +38,14 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at REAL NOT NULL,
     expires_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS device_tokens (     -- the browser extension, the desktop app: long-lived, revocable
+    token_hash TEXT PRIMARY KEY,
+    device_id  TEXT UNIQUE NOT NULL,
+    user_id    TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    last_used  REAL
+);
 CREATE TABLE IF NOT EXISTS invites (
     token_hash   TEXT PRIMARY KEY,
     invite_id    TEXT UNIQUE NOT NULL,
@@ -212,10 +220,33 @@ class AuthStore:
                                "WHERE s.token_hash=? AND s.expires_at>? AND u.disabled=0",
                                (_hash_token(token), time.time())).fetchone()
         if r is None:
+            r = self._conn.execute("SELECT u.* FROM device_tokens d JOIN users u ON u.user_id = d.user_id "
+                                   "WHERE d.token_hash=? AND u.disabled=0", (_hash_token(token),)).fetchone()
+            if r is not None:
+                self._x("UPDATE device_tokens SET last_used=? WHERE token_hash=?", (time.time(), _hash_token(token)))
+        if r is None:
             return None
         if (time.time() - (r["last_active"] or 0)) > 60:
             self._x("UPDATE users SET last_active=? WHERE user_id=?", (time.time(), r["user_id"]))
         return self.as_user(dict(r))
+
+    def create_device_token(self, user_id: str, name: str) -> tuple[str, dict[str, Any]]:
+        """A token for an entry point (the browser extension, the desktop app); shown once, stored hashed."""
+        token = "aur_" + secrets.token_urlsafe(32)
+        did = "d_" + secrets.token_hex(6)
+        self._x("INSERT INTO device_tokens (token_hash, device_id, user_id, name, created_at) VALUES (?,?,?,?,?)",
+                (_hash_token(token), did, user_id, name.strip()[:80] or "Device", time.time()))
+        return token, self.devices(user_id)[0]
+
+    def devices(self, user_id: str) -> list[dict[str, Any]]:
+        rows = self._conn.execute("SELECT device_id, name, created_at, last_used FROM device_tokens WHERE user_id=? "
+                                  "ORDER BY created_at DESC", (user_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def revoke_device(self, user_id: str, device_id: str) -> bool:
+        cur = self._conn.execute("DELETE FROM device_tokens WHERE user_id=? AND device_id=?", (user_id, device_id))
+        self._conn.commit()
+        return cur.rowcount > 0
 
     def end_session(self, token: str) -> None:
         self._x("DELETE FROM sessions WHERE token_hash=?", (_hash_token(token),))

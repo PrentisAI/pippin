@@ -1,0 +1,73 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>AURORA</title>
+<style>
+html,body{margin:0;background:transparent;overflow:hidden;user-select:none;-webkit-user-select:none}
+.orb{position:absolute;inset:8px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4f8cf0,#2d6cdf 60%,#1d4fa8);
+  box-shadow:0 4px 16px rgba(20,40,90,.35);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .25s}
+.orb svg{width:52%;height:52%}
+.orb.over{transform:scale(1.18)}
+.orb.swallow{animation:swallow 1.2s ease-in-out infinite}
+@keyframes swallow{0%{transform:scale(1)}40%{transform:scale(1.22)}100%{transform:scale(1)}}
+.dot{position:absolute;right:10px;top:10px;width:12px;height:12px;border-radius:50%;background:#f59e0b;border:2px solid #fff;display:none}
+</style></head>
+<body>
+<div class="orb" id="orb" title="AURORA: drop a link, a selection or a file to save it; click for your memory; right click for settings">
+  <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M3 9c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2M3 15c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2"/></svg>
+</div><div class="dot" id="dot"></div>
+<script>
+const { invoke } = window.__TAURI__.core
+const orb = document.getElementById('orb')
+// a click opens the panel; pressing and moving drags the orb elsewhere on the screen
+let down = null
+let dragged = false
+orb.addEventListener('mousedown', (e) => { if (e.button === 0) { down = [e.screenX, e.screenY]; dragged = false } })
+window.addEventListener('mousemove', (e) => {
+  if (down && e.buttons === 1 && !dragged && Math.hypot(e.screenX - down[0], e.screenY - down[1]) > 3) {
+    dragged = true
+    window.__TAURI__.window.getCurrentWindow().startDragging()
+  }
+})
+window.addEventListener('mouseup', () => { down = null })
+orb.addEventListener('click', () => { if (!dragged) invoke('open_panel') })
+orb.addEventListener('contextmenu', (e) => { e.preventDefault(); invoke('open_settings') })
+
+document.addEventListener('dragover', (e) => { e.preventDefault(); orb.classList.add('over') })
+document.addEventListener('dragleave', () => orb.classList.remove('over'))
+document.addEventListener('drop', async (e) => {
+  e.preventDefault(); orb.classList.remove('over')
+  try {
+    let src, what
+    const file = e.dataTransfer.files && e.dataTransfer.files[0]
+    if (file) {
+      const data = await new Promise((resolve, reject) => {
+        const r = new FileReader(); r.onload = () => resolve(String(r.result).split(',')[1] || ''); r.onerror = reject; r.readAsDataURL(file)
+      })
+      src = await invoke('capture_file', { name: file.name, data }); what = file.name
+    } else {
+      const uri = (e.dataTransfer.getData('text/uri-list') || '').split('\n').find((l) => l && !l.startsWith('#')) || ''
+      const text = e.dataTransfer.getData('text/plain') || ''
+      const url = uri || (/^https?:\/\/\S+$/.test(text.trim()) ? text.trim() : '')
+      src = await invoke('capture', { url, text: url ? '' : text }); what = url || text.slice(0, 80)
+    }
+    swallow(src.source_id, what)
+  } catch (err) {
+    invoke('peek', { head: 'Could not save it', body: String(err) })
+  }
+})
+
+async function swallow(id, what) {
+  orb.classList.add('swallow')
+  invoke('peek', { head: 'Swallowed · fetching it and keeping a snapshot', body: what })
+  for (let i = 0; i < 120; i++) {
+    await new Promise((r) => setTimeout(r, 1500))
+    const s = await invoke('source', { id })
+    if (s.state !== 'pending') {
+      orb.classList.remove('swallow')
+      invoke('peek', { head: s.state === 'done' ? 'Sorted, without bothering you' : 'Could not save it', body: s.summary || s.error || '' })
+      return
+    }
+  }
+  orb.classList.remove('swallow')
+}
+</script>
+</body></html>

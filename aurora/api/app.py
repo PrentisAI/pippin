@@ -114,6 +114,9 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
         # each person's feed: their sources every few hours, and their daily digest
         from aurora.feed.service import loop as feed_loop
         app.state.feed_work = asyncio.create_task(feed_loop())
+        # what each person follows and the server reads (Reddit, feeds), into their memory
+        from aurora.memory.follow import loop as follow_loop
+        app.state.follow_work = asyncio.create_task(follow_loop())
         # notifications held during quiet hours, sent when those end
 
         async def held_loop() -> None:
@@ -128,7 +131,7 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
 
     @app.on_event("shutdown")
     async def shutdown() -> None:
-        for name in ("zotero_sync", "brainstorm_work", "feed_work", "held_notifications"):
+        for name in ("zotero_sync", "brainstorm_work", "feed_work", "follow_work", "held_notifications"):
             task = getattr(app.state, name, None)
             if task is not None:
                 task.cancel()

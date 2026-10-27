@@ -218,3 +218,71 @@ def test_two_units_the_memory_missed_can_be_merged(client, model):
     u = client.post(f"/api/memory/units/{a}/merge", json={"into": b}).json()
     assert u["unit_id"] == b and len(u["evidence"]) == 2 and u["moved"]
     assert client.get(f"/api/memory/units/{a}").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Phase two: what the entry points use
+
+
+def test_followed_pages_come_in_once_each(client, model):
+    f = client.post("/api/memory/follows", json={"url": "https://x.com/someone", "label": "@someone"}).json()
+    assert (f["platform"], f["via"]) == ("x", "extension")
+    assert client.post("/api/memory/follows", json={"url": "https://www.reddit.com/r/LocalLLaMA/"}).json()["via"] == "server"
+    assert [d["follow_id"] for d in client.get("/api/memory/follows/due?via=extension").json()] == [f["follow_id"]]
+    items = [{"id": "111", "url": "https://x.com/someone/status/111", "text": EN},
+             {"id": "112", "url": "https://x.com/someone/status/112", "text": "hi"}]          # too short to keep
+    assert client.post(f"/api/memory/follows/{f['follow_id']}/items", json={"items": items}).json()["taken"] == 1
+    end = time.time() + 10
+    while time.time() < end and client.get("/api/memory/sources").json()[0]["state"] == "pending":
+        time.sleep(0.05)
+    s = client.get("/api/memory/sources").json()[0]
+    assert s["via"] == "feed" and s["platform"] == "x" and s["state"] == "done"
+    # seen once: not again, and not due until its time comes
+    assert client.post(f"/api/memory/follows/{f['follow_id']}/items", json={"items": items}).json()["taken"] == 0
+    assert client.get("/api/memory/follows/due?via=extension").json() == []
+    d = client.get("/api/memory/digest").json()
+    assert d["from_feed"] == 1 and d["groups"][0]["new"][0]["via"] == "feed"
+    client.patch(f"/api/memory/follows/{f['follow_id']}", json={"paused": True})
+    assert client.get("/api/memory/follows").json()[0]["paused"] == 1
+
+
+def test_reddit_and_feeds_are_read_here():
+    from aurora.memory import follow
+    data = {"data": {"children": [{"data": {"name": "t3_a", "title": "Sparse attention at batch 1", "selftext": "No gain.",
+                                            "permalink": "/r/LocalLLaMA/comments/a/x/", "author": "u1"}}]}}
+    (post,) = follow.reddit_items(data)
+    assert post["id"] == "t3_a" and post["url"].startswith("https://www.reddit.com/r/LocalLLaMA")
+    assert follow._reddit_json("https://www.reddit.com/r/LocalLLaMA/") == "https://www.reddit.com/r/LocalLLaMA/new.json?limit=25"
+    rss = "<rss><channel><item><title>A post</title><link>https://b.example/1</link><description>&lt;p&gt;Some text here&lt;/p&gt;</description></item></channel></rss>"
+    (it,) = follow.feed_items(rss)
+    assert it["url"] == "https://b.example/1" and it["text"] == "Some text here"
+    atom = '<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>e1</id><title>T</title><link href="https://a.example/e1"/><summary>Words</summary></entry></feed>'
+    assert follow.feed_items(atom)[0]["url"] == "https://a.example/e1"
+
+
+def test_zotero_is_not_written_unless_allowed(client, model):
+    from aurora.literature.library import library
+    from aurora.literature.records import Paper
+    p = library.upsert_paper(Paper(title="Sparse attention at scale", authors=["Ada Lovelace"], year=2024, doi="10.1/xyz"))
+    r = client.post("/api/memory/zotero", json={"paper_id": p["paper_id"]}).json()
+    assert r["saved"] is False and "off" in r["reason"] and "@" in r["bibtex"] and r["doi"] == "10.1/xyz"
+
+
+def test_a_file_dropped_is_saved(client, model):
+    r = client.post("/api/memory/capture/file?name=note.txt", content=ZH.encode())
+    s = r.json()
+    end = time.time() + 10
+    while time.time() < end and s["state"] == "pending":
+        s = client.get(f"/api/memory/sources/{s['source_id']}").json()
+        time.sleep(0.05)
+    assert s["state"] == "done" and s["title"] == "note.txt" and s["result"]["new"]
+    assert client.post("/api/memory/capture/file?name=x.bin", content=b"\xff\xfe\x00").status_code == 400
+
+
+def test_devices_connect_with_a_token_of_their_own(client):
+    from aurora.auth.store import auth_store
+    uid = auth_store.add_user("ada@lab.example", "Ada", "correct horse battery", "admin")["user_id"]
+    token, device = auth_store.create_device_token(uid, "Chrome on my Mac")
+    assert auth_store.user_for_session(token).user_id == uid
+    assert auth_store.devices(uid)[0]["last_used"] is not None
+    assert auth_store.revoke_device(uid, device["device_id"]) and auth_store.user_for_session(token) is None

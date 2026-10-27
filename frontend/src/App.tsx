@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Home from './pages/Home'
 import { AuthGate } from './auth'
+import { PanelPage } from './components/memory/PanelPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,6 +49,7 @@ export default function App() {
         <BrowserRouter>
           <AuthGate>
             <Routes>
+              <Route path="/panel" element={<PanelPage />} />
               <Route path="*" element={<Home />} />
             </Routes>
           </AuthGate>

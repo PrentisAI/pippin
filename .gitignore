@@ -16,3 +16,8 @@ frontend/node_modules/
 frontend/dist/
 experiments/data/
 experiments/*/runs/
+
+# the desktop app
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/

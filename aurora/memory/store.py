@@ -99,6 +99,20 @@ CREATE TABLE IF NOT EXISTS mem_marks (
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS mem_marks_unit ON mem_marks(unit_id, created_at);
+CREATE TABLE IF NOT EXISTS mem_follows (    -- people, topics and threads followed: new posts come in on their own
+    follow_id  TEXT PRIMARY KEY,
+    owner      TEXT NOT NULL,
+    platform   TEXT NOT NULL,                     -- zhihu | x | xiaohongshu | reddit | rss | web
+    url        TEXT NOT NULL,
+    label      TEXT NOT NULL DEFAULT '',
+    via        TEXT NOT NULL,                     -- extension (read in the person's browser) | server
+    every_min  INTEGER NOT NULL DEFAULT 60,
+    seen       TEXT NOT NULL DEFAULT '[]',        -- the posts already taken in (their ids)
+    last_run   REAL NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT '',
+    paused     INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS mem_asks (
     ask_id      TEXT PRIMARY KEY,
     owner       TEXT NOT NULL,
@@ -386,6 +400,41 @@ class MemoryStore:
 
     def answer_ask(self, ask_id: str, answer: str) -> None:
         self._x("UPDATE mem_asks SET answer=?, answered_at=? WHERE ask_id=?", (answer.strip()[:3000], time.time(), ask_id))
+
+    # ------------------------------------------------------------------ follows
+
+    def add_follow(self, owner: str, platform: str, url: str, label: str, via: str, every_min: int = 60) -> dict[str, Any]:
+        fid = _new("f")
+        self._x("INSERT INTO mem_follows (follow_id, owner, platform, url, label, via, every_min, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?)", (fid, owner, platform, url, label[:200], via, max(15, every_min), time.time()))
+        return self.follow(fid)  # type: ignore[return-value]
+
+    def follow(self, follow_id: str) -> dict[str, Any] | None:
+        r = self._one("SELECT * FROM mem_follows WHERE follow_id=?", (follow_id,))
+        if r:
+            r["seen"] = json.loads(r["seen"])
+        return r
+
+    def follows(self, owner: str = "", via: str = "") -> list[dict[str, Any]]:
+        sql, args = "SELECT * FROM mem_follows WHERE 1=1", []
+        if owner:
+            sql, args = sql + " AND owner=?", [*args, owner]
+        if via:
+            sql, args = sql + " AND via=?", [*args, via]
+        rows = self._all(sql + " ORDER BY created_at", tuple(args))
+        for r in rows:
+            r["seen"] = json.loads(r["seen"])
+        return rows
+
+    def update_follow(self, follow_id: str, **fields: Any) -> None:
+        cols = {k: (json.dumps(v[-500:]) if k == "seen" else v) for k, v in fields.items()
+                if k in ("label", "every_min", "seen", "last_run", "last_error", "paused")}
+        if cols:
+            self._x(f"UPDATE mem_follows SET {', '.join(f'{k}=?' for k in cols)} WHERE follow_id=?",
+                    (*cols.values(), follow_id))
+
+    def delete_follow(self, follow_id: str) -> None:
+        self._x("DELETE FROM mem_follows WHERE follow_id=?", (follow_id,))
 
     def version(self, owner: str) -> str:
         """Changes when the person's memory changes (for caches)."""

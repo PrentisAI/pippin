@@ -3,7 +3,7 @@
  *  do both by hand. */
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import type { MemQuestion, MemReport, MemSource } from '../../types'
+import type { MemFollow, MemQuestion, MemReport, MemSource } from '../../types'
 import { MemoryPanel } from './MemoryPanel'
 
 const PLATFORM: Record<string, string> = {
@@ -21,6 +21,8 @@ export function MemoryView() {
         <Save onSaved={bump} />
         <Reading onSet={bump} />
         <Questions onChanged={bump} />
+        <Follows />
+        <Connect />
         <Settings />
       </aside>
       <main className="mem-main">
@@ -144,5 +146,58 @@ function Report({ onClose }: { onClose: () => void }) {
         </div>
       )}
     </div>
+  )
+}
+
+const VIA_LABEL = { extension: 'read in your browser', server: 'read by AURORA' }
+
+/** People, topics and threads followed: what they post comes into the memory on its own. */
+function Follows() {
+  const [fs, setFs] = useState<MemFollow[]>([])
+  const [url, setUrl] = useState('')
+  const [err, setErr] = useState<string | null>(null)
+  const load = useCallback(async () => setFs(await api.memory.follows()), [])
+  useEffect(() => { load().catch(() => {}) }, [load])
+  return (
+    <section className="mem-card">
+      <h4>What you follow</h4>
+      <span className="lit-sub">A person or topic on Zhihu, X or Xiaohongshu (read in your browser by the extension, as you are signed in),
+        a subreddit or thread, a blog’s feed. New posts come into your memory and today’s digest.</span>
+      {fs.map((f) => (
+        <div key={f.follow_id} className="mem-follow">
+          <span className="mem-line"><b>{PLATFORM[f.platform] ?? f.platform}</b><span className="mem-qtext">{f.label}</span>
+            <button className="link-btn" onClick={async () => { await api.memory.changeFollow(f.follow_id, { paused: !f.paused }); load() }}>{f.paused ? 'resume' : 'pause'}</button>
+            <button className="link-btn" aria-label="Stop following" onClick={async () => { await api.memory.deleteFollow(f.follow_id); load() }}>×</button></span>
+          <span className="lit-sub">{VIA_LABEL[f.via]} · every {f.every_min} min · {f.seen} seen
+            {f.last_run ? ` · last ${new Date(f.last_run * 1000).toLocaleTimeString()}` : ' · not read yet'}{f.last_error ? ` · ${f.last_error}` : ''}</span>
+        </div>
+      ))}
+      <div className="mem-line"><input className="rd-in" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://… to follow" aria-label="Follow"
+        onKeyDown={async (e) => { if (e.key === 'Enter' && url.trim()) { try { await api.memory.addFollow(url.trim()); setUrl(''); setErr(null); load() } catch (x) { setErr((x as Error).message) } } }} /></div>
+      {err && <div className="panel-message error">{err}</div>}
+    </section>
+  )
+}
+
+/** Connecting the browser extension and the desktop app: a token for each, shown once. */
+function Connect() {
+  const [devices, setDevices] = useState<{ device_id: string; name: string; last_used: number | null }[]>([])
+  const [name, setName] = useState('')
+  const [token, setToken] = useState<string | null>(null)
+  const load = useCallback(async () => setDevices(await api.me.devices()), [])
+  useEffect(() => { load().catch(() => {}) }, [load])
+  return (
+    <section className="mem-card">
+      <h4>Browser extension and desktop app</h4>
+      <span className="lit-sub">Each connects with a token of its own. Make one, paste it into the extension’s options or the app’s settings,
+        with this console’s address ({window.location.origin}). Without accounts no token is needed.</span>
+      {devices.map((d) => <div key={d.device_id} className="mem-line"><span className="mem-qtext">{d.name}</span>
+        <span className="lit-sub">{d.last_used ? `used ${new Date(d.last_used * 1000).toLocaleString()}` : 'not used yet'}</span>
+        <button className="link-btn" onClick={async () => { await api.me.revokeDevice(d.device_id); load() }}>revoke</button></div>)}
+      <div className="mem-line"><input className="rd-in" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name, e.g. Chrome on my Mac" aria-label="Device name" />
+        <button className="btn-sm lit-btn" disabled={!name.trim()} onClick={async () => { const r = await api.me.connectDevice(name.trim()); setToken(r.token); setName(''); load() }}>Make a token</button></div>
+      {token && <div className="mem-why"><span className="rv-small-h">Copy it now; it is not shown again</span><code className="mem-token">{token}</code>
+        <button className="link-btn" onClick={() => { navigator.clipboard?.writeText(token).catch(() => {}) }}>copy</button></div>}
+    </section>
   )
 }

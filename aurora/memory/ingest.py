@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 KINDS = ("finding", "method", "opinion", "tool", "background")
 CANDIDATES = 5          # units a claim is compared with
 SIMILAR = 0.45          # cosine above which a unit may say the same thing
+BEARS = 0.3             # relevance from which a unit counts as bearing on a question (across languages it runs lower)
 _tasks: set[asyncio.Task] = set()
 
 
@@ -263,7 +264,7 @@ async def bear(access: Any, models: dict[str, str], owner: str, unit_ids: list[s
             if q["question_id"] in qv:
                 r = relevance(cosine(v, qv[q["question_id"]]))
                 mem_store.set_bears(uid, q["question_id"], r)
-                if r >= 0.5 and q["question_id"] not in hit:
+                if r >= BEARS and q["question_id"] not in hit:
                     hit.append(q["question_id"])
     return hit
 

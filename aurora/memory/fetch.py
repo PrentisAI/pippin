@@ -122,6 +122,8 @@ async def get(owner: str, *, url: str = "", text: str = "", html: str = "", titl
     if arxiv or doi:
         got = await _paper(owner, arxiv=arxiv, doi=doi)
         if got is not None:
+            if len(text.strip()) > 500:          # the full text came along (a dropped PDF): it beats an abstract
+                got.text = text.strip()[:MAX_TEXT]
             return got
     if url and not text:
         import httpx

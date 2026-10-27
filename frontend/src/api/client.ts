@@ -1,4 +1,4 @@
-import type { DeepRead, IdeaVersion, MemAsk, MemQuestion, MemReport, MemSource, MemSurface, MemUnit, WriteLevel, WriteSettings, PlanInsight, ResearchPlan, FieldMap, FieldMapSummary, LitPaper, NotePlace, ReaderAgent, ReaderNote, ReaderView, Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { DeepRead, IdeaVersion, MemDigest, MemFollow, MemAsk, MemQuestion, MemReport, MemSource, MemSurface, MemUnit, WriteLevel, WriteSettings, PlanInsight, ResearchPlan, FieldMap, FieldMapSummary, LitPaper, NotePlace, ReaderAgent, ReaderNote, ReaderView, Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -39,9 +39,27 @@ function errorMessage(status: number, statusText: string, body: string): string 
   return body || `${status} ${statusText}`
 }
 
+/** The token of an entry point that shows a page of the console (the extension's side panel, the desktop app),
+ *  given once in the address (`?token=`) and kept for the session; ordinary pages use the session cookie. */
+function deviceToken(): string {
+  try {
+    const url = new URL(window.location.href)
+    const given = url.searchParams.get('token')
+    if (given) {
+      sessionStorage.setItem('aurora_token', given)
+      url.searchParams.delete('token')
+      window.history.replaceState(null, '', url.toString())
+    }
+    return sessionStorage.getItem('aurora_token') || ''
+  } catch {
+    return ''
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = deviceToken()
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     ...options,
   })
   if (!res.ok) {
@@ -90,6 +108,14 @@ export const api = {
     report: (days = 7) => request<MemReport>(`/memory/report?days=${days}`),
     settings: () => request<{ language: string }>('/memory/settings'),
     setSettings: (language: string) => request<{ language: string }>('/memory/settings', put({ language })),
+    captureFile: async (file: File, via = 'orb') => request<MemSource>(`/memory/capture/file?name=${encodeURIComponent(file.name)}&via=${via}`,
+      { method: 'POST', body: await file.arrayBuffer(), headers: { 'Content-Type': 'application/octet-stream' } }),
+    digest: (hours = 24) => request<MemDigest>(`/memory/digest?hours=${hours}`),
+    follows: () => request<MemFollow[]>('/memory/follows'),
+    addFollow: (url: string, label = '', every_min = 60) => request<MemFollow>('/memory/follows', post({ url, label, every_min })),
+    changeFollow: (id: string, body: { paused?: boolean; every_min?: number; label?: string }) =>
+      request<MemFollow>(`/memory/follows/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    deleteFollow: (id: string) => request<{ ok: boolean }>(`/memory/follows/${id}`, del),
   },
   auth: {
     status: () => request<AuthStatus>('/auth/status'),
@@ -107,6 +133,9 @@ export const api = {
     setKey: (provider: string, value: string) => request<KeyStatus>(`/me/keys/${provider}`, put({ value })),
     deleteKey: (provider: string) => request<KeyStatus>(`/me/keys/${provider}`, del),
     writes: () => request<WriteSettings>('/me/writes'),
+    devices: () => request<{ device_id: string; name: string; created_at: number; last_used: number | null }[]>('/me/devices'),
+    connectDevice: (name: string) => request<{ token: string; device: { device_id: string; name: string } }>('/me/devices', post({ name })),
+    revokeDevice: (id: string) => request<{ ok: boolean }>(`/me/devices/${id}`, del),
     setWrites: (levels: Record<string, WriteLevel>) => request<WriteSettings>('/me/writes', put({ levels })),
   },
 

@@ -1,0 +1,26 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>AURORA · Options</title>
+<style>
+body{font:14px system-ui,-apple-system,sans-serif;max-width:640px;margin:32px auto;padding:0 16px;color:#1f2328}
+h1{font-size:20px}label{display:block;margin:14px 0 4px;font-weight:600}input[type=text],input[type=password],textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid #ccd;border-radius:8px;font:inherit}
+.hint{color:#667;font-size:12.5px;margin-top:4px}.row{display:flex;gap:8px;align-items:center;margin-top:10px}
+button{padding:7px 14px;border-radius:8px;border:1px solid #2d6cdf;background:#2d6cdf;color:#fff;font:inherit;cursor:pointer}
+button.quiet{background:#fff;color:#2d6cdf}#status{margin-left:8px;color:#667}
+</style></head>
+<body>
+<h1>AURORA</h1>
+<label for="server">Your AURORA console</label>
+<input id="server" type="text" placeholder="http://localhost:8200">
+<div class="hint">The address you open the console at. On a Mac with the desktop app, it is set for you.</div>
+<label for="token">Token</label>
+<input id="token" type="password" placeholder="Only when your console has accounts">
+<div class="hint">In the console: Memory → Browser extension and desktop app → Make a token. Without accounts, leave it empty.</div>
+<label><input id="reportContext" type="checkbox"> Tell AURORA what I am reading</label>
+<div class="hint">The page you are on and your selection, so the memory can show what bears on it. Kept for a few hours, never stored.</div>
+<label for="excluded">Never on these sites</label>
+<textarea id="excluded" rows="3" placeholder="mail.google.com bank.example.com"></textarea>
+<label><input id="followEnabled" type="checkbox"> Read what I follow on Zhihu, X and Xiaohongshu</label>
+<div class="hint">Every 15 minutes, the pages you follow are opened in a background tab, where you are signed in, and their new posts are saved. Add follows with a right click on a page (Follow this page in AURORA) or on the console’s Memory page.</div>
+<div class="row"><button id="save">Save</button><button id="test" class="quiet">Test the connection</button><button id="now" class="quiet">Read what I follow now</button><span id="status"></span></div>
+<script src="options.js" type="module"></script>
+</body></html>

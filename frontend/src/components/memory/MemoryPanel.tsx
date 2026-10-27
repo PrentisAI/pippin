@@ -3,7 +3,7 @@
  *  question to you. The console's Memory page shows it; the desktop app shows the same panel. */
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import type { MemAsk, MemItem, MemQuestion, MemStance, MemSurface, MemUnit } from '../../types'
+import type { MemAsk, MemDigest, MemItem, MemQuestion, MemStance, MemSurface, MemUnit } from '../../types'
 
 const STANCE: Record<MemStance, string> = { challenges: 'Challenges', adds: 'Adds', supports: 'Supports', background: 'Background', tool: 'Tool' }
 const PLATFORM: Record<string, string> = {
@@ -18,7 +18,7 @@ export function MemoryPanel({ refreshKey = 0, onReport }: { refreshKey?: number;
   const [data, setData] = useState<MemSurface | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [tab, setTab] = useState<'now' | 'ask'>('now')
+  const [tab, setTab] = useState<'now' | 'ask' | 'today'>('now')
   const [sel, setSel] = useState<string | null>(null)
 
   useEffect(() => {
@@ -45,6 +45,7 @@ export function MemoryPanel({ refreshKey = 0, onReport }: { refreshKey?: number;
         <div className="mem-tabs" role="tablist">
           <button role="tab" aria-selected={tab === 'now'} className={tab === 'now' ? 'on' : ''} onClick={() => setTab('now')}>Now</button>
           <button role="tab" aria-selected={tab === 'ask'} className={tab === 'ask' ? 'on' : ''} onClick={() => { setTab('ask'); setSel(null) }}>Ask me</button>
+          <button role="tab" aria-selected={tab === 'today'} className={tab === 'today' ? 'on' : ''} onClick={() => { setTab('today'); setSel(null) }}>Today</button>
         </div>
         {onReport && <button className="link-btn" onClick={onReport}>This week →</button>}
       </div>
@@ -64,7 +65,7 @@ export function MemoryPanel({ refreshKey = 0, onReport }: { refreshKey?: number;
         </>
       )}
       {err && <div className="panel-message error">{err}</div>}
-      {tab === 'now' ? (
+      {tab === 'today' ? <Today refreshKey={refreshKey} onPick={(id) => { setTab('now'); setSel(id) }} /> : tab === 'now' ? (
         data ? (
           <div className={`mem-body${busy ? ' busy' : ''}${sel ? ' with-detail' : ''}`}>
             <div className="mem-layers">
@@ -205,6 +206,31 @@ function AskMe({ ctx, onPick }: { ctx: string; onPick: (id: string) => void }) {
         </>
       )}
       {err && <div className="panel-message error">{err}</div>}
+    </div>
+  )
+}
+
+const VIA: Record<string, string> = { feed: 'from what you follow', extension: 'saved in the browser', orb: 'dropped on the desktop', manual: 'saved by hand', voice: 'said' }
+
+/** The daily digest: what came in over the last day, by question. */
+function Today({ refreshKey, onPick }: { refreshKey: number; onPick: (id: string) => void }) {
+  const [d, setD] = useState<MemDigest | null>(null)
+  useEffect(() => { api.memory.digest(24).then(setD).catch(() => setD(null)) }, [refreshKey])
+  if (!d) return <div className="panel-empty">Loading…</div>
+  if (!d.groups.length) return <div className="cw-empty"><b>Nothing new today</b><span>What you save, and what the people and threads you follow post, comes here once a day.</span></div>
+  return (
+    <div className="mem-body">
+      <span className="lit-sub">The last 24 hours: {d.sources} saved, {d.from_feed} of them from what you follow.</span>
+      {d.groups.map((g) => (
+        <section key={g.question_id || 'other'} className="mem-zone">
+          <h4>{g.label ? `${g.label} · ${g.text}` : g.text}</h4>
+          {g.conflicts.map((c, i) => <button key={i} className="mem-row clash" onClick={() => onPick(c.a_id)}><span>{c.a} ⟷ {c.b}</span></button>)}
+          {g.merged.map((u) => <button key={u.unit_id} className="mem-row" onClick={() => onPick(u.unit_id)}>
+            <span>{u.claim}</span><span className="lit-sub">+1 source · {u.sources} now</span></button>)}
+          {g.new.map((u) => <button key={u.unit_id} className="mem-row" onClick={() => onPick(u.unit_id)}>
+            <span>{u.claim}</span><span className="lit-sub">new · {VIA[u.via] ?? u.via}</span></button>)}
+        </section>
+      ))}
     </div>
   )
 }

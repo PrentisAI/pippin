@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>AURORA settings</title>
+<style>
+body{font:14px -apple-system,system-ui,sans-serif;margin:20px;color:#1f2328}
+label{display:block;margin:12px 0 4px;font-weight:600}input[type=text],input[type=password]{width:100%;box-sizing:border-box;padding:7px;border:1px solid #ccd;border-radius:8px;font:inherit}
+.hint{color:#667;font-size:12px;margin-top:3px}.row{display:flex;gap:8px;margin-top:18px}
+button{padding:7px 14px;border-radius:8px;border:1px solid #2d6cdf;background:#2d6cdf;color:#fff;font:inherit;cursor:pointer}button.q{background:#fff;color:#2d6cdf}
+@media (prefers-color-scheme: dark){body{background:#1e2128;color:#e6edf3}input{background:#2a2f38;color:#e6edf3;border-color:#3a4150}button.q{background:#1e2128}}
+</style></head>
+<body>
+<label for="server">Your AURORA console</label><input id="server" type="text">
+<label for="token">Token</label><input id="token" type="password" placeholder="Only when the console has accounts">
+<div class="hint">In the console: Memory → Browser extension and desktop app → Make a token.</div>
+<label><input id="start" type="checkbox"> Start the console when it is not running</label>
+<input id="cmd" type="text"><div class="hint">The command that starts it (run in a login shell).</div>
+<label><input id="ctx" type="checkbox"> Tell AURORA which app and window I am in</label>
+<div class="hint">Needs Accessibility access (System Settings → Privacy &amp; Security). Browsers are left to the extension. Kept a few hours, never stored.</div>
+<div class="row"><button id="save">Save</button><button id="quit" class="q">Quit AURORA</button></div>
+<script>
+const { invoke } = window.__TAURI__.core
+const $ = (id) => document.getElementById(id)
+invoke('get_settings').then((s) => { $('server').value = s.server; $('token').value = s.token; $('start').checked = s.start_server; $('cmd').value = s.server_command; $('ctx').checked = s.report_context })
+$('save').onclick = async () => {
+  await invoke('set_settings', { settings: { server: $('server').value.trim(), token: $('token').value.trim(), start_server: $('start').checked, server_command: $('cmd').value.trim(), report_context: $('ctx').checked } })
+  window.__TAURI__.window.getCurrentWindow().close()
+}
+$('quit').onclick = () => invoke('quit')
+</script>
+</body></html>

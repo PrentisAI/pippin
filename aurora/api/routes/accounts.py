@@ -198,6 +198,31 @@ async def set_my_writes(body: WriteLevels) -> dict[str, Any]:
     return await my_writes()
 
 
+class DeviceBody(BaseModel):
+    name: str
+
+
+@me_router.get("/devices")
+async def my_devices() -> list[dict[str, Any]]:
+    """The entry points connected to your account (browser extension, desktop app)."""
+    return auth_store.devices(current_user().user_id)
+
+
+@me_router.post("/devices")
+async def connect_device(body: DeviceBody) -> dict[str, Any]:
+    """A token for an entry point: paste it into the extension or the desktop app. It is shown once."""
+    user = current_user()
+    token, device = auth_store.create_device_token(user.user_id, body.name)
+    return {"token": token, "device": device}
+
+
+@me_router.delete("/devices/{device_id}")
+async def revoke_device(device_id: str) -> dict[str, Any]:
+    if not auth_store.revoke_device(current_user().user_id, device_id):
+        raise HTTPException(404, "No such device")
+    return {"ok": True}
+
+
 @me_router.get("/keys")
 async def my_keys() -> dict[str, Any]:
     user = current_user()

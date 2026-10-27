@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from aurora.auth.guard import current_user
-from aurora.memory import ingest, surface
+from aurora.memory import follow, ingest, relate, surface
 from aurora.memory import questions as qs
 from aurora.memory.store import mem_store
 
@@ -63,6 +63,26 @@ async def capture(body: Capture) -> dict[str, Any]:
         raise HTTPException(400, "Give a link, or the text to save")
     access, models = _access()
     return ingest.start(access, models, _uid(), **body.model_dump())
+
+
+@router.post("/capture/file")
+async def capture_file(request: Request, name: str = "file", via: str = "manual") -> dict[str, Any]:
+    """Save a file dropped on an entry point: a PDF (recognised as a paper when it is one) or a text note."""
+    data = await request.body()
+    if len(data) > 80 * 1024 * 1024:
+        raise HTTPException(400, "The file is larger than 80 MB")
+    access, models = _access()
+    if data.startswith(b"%PDF"):
+        from aurora.literature.pdfs import _text, identify
+        ref = identify(data, name)
+        text, _ = _text(data, pages=80)
+        url = f"https://arxiv.org/abs/{ref.arxiv_id}" if ref.arxiv_id else f"https://doi.org/{ref.doi}" if ref.doi else ""
+        return ingest.start(access, models, _uid(), url=url, text=text, title=ref.title or name, via=via)
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(400, "Drop a PDF or a text file") from None
+    return ingest.start(access, models, _uid(), text=text, title=name, via=via)
 
 
 def _source_view(s: dict[str, Any]) -> dict[str, Any]:
@@ -347,3 +367,123 @@ async def put_settings(body: Settings) -> dict[str, Any]:
         raise HTTPException(400, "language: auto | zh | en")
     auth_store.set_pref(_uid(), "memory_language", body.language)
     return {"language": body.language}
+
+
+# ---------------------------------------------------------------------------
+# A page you are looking at, and saving a paper to Zotero
+
+
+@router.get("/relate")
+async def relate_page(url: str = "", title: str = "") -> dict[str, Any]:
+    """How the page you have open relates to your questions and to what you saved (looking is not saving)."""
+    if not (url.strip() or title.strip()):
+        raise HTTPException(400, "Give the page's address or title")
+    access, models = _access()
+    return await relate.relate(access, models, _uid(), url=url.strip(), title=title.strip())
+
+
+class ZoteroSave(BaseModel):
+    paper_id: str
+
+
+@router.post("/zotero")
+async def save_to_zotero(body: ZoteroSave) -> dict[str, Any]:
+    """Save a paper to your Zotero, if you allowed it; otherwise its BibTeX and DOI, to import yourself."""
+    from aurora.auth import writes
+    from aurora.literature.library import library
+    uid = _uid()
+    e = library.paper(body.paper_id)
+    if e is None:
+        raise HTTPException(404, "No such paper")
+    copy = {"bibtex": relate.bibtex_of(e["paper_id"]), "doi": e["paper"].doi or ""}
+    if not writes.allowed(uid, "zotero.save"):
+        return {"saved": False, "reason": "Writing to Zotero is off. Turn on “Save papers and their PDFs to Zotero” "
+                                           "(account button → What AURORA may write), or import it yourself:", **copy}
+    from aurora.literature import zotero
+    from aurora.literature.reading import fetch_open_pdf
+    try:
+        pdf = await fetch_open_pdf(e["paper_id"])
+        await zotero.add_paper(uid, current_user().name, e["paper_id"], "", pdf)
+    except zotero.ZoteroError as exc:
+        return {"saved": False, "reason": str(exc), **copy}
+    return {"saved": True, **copy}
+
+
+# ---------------------------------------------------------------------------
+# Following people, topics and threads; the daily digest
+
+
+class FollowBody(BaseModel):
+    url: str
+    label: str = ""
+    every_min: int = 60
+
+
+@router.get("/follows")
+async def follows() -> list[dict[str, Any]]:
+    return [{k: v for k, v in f.items() if k != "seen"} | {"seen": len(f["seen"])} for f in mem_store.follows(_uid())]
+
+
+@router.post("/follows")
+async def add_follow(body: FollowBody) -> dict[str, Any]:
+    url = body.url.strip()
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(400, "Give the address of the page to follow (a person, a topic, a subreddit, a feed)")
+    platform, via = follow.kind_of(url)
+    f = mem_store.add_follow(_uid(), platform, url, body.label.strip() or url, via, body.every_min)
+    return {k: v for k, v in f.items() if k != "seen"} | {"seen": 0}
+
+
+class FollowChange(BaseModel):
+    paused: bool | None = None
+    every_min: int | None = None
+    label: str | None = None
+
+
+def _follow(follow_id: str) -> dict[str, Any]:
+    f = mem_store.follow(follow_id)
+    if f is None or f["owner"] != _uid():
+        raise HTTPException(404, "No such follow")
+    return f
+
+
+@router.patch("/follows/{follow_id}")
+async def change_follow(follow_id: str, body: FollowChange) -> dict[str, Any]:
+    _follow(follow_id)
+    fields = {k: (int(v) if k == "paused" else max(15, v) if k == "every_min" else v)
+              for k, v in body.model_dump().items() if v is not None}
+    mem_store.update_follow(follow_id, **fields)
+    f = mem_store.follow(follow_id)
+    return {k: v for k, v in f.items() if k != "seen"} | {"seen": len(f["seen"])}  # type: ignore[union-attr]
+
+
+@router.delete("/follows/{follow_id}")
+async def delete_follow(follow_id: str) -> dict[str, Any]:
+    _follow(follow_id)
+    mem_store.delete_follow(follow_id)
+    return {"ok": True}
+
+
+@router.get("/follows/due")
+async def follows_due(via: str = "extension") -> list[dict[str, Any]]:
+    """The follows an entry point should read now (the extension reads those behind a login)."""
+    return [{"follow_id": f["follow_id"], "platform": f["platform"], "url": f["url"], "label": f["label"],
+             "seen": f["seen"][-200:]} for f in follow.due(_uid(), via)]
+
+
+class FollowItems(BaseModel):
+    items: list[dict[str, Any]] = []
+    error: str = ""
+
+
+@router.post("/follows/{follow_id}/items")
+async def follow_items(follow_id: str, body: FollowItems) -> dict[str, Any]:
+    """What a followed page showed: the posts not seen before are saved into the memory."""
+    f = _follow(follow_id)
+    access, models = _access()
+    return {"taken": follow.take(access, models, f, body.items[:100], error=body.error)}
+
+
+@router.get("/digest")
+async def digest(hours: int = 24) -> dict[str, Any]:
+    return relate.digest(_uid(), max(1, min(168, hours)))

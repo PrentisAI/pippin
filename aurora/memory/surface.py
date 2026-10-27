@@ -289,7 +289,7 @@ def report(owner: str, days: int = 7) -> dict[str, Any]:
     claim = {u["unit_id"]: u["claim"] for u in units}
     by_q = []
     for q in questions:
-        bearing = {b["unit_id"] for b in mem_store.bears(question_id=q["question_id"]) if b["relevance"] >= 0.5}
+        bearing = {b["unit_id"] for b in mem_store.bears(question_id=q["question_id"]) if b["relevance"] >= ingest.BEARS}
         by_q.append({"question_id": q["question_id"], "label": q["label"], "text": q["text"],
                      "new_units": [{"unit_id": u["unit_id"], "claim": u["claim"]} for u in new_units
                                    if u["unit_id"] in bearing],

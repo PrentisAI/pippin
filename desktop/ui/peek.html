@@ -1,0 +1,24 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>AURORA</title>
+<style>
+html,body{margin:0;background:transparent;font:13px -apple-system,"PingFang SC",system-ui,sans-serif}
+.b{margin:6px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.97);color:#1f2328;box-shadow:0 6px 22px rgba(0,0,0,.18);
+  border:1px solid #d7dbe3;cursor:pointer;display:none}
+.b b{display:block;margin-bottom:3px}.b span{color:#556;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+@media (prefers-color-scheme: dark){.b{background:rgba(30,33,40,.97);color:#e6edf3;border-color:#3a4150}.b span{color:#a9b4c2}}
+</style></head>
+<body><div class="b" id="b" title="Open your memory"><b id="h"></b><span id="t"></span></div>
+<script>
+const { invoke } = window.__TAURI__.core
+const win = window.__TAURI__.window.getCurrentWindow()
+let timer = null
+window.__TAURI__.event.listen('peek', (e) => {
+  document.getElementById('h').textContent = e.payload.head
+  document.getElementById('t').textContent = e.payload.body
+  document.getElementById('b').style.display = 'block'
+  clearTimeout(timer)
+  timer = setTimeout(() => { document.getElementById('b').style.display = 'none'; win.hide() }, 7000)
+})
+document.getElementById('b').onclick = () => { invoke('open_panel'); win.hide() }
+</script>
+</body></html>
