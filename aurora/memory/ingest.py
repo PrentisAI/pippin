@@ -127,6 +127,14 @@ async def process(access: Any, models: dict[str, str], source_id: str, *, text: 
         result = await settle(access, models, owner, source_id, claims)
         mem_store.update_source(source_id, state="done", result=result, done_at=time.time(),
                                 lang=claims[0].get("lang", "") if claims else "")
+        if got.paper_id:            # a new paper that does what you set out to do is worth an interruption
+            try:
+                from aurora.memory import alerts
+                if await alerts.check_overlap(access, models, owner, source_id):
+                    result["overlap"] = True
+                    mem_store.update_source(source_id, result=result)
+            except Exception:
+                logger.info("checking %s for overlap failed", source_id, exc_info=True)
         return result
     except Exception as exc:
         logger.info("saving %s into memory failed", source_id, exc_info=True)
@@ -217,9 +225,12 @@ async def align(access: Any, claims: list[dict[str, Any]], cands: list[list[str]
                 by_id: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     """For each new claim: which candidate unit says the same thing, which say the opposite, which it refines."""
     from aurora.review import llm
+    apart = kept_apart([uid for ids in cands for uid in ids])
     parts = []
     for i, (c, ids) in enumerate(zip(claims, cands, strict=False)):
-        lines = "\n".join(f"  [{uid}] {by_id[uid]['claim']}" for uid in ids) or "  (none)"
+        lines = "\n".join(f"  [{uid}] {by_id[uid]['claim']}"
+                          + "".join(f"\n      (the researcher said this is NOT the same claim as: {x})" for x in apart.get(uid, []))
+                          for uid in ids) or "  (none)"
         parts.append(f"New claim {i + 1}: {c['claim']}\n  (support: {c['gist']})\nCandidates:\n{lines}")
     out = await llm.ask(access, "memory_align", f"""A researcher's memory keeps one unit per claim, with every source \
 that makes it. For each new claim, compare it with its candidate units (they may be in another language):
@@ -230,6 +241,7 @@ conclusion (it holds here but not there) is it a different claim.
 - "contradicts": units that claim the opposite about the same thing (both cannot hold under the same conditions).
 - "refines": units it qualifies: it says the claim holds only under narrower conditions, or adds a mechanism.
 - "why": one sentence, when it contradicts something.
+The researcher's own corrections are noted under a unit: a claim like one they kept apart is not the same claim.
 
 {chr(10).join(parts)}
 
@@ -247,6 +259,24 @@ JSON: {{"verdicts": [{{"n": 1, "same": "u_... or null", "contradicts": [], "refi
                   "refines": [x for x in v.get("refines") or [] if x in allowed and x != same],
                   "why": llm.unlabel(v.get("why", ""))}
     return [got.get(i + 1, {}) for i in range(len(claims))]
+
+
+def kept_apart(unit_ids: list[str]) -> dict[str, list[str]]:
+    """The researcher's corrections, for aligning: per unit, the claims they split off it ("not the same") and the
+    units they split it from. Used as counterexamples, so the same mistake is not made again."""
+    out: dict[str, list[str]] = {}
+    for m in mem_store.marks(list(dict.fromkeys(unit_ids))):
+        d = m.get("data") or {}
+        if m["kind"] == "split":
+            other = mem_store.unit(d.get("into", ""))
+            quote = d.get("quote") or (other or {}).get("claim", "")
+            if quote:
+                out.setdefault(m["unit_id"], []).append(f"“{quote[:240]}”")
+        elif m["kind"] == "split_from":
+            other = mem_store.unit(d.get("unit_id", ""))
+            if other:
+                out.setdefault(m["unit_id"], []).append(f"“{other['claim'][:240]}”")
+    return out
 
 
 async def bear(access: Any, models: dict[str, str], owner: str, unit_ids: list[str]) -> list[str]:

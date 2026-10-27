@@ -128,3 +128,35 @@ class _Lazy:
 
 
 write_log = _Lazy()
+
+
+async def undo(owner: str, log_id: str) -> dict[str, Any]:
+    """Undo a write AURORA made. Writes made in the browser or in a note app (Overleaf, Obsidian) are undone there,
+    by the entry point that made them: the answer says so."""
+    entry = write_log.entry(log_id)
+    if entry is None or entry["owner"] != owner:
+        raise ValueError("no such write")
+    if entry["undone_at"]:
+        raise ValueError("it was already undone")
+    u = entry["undo"]
+    kind = u.get("kind", "")
+    if kind in ("zotero_item", "zotero_note"):
+        from aurora.literature.zotero import client_for
+        client = client_for(owner)
+        item = await client.item(u["library"], u["item_key"])
+        if item is not None and not await client.delete(u["library"], u["item_key"], int(item.get("version") or 0)):
+            raise ValueError("it was changed in Zotero since; undo it there")
+    elif kind == "zotero_tag":
+        from aurora.literature.zotero import client_for
+        client = client_for(owner)
+        item = await client.item(u["library"], u["item_key"])
+        if item is not None:
+            tags = [t for t in (item.get("data") or {}).get("tags") or [] if t.get("tag") != u["tag"]]
+            if await client.patch(u["library"], u["item_key"], {"tags": tags}, int(item.get("version") or 0)) is None:
+                raise ValueError("it was changed in Zotero since; undo it there")
+    elif kind in ("overleaf", "obsidian", "zotero_app"):
+        return {"undone": False, "where": kind, "how": u.get("how", "Undo it in the editor (⌘Z).")}
+    else:
+        raise ValueError("this write cannot be undone from here")
+    write_log.mark_undone(log_id)
+    return {"undone": True}

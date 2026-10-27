@@ -463,9 +463,14 @@ def digest_text(user: Any) -> tuple[str, str] | None:
         for rr in ranks.get(r["item_id"], []):
             if rr["campaign_id"] in profiles and rr["rel"] >= 3:
                 per.setdefault(rr["campaign_id"], []).append((rr["rel"], r, rr["why"]))
-    if cfg.get("skip", True) and not any(rel >= 4 for v in per.values() for rel, _, _ in v):
+    try:                          # what came into the person's memory goes along
+        from aurora.memory.relate import digest_text as memory_part
+        memory = memory_part(user.user_id)
+    except Exception:
+        memory = ""
+    if cfg.get("skip", True) and not any(rel >= 4 for v in per.values() for rel, _, _ in v) and not memory:
         return None
-    if not per:
+    if not per and not memory:
         return None
     lines = []
     for cid, picks in per.items():
@@ -474,6 +479,8 @@ def digest_text(user: Any) -> tuple[str, str] | None:
         for _, r, why in picks[: int(cfg.get("top") or 5)]:
             lines.append(f"- {r['title']} ({r['source']})\n  {why}\n  {r['url']}")
         lines.append("")
+    if memory:
+        lines.append(memory)
     return f"Today’s reading, {datetime.now().strftime('%a %d %b')}", "\n".join(lines).strip()
 
 
@@ -518,15 +525,24 @@ def _users() -> list[Any]:
     return [auth_store.as_user(r) for r in rows]
 
 
+def _has_memory(user_id: str) -> bool:
+    try:
+        from aurora.memory.store import mem_store
+        return bool(mem_store.sources(user_id, 1))
+    except Exception:
+        return False
+
+
 async def tick() -> None:
     from aurora.auth.store import auth_store
     now = datetime.now()
     for user in _users():
         uid = user.user_id
-        if not auth_store.get_pref(uid, "feed_used"):
+        used = bool(auth_store.get_pref(uid, "feed_used"))
+        if not used and not _has_memory(uid):
             continue
         last = float(status(uid).get("last") or 0)
-        if time.time() - last > EVERY_HOURS * 3600 and not running(uid):
+        if used and time.time() - last > EVERY_HOURS * 3600 and not running(uid):
             try:
                 await refresh(user)
             except Exception:

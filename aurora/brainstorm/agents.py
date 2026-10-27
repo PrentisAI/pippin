@@ -65,6 +65,8 @@ ROLE_RULES = {
 measurement problem, a reason it may not generalise. Ask it as one sharp question (add_question).
 - If a paper already in the literature or a run's result contradicts the idea, record it as evidence against \
 (add_evidence, challenges). Finding new papers is the Librarian's job; designing tests is Methods'.
+- When you have search_memory, check the researcher's own memory for what contradicts the idea: their saves and \
+notes are the hardest objection to wave away (add_evidence with unit_id, challenges).
 - Do not demolish: say what would convince you.""",
     "Methods": """\
 - Turn the idea into a test: which data, which comparison, which observable would tell it apart from the \
@@ -80,7 +82,9 @@ propose a deep read (deep_read).
 - Search the literature (search_papers) before you answer about evidence; read the abstracts you get.
 - Record each relevant paper as evidence for or against the idea (add_evidence with its key), with one \
 sentence on what it shows. Say plainly when the evidence is indirect or weak, or when you found none.
-- Use the project's runs too: a run's finding can support or challenge an idea (add_evidence with run_id).""",
+- Use the project's runs too: a run's finding can support or challenge an idea (add_evidence with run_id).
+- When you have search_memory, look in the researcher's own memory too (what they saved from papers, posts and \
+their notes): a claim there is evidence they already hold (add_evidence with unit_id). Say it is theirs.""",
     "Mentor": "",          # its protocol is the ARS Socratic Mentor's (mentor.py)
 }
 
@@ -104,6 +108,7 @@ _TOOLS_ALL = [
          "rel": {"type": "string", "enum": ["supports", "challenges"]},
          "paper_key": {"type": "string", "description": "a paper's key from the literature or your searches"},
          "run_id": {"type": "string", "description": "or: a run of this project"},
+         "unit_id": {"type": "string", "description": "or: a claim from the researcher's memory (from search_memory)"},
          "text": {"type": "string", "description": "what it shows, one sentence"}}, "required": ["card_id", "rel", "text"]}},
     {"name": "add_next_step", "description": "Add a next step that builds on an idea: a concrete design or a sharper version.",
      "parameters": {"type": "object", "properties": {
@@ -158,6 +163,10 @@ _TOOLS_ALL = [
 ]
 _SEARCH = {"name": "search_papers", "description": "Search OpenAlex, arXiv, Crossref and Semantic Scholar for papers.",
            "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "a few specific words"}},
+                          "required": ["query"]}}
+_MEMORY = {"name": "search_memory", "description": "Search the researcher's own memory: the claims they saved from papers, "
+                                         "posts and their notes, each with its sources' words, and the conflicts among them.",
+           "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "what to look for"}},
                           "required": ["query"]}}
 _ASK_TO_SHARE = {"name": "ask_to_share", "description": "Ask the researcher, privately, whether one of their private ideas may be used here.",
                  "parameters": {"type": "object", "properties": {
@@ -277,6 +286,12 @@ class BoardTools:
             for e in found:
                 self.known_papers[e["key"]] = e["paper_id"]
             return "\n".join(paper_card(e, abstract_words=70) for e in found) or "Nothing found."
+        if name == "search_memory":
+            query = str(args.get("query", "")).strip()
+            if not query or b.shared_chat:
+                return {"error": "the researcher's memory is not used in a shared conversation"}
+            self.turn.step(f"Looking in your memory: “{query}”")
+            return await search_memory(b.viewer, query)
         if name == "add_question":
             idea = self._idea(str(args.get("card_id")))
             q = self._add("question", str(args.get("text", "")))
@@ -300,6 +315,13 @@ class BoardTools:
                     b.literature._cited(entry["paper_id"], by=self.agent, place=f"Brainstorm ({b.chat['title'][:40]})")
                     if b.space.startswith("user:"):
                         library.add_item("", entry["paper_id"], source="agent", added_by=self.agent, owner=b.viewer)
+            elif args.get("unit_id"):
+                from aurora.memory.store import mem_store
+                u = mem_store.unit(str(args["unit_id"]))
+                if u is None or u["owner"] != b.viewer or b.shared_chat:
+                    return {"error": "not a claim from the researcher's memory that may be used here"}
+                card = memory_card(b.space, b.viewer, u, text, by=self.agent, vis=b.card_vis(), chat_id=b.chat["chat_id"])
+                b.cards.append(card)
             elif args.get("run_id"):
                 self.turn.step(f"Recalling run {args['run_id']}")
                 card = self._add("material", text, run_id=str(args["run_id"]))
@@ -473,11 +495,11 @@ class BoardTools:
 ROLE_TOOLS = {
     # every agent may write down the researcher's idea when it is not on the board yet
     "Skeptic": {"add_question", "add_evidence", "add_idea", "set_assessment", "read_paper", "annotate", "revise_map",
-                "draft_versions"},
+                "draft_versions", "search_memory"},
     "Methods": {"add_next_step", "add_question", "add_idea", "set_assessment", "read_paper", "annotate", "revise_map",
                 "draft_versions"},
     "Librarian": {"search_papers", "add_evidence", "add_question", "add_idea", "read_paper", "annotate", "map_field",
-                  "deep_read", "revise_map", "draft_versions"},
+                  "deep_read", "revise_map", "draft_versions", "search_memory"},
     # a counterpoint, a piece of knowledge or an analogy from the literature; drafts only when asked, visibly
     "Mentor": {"search_papers", "draft_versions"},
 }
@@ -492,6 +514,8 @@ def tool_specs(agent: str, board: Board) -> list[dict[str, Any]]:
         specs.append(_SEARCH)
     if board.shared_chat and board.private:
         specs.append(_ASK_TO_SHARE)
+    if "search_memory" in allowed and not board.shared_chat and _has_memory(board.viewer):
+        specs.append(_MEMORY)       # the memory is personal: only in the researcher's own conversations
     return [{"type": "function", "function": s} for s in specs]
 
 
@@ -646,3 +670,57 @@ async def pick(text: str, activity: str, access: ModelAccess, client: Any = None
     found = [(m.start(), a) for a in AGENTS if (m := re.search(rf"\b{a}\b", out, re.I))]
     names = [a for _, a in sorted(found)][:n]
     return names or ([fallback if fallback in AGENTS else "Librarian"] if must else [])
+
+
+# ---------------------------------------------------------------------------
+# The researcher's memory, as evidence on the board
+
+
+def _has_memory(owner: str) -> bool:
+    try:
+        from aurora.memory.store import mem_store
+        return bool(mem_store.units(owner))
+    except Exception:
+        return False
+
+
+async def search_memory(owner: str, query: str, limit: int = 8) -> str:
+    """The researcher's claims nearest to a query, with their sources' words and conflicts (for an agent)."""
+    from aurora.memory import ingest
+    from aurora.memory.follow import _access_of
+    from aurora.memory.store import mem_store
+    units = mem_store.units(owner)
+    if not units:
+        return "Their memory is empty."
+    try:
+        access, models = _access_of(owner)
+    except Exception as exc:
+        return f"Their memory cannot be searched now: {exc}"
+    vec = (await ingest.embed(access, models["embedding"], [query]))[0]
+    uv = await ingest.unit_vectors(access, models["embedding"], units)
+    near = [u for u in sorted(units, key=lambda u: -ingest.cosine(vec, uv.get(u["unit_id"], [0.0])))[:limit]
+            if ingest.relevance(ingest.cosine(vec, uv.get(u["unit_id"], [0.0]))) >= 0.3]
+    if not near:
+        return "Nothing in their memory bears on it."
+    out = []
+    for u in near:
+        ev = mem_store.evidence(u["unit_id"])
+        quotes = "; ".join(f"“{e['quote'][:160]}” ({e['title'] or e['platform']})" for e in ev[:3])
+        clash = [lk for lk in mem_store.links([u["unit_id"]]) if lk["rel"] == "contradicts"]
+        out.append(f"[{u['unit_id']}] {u['claim']} — {len({e['source_id'] for e in ev})} source(s): {quotes}"
+                   + (f" — conflicts with {len(clash)} other claim(s)" if clash else ""))
+    return "\n".join(out)
+
+
+def memory_card(space: str, owner: str, u: dict[str, Any], text: str = "", *, by: str = "", vis: str = "private",
+                chat_id: str = "") -> dict[str, Any]:
+    """A claim from the researcher's memory as material on a brainstorm board (it keeps its unit, and its sources)."""
+    from aurora.memory.store import mem_store
+    ev = mem_store.evidence(u["unit_id"])
+    n = len({e["source_id"] for e in ev})
+    url = next((e["url"] for e in ev if e["url"] and not e["url"].startswith("obsidian://")), "")
+    own = any(e["platform"] == "note" for e in ev)
+    body = u["claim"] + (f" {text}" if text and text.strip() != u["claim"] else "")
+    return bs_store.add_card(space, owner, "material", body, by=by or owner, vis=vis, chat_id=chat_id,
+                             source=f"From your memory · {n} source{'s' if n != 1 else ''}" + (" · your note" if own else ""),
+                             url=url, unit_id=u["unit_id"])

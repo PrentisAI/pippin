@@ -77,16 +77,21 @@ def parse_json(text: str) -> Any:
 
 
 async def ask(access: Access, task: str, body: str, *, temperature: float = 0.3, max_tokens: int = 8000,
-              system: str = "", retries: int = 2, web: int = 0, want: str | None = "") -> Any:
+              system: str = "", retries: int = 2, web: int = 0, want: str | None = "",
+              images: list[str] | None = None) -> Any:
     """One call: ``TASK: <task>``, the style, the body; returns the parsed JSON.
 
     ``web``: let the model search the web first (OpenRouter's web plugin, this many results per search).
+    ``images``: data URLs sent along with the body (the model must see images).
     ``want``: the answer is an object; a bare list that came instead is taken as its ``want`` field (or, with
     ``want=""``, its first object). ``None``: the answer as it came."""
     if not access.api_key:
         raise ModelError(f"No API key is set: {access.missing}")
     prompt = f"TASK: {task}\n\n{STYLE}\n\n{body}\n\nAnswer with JSON only."
-    messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
+    content: Any = prompt
+    if images:                    # data: URLs (a screenshot, a figure), for a model that sees
+        content = [{"type": "text", "text": prompt}, *({"type": "image_url", "image_url": {"url": u}} for u in images)]
+    messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": content}]
     last = ""
     for attempt in range(retries + 1):
         try:

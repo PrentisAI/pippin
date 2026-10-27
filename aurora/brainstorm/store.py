@@ -159,7 +159,8 @@ class BrainstormStore:
         if "guide" not in chat_cols:        # the Mentor's guided questioning in this conversation
             self._conn.execute("ALTER TABLE bs_chats ADD COLUMN guide TEXT NOT NULL DEFAULT '{}'")
         card_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(bs_cards)")}
-        for col in ("source", "url"):     # material from the feed that is not a paper: a post, a blog
+        # material from the feed that is not a paper (a post, a blog); a claim from the researcher's memory
+        for col in ("source", "url", "unit_id"):
             if col not in card_cols:
                 self._conn.execute(f"ALTER TABLE bs_cards ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
         self._conn.commit()
@@ -267,15 +268,15 @@ class BrainstormStore:
 
     def add_card(self, space: str, owner: str, type_: str, text: str, *, by: str = "", vis: str = "private",
                  stand: str = "", paper_id: str = "", run_id: str = "", chat_id: str = "", live: bool = False,
-                 source: str = "", url: str = "") -> dict[str, Any]:
+                 source: str = "", url: str = "", unit_id: str = "") -> dict[str, Any]:
         if type_ not in CARD_TYPES:
             raise ValueError(f"type must be one of {CARD_TYPES}")
         cid = _new("c")
         now = time.time()
         self._x("INSERT INTO bs_cards (card_id, space, owner, type, text, stand, by, vis, paper_id, run_id, chat_id, "
-                "live, source, url, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "live, source, url, unit_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (cid, space, owner, type_, text.strip()[:4000], stand[:600], by or owner, vis, paper_id, run_id,
-                 chat_id, int(live), source[:200], url[:1000], now, now))
+                 chat_id, int(live), source[:200], url[:1000], unit_id, now, now))
         return self.card(cid)  # type: ignore[return-value]
 
     def card(self, card_id: str) -> dict[str, Any] | None:

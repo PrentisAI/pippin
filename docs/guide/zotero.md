@@ -85,3 +85,23 @@ Export a collection as BibTeX, then use **Import BibTeX** on the Literature
 page. Each entry is checked; the entries that are found go in, and the rest are
 listed with the reason. **Export .bib** gives the project's papers back as
 BibTeX.
+
+## The Zotero plugin
+
+The sync above works through Zotero's Web API. The Zotero 7 plugin (`zotero-plugin/`) works inside Zotero itself:
+
+- **Every paper you add is read in the background.** Open it later and the item pane's **AURORA** section has its
+  methods, findings and limitations, each marked as stated by the paper or inferred, and what your memory makes of
+  it: the questions it bears on, conflicts with what you saved, claims you already had from elsewhere. Nothing is
+  written into your library; **Save the card as a note** does that, only when *Write notes on Zotero items* is
+  allowed, and marks it as written by AURORA.
+- **Sentences your saves argue with**: the sentences of the paper that something you saved challenges or qualifies.
+  Click one to open the PDF at its page; **Mark them in the PDF** adds orange highlights (tagged `aurora-dissent`)
+  when *Send the notes you keep on a PDF as Zotero annotations* is allowed, and **Remove the marks** takes them away.
+- **In the reader**, select a sentence: **What my saves say** lists what you saved that supports or challenges it;
+  **Save to AURORA** keeps the passage in your memory. The paper and passage you are on go to AURORA as context
+  (kept a few hours, never stored; you can turn it off).
+
+Install: `zotero-plugin/build.sh` makes `dist/aurora-zotero.xpi`; in Zotero, Tools → Plugins → ⚙ → Install Plugin
+From File…. Then Settings → AURORA: the console's address and, with accounts, a token (Memory page → *Browser
+extension and desktop app* → **Make a token**).

@@ -1362,7 +1362,7 @@ export type MemStance = 'challenges' | 'adds' | 'supports' | 'background' | 'too
 export interface MemItem {
   unit_id: string; claim: string; gist: string; kind: string; layer: 'surface' | 'absorbed' | 'sunk'
   stance: MemStance; why: string; relevance: number; sources: number; platforms: string[]; sunk: boolean
-  clash_with: { unit_id: string; claim: string } | null; moved: boolean
+  clash_with: { unit_id: string; claim: string; yours?: boolean } | null; yours?: boolean; moved: boolean
   answers: { question: string; answer: string; at: number | null }[]
 }
 export interface MemSurface {
@@ -1414,4 +1414,32 @@ export interface MemDigest {
 export interface MemFollow {
   follow_id: string; platform: string; url: string; label: string; via: 'extension' | 'server'; every_min: number
   seen: number; last_run: number; last_error: string; paused: number
+}
+export interface MemDissent {
+  paper_id: string; note?: string
+  items: { page: number; quote: string; kind: 'challenges' | 'qualifies'; why: string; units: { unit_id: string; claim: string; sources: number }[] }[]
+}
+export interface MemCite {
+  sentence: string; note: string
+  candidates: { paper_id: string; key: string; title: string; byline: string; quote: string; how: string; from: string; bibtex: string; doi: string }[]
+}
+export interface MemAuditEntry { key: string; title: string; status: string; reason: string; cited?: boolean; paper_id?: string; doi?: string; found_title?: string; retracted?: string; year?: number }
+export interface MemAudit {
+  audit_id: string; title: string; state: 'running' | 'done' | 'failed'; step: string; error: string; created_at: number
+  report: {
+    title?: string; entries?: MemAuditEntry[]; unused?: string[]; undefined?: string[]
+    miscites?: { key: string; sentence: string; line: number; verdict: 'partly' | 'no'; issue: string; quote: string; title: string }[]
+    missing?: { paper_id: string; title: string; byline: string; why: string; bibtex: string }[]
+    counts?: Record<string, number>
+  }
+}
+export interface MemAlert { alert_id: string; kind: 'retraction' | 'overlap' | 'decision'; ref?: { url?: string; doi?: string; paper_id?: string }; tier: 'now' | 'digest'; title: string; body: string; created_at: number; seen_at: number | null; verdict: string }
+
+export interface MemVault {
+  path: string; folders: string[]; exclude: string[]; on: boolean; notes?: number
+}
+
+export interface MemVoiceTurn {
+  turn_id: string; at: number; said: string; intent: string; speech: string; text: string; undo_id: string; waiting: boolean
+  items: { n?: number; kind?: string; text?: string; unit_id?: string; claim?: string; sources?: { title: string; url: string; quote: string }[] }[]
 }

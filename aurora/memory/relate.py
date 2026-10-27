@@ -105,7 +105,7 @@ related ("related"), and the relation in one sentence in {language(owner)} ("rel
 qualifies, the same result elsewhere...). Be strict: say false when the link is only topical.
 
 JSON: {{"questions": [{{"id": "q_...", "bears": true, "how": "...", "stance": "adds"}}], \
-"units": [{{"id": "u_...", "related": true, "relation": "..."}}]}}""", max_tokens=2000)
+"units": [{{"id": "u_...", "related": true, "relation": "..."}}]}}""", max_tokens=4000)
     for x in (out.get("questions") or []) + (out.get("units") or []):
         if isinstance(x, dict):
             for k in ("how", "relation"):
@@ -163,5 +163,22 @@ def digest(owner: str, hours: int = 24) -> dict[str, Any]:
                     if not any({c["a_id"], c["b_id"]} == {a, b} for c in g["conflicts"]):
                         g["conflicts"].append({"a": claim[a]["claim"], "b": claim[b]["claim"], "a_id": a, "b_id": b})
     out = [g for g in [*groups.values(), other] if g["merged"] or g["new"] or g["conflicts"]]
+    alerts = [{"alert_id": a["alert_id"], "kind": a["kind"], "tier": a["tier"], "title": a["title"], "body": a["body"]}
+              for a in mem_store.alerts(owner, since=since)]
     return {"hours": hours, "sources": len(sources), "from_feed": sum(s["via"] == "feed" for s in sources),
-            "groups": out}
+            "groups": out, "alerts": alerts}
+
+
+def digest_text(owner: str) -> str:
+    """The memory's part of the daily digest message, as text ('' when nothing came in)."""
+    d = digest(owner, 24)
+    lines = []
+    for a in d["alerts"]:
+        lines.append(f"- {a['title']}: {a['body']}")
+    for g in d["groups"]:
+        head = f"{g['label']} · {g['text']}" if g["label"] else g["text"]
+        rows = [f"- conflict: {c['a']} ⟷ {c['b']}" for c in g["conflicts"]]
+        rows += [f"- +1 source ({u['sources']} now): {u['claim']}" for u in g["merged"]]
+        rows += [f"- new: {u['claim']}" for u in g["new"]]
+        lines.append(f"### {head}\n" + "\n".join(rows[:8]))
+    return ("## Your memory\n" + "\n".join(lines)) if lines else ""

@@ -123,7 +123,9 @@ A second call then checks each step of the reconstruction against the introducti
 so*, *fits what they write*, or *reconstruction only*. The answer stays covered until you write your
 own guess (or skip); afterwards you tick which steps you had made, and see the one to study.
 
-Quotes in the answers light up the passage in the PDF. You can ask more about any question, answer it
+**You answer first.** Every question's answer stays covered until you write your own answer to it, or choose
+to see the AI's; asking more about a question needs one of the two. Quotes in the answers light up the passage in
+the PDF. You can ask more about any question, answer it
 again, and send the follow-up idea to the brainstorm with its evidence.
 
 ## Cost

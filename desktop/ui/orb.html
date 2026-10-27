@@ -8,15 +8,23 @@ html,body{margin:0;background:transparent;overflow:hidden;user-select:none;-webk
 .orb.over{transform:scale(1.18)}
 .orb.swallow{animation:swallow 1.2s ease-in-out infinite}
 @keyframes swallow{0%{transform:scale(1)}40%{transform:scale(1.22)}100%{transform:scale(1)}}
+.orb.listening{background:radial-gradient(circle at 35% 30%,#5fd3a8,#1f9d74 60%,#126b4f)}
+.orb.listening svg path{animation:wave .6s ease-in-out infinite alternate}
+@keyframes wave{from{transform:scaleY(.6)}to{transform:scaleY(1.4)}}
+.orb.listening svg path{transform-origin:center}
+.orb.thinking{animation:swallow 1.2s ease-in-out infinite;opacity:.85}
 .dot{position:absolute;right:10px;top:10px;width:12px;height:12px;border-radius:50%;background:#f59e0b;border:2px solid #fff;display:none}
 </style></head>
 <body>
-<div class="orb" id="orb" title="AURORA: drop a link, a selection or a file to save it; click for your memory; right click for settings">
+<div class="orb" id="orb" title="AURORA: drop a link, a selection or a file to save it; click for your memory; hold ⌥⇧Space to talk; right click for settings">
   <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M3 9c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2M3 15c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2"/></svg>
 </div><div class="dot" id="dot"></div>
 <script>
 const { invoke } = window.__TAURI__.core
 const orb = document.getElementById('orb')
+// something worth interrupting for: the dot
+window.__TAURI__.event.listen('alerts', (e) => { document.getElementById('dot').style.display = e.payload > 0 ? 'block' : 'none' })
+
 // a click opens the panel; pressing and moving drags the orb elsewhere on the screen
 let down = null
 let dragged = false
@@ -28,6 +36,12 @@ window.addEventListener('mousemove', (e) => {
   }
 })
 window.addEventListener('mouseup', () => { down = null })
+// dropped somewhere: settle against the nearest side of the screen
+let settle = null
+window.__TAURI__.window.getCurrentWindow().onMoved(() => {
+  clearTimeout(settle)
+  settle = setTimeout(() => invoke('snap_orb').catch(() => {}), 450)
+})
 orb.addEventListener('click', () => { if (!dragged) invoke('open_panel') })
 orb.addEventListener('contextmenu', (e) => { e.preventDefault(); invoke('open_settings') })
 
@@ -54,6 +68,76 @@ document.addEventListener('drop', async (e) => {
     invoke('peek', { head: 'Could not save it', body: String(err) })
   }
 })
+
+// hold ⌥⇧Space to talk: record while it is held, send when it is let go
+let rec = null
+window.__TAURI__.event.listen('listen', async (e) => {
+  if (e.payload) start().catch((err) => invoke('peek', { head: 'Could not listen', body: String(err) }))
+  else stop()
+})
+
+async function start() {
+  if (rec) return
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
+  const ctx = new AudioContext()
+  const src = ctx.createMediaStreamSource(stream)
+  const node = ctx.createScriptProcessor(4096, 1, 1)
+  const chunks = []
+  node.onaudioprocess = (ev) => { chunks.push(new Float32Array(ev.inputBuffer.getChannelData(0))) }
+  src.connect(node); node.connect(ctx.destination)
+  rec = { stream, ctx, node, chunks, at: Date.now() }
+  orb.classList.add('listening')
+}
+
+async function stop() {
+  if (!rec) return
+  const { stream, ctx, node, chunks, at } = rec
+  rec = null
+  node.disconnect(); stream.getTracks().forEach((t) => t.stop())
+  orb.classList.remove('listening')
+  const rate = ctx.sampleRate
+  await ctx.close()
+  if (Date.now() - at < 400) return            // a tap, not speech
+  const wav = toWav(chunks, rate, 16000)
+  orb.classList.add('thinking')
+  try {
+    await invoke('hear', { audio: wav })
+  } catch (err) {
+    invoke('peek', { head: 'Could not answer', body: String(err).slice(0, 200) })
+  } finally {
+    orb.classList.remove('thinking')
+  }
+}
+
+// mono 16-bit PCM WAV at 16 kHz (what whisper.cpp reads), base64
+function toWav(chunks, from, to) {
+  const n = chunks.reduce((a, c) => a + c.length, 0)
+  const all = new Float32Array(n)
+  let o = 0
+  for (const c of chunks) { all.set(c, o); o += c.length }
+  const ratio = from / to
+  const len = Math.floor(n / ratio)
+  const pcm = new Int16Array(len)
+  for (let i = 0; i < len; i++) {
+    const a = Math.floor(i * ratio), b = Math.min(n, Math.floor((i + 1) * ratio))
+    let sum = 0
+    for (let j = a; j < b; j++) sum += all[j]
+    const v = Math.max(-1, Math.min(1, sum / Math.max(1, b - a)))
+    pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff
+  }
+  const buf = new ArrayBuffer(44 + pcm.length * 2)
+  const dv = new DataView(buf)
+  const str = (off, t) => { for (let i = 0; i < t.length; i++) dv.setUint8(off + i, t.charCodeAt(i)) }
+  str(0, 'RIFF'); dv.setUint32(4, 36 + pcm.length * 2, true); str(8, 'WAVE'); str(12, 'fmt ')
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true); dv.setUint32(24, to, true)
+  dv.setUint32(28, to * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); str(36, 'data')
+  dv.setUint32(40, pcm.length * 2, true)
+  new Int16Array(buf, 44).set(pcm)
+  const bytes = new Uint8Array(buf)
+  let bin = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000))
+  return btoa(bin)
+}
 
 async function swallow(id, what) {
   orb.classList.add('swallow')

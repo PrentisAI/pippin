@@ -124,7 +124,10 @@ function WritesDialog({ onClose }: { onClose: () => void }) {
           ))}
           {w && w.log.length > 0 && <div className="wr-group"><b>Recent writes</b>
             {w.log.slice(0, 8).map((l) => <div key={l.log_id} className="wr-row"><span>{w.writes[l.write]?.label ?? l.write}</span>
-              <span className="lit-sub">{new Date(l.created_at * 1000).toLocaleString()}{l.undone_at ? ' · undone' : ''}</span></div>)}</div>}
+              <span className="lit-sub">{new Date(l.created_at * 1000).toLocaleString()}{l.undone_at ? ' · undone' : ''}
+                {!l.undone_at && <button className="link-btn" onClick={async () => {
+                  try { const r = await api.me.undoWrite(l.log_id); if (!r.undone) setErr(r.how ?? 'Undo it where it was made.'); setW(await api.me.writes()) } catch (e) { setErr(describeError(e)) }
+                }}> undo</button>}</span></div>)}</div>}
           {err && <div className="modal-error">{err}</div>}
         </div>
         <div className="modal-actions"><button type="button" className="btn-sm" onClick={onClose}>Close</button></div>

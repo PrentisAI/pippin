@@ -826,9 +826,22 @@ async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any,
         elif name == "human_gate_opened":
             run.status = "awaiting_human"
             campaign.note(f"{run.task_name}: needs your decision — {data.get('title', '')}")
+            try:
+                from aurora.memory import alerts
+                base = console_url()
+                alerts.decision_opened(run.started_by or "local", str(data.get("gate_id", "")), run.task_name,
+                                       str(data.get("title", "")),
+                                       f"{base}/campaigns/{campaign.campaign_id}/experiments/{run.run_id}" if base else "")
+            except Exception:
+                logger.debug("the decision alert could not be raised", exc_info=True)
         elif name == "human_gate_resolved":
             if run.status == "awaiting_human":
                 run.status = "running"
+            try:
+                from aurora.memory import alerts
+                alerts.decision_closed(run.started_by or "local", str(data.get("gate_id", "")))
+            except Exception:
+                logger.debug("the decision alert could not be closed", exc_info=True)
             run.decision_history.append({**data, "timestamp": time.time()})
         elif name == "resources_updated":     # changed live (console or front desk): a resume keeps it
             _update_saved_request(run.run_id, cpus=data.get("cpus"), memory_mb=data.get("memory_mb"))

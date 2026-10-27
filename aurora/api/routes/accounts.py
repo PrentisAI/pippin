@@ -202,6 +202,34 @@ class DeviceBody(BaseModel):
     name: str
 
 
+@me_router.post("/writes/{log_id}/undo")
+async def undo_write(log_id: str) -> dict[str, Any]:
+    """Undo a write AURORA made into your tools."""
+    from aurora.auth import writes
+    try:
+        return await writes.undo(current_user().user_id, log_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+class WriteRecord(BaseModel):
+    write: str
+    detail: dict[str, Any] = {}
+    undo: dict[str, Any] = {}
+
+
+@me_router.post("/writes/log")
+async def record_write(body: WriteRecord) -> dict[str, Any]:
+    """An entry point that wrote into a tool itself (Overleaf, Obsidian, Zotero's own app) logs it here."""
+    from aurora.auth import writes
+    uid = current_user().user_id
+    if body.write not in writes.WRITES:
+        raise HTTPException(400, "unknown write")
+    if not writes.allowed(uid, body.write):
+        raise HTTPException(403, "This write is off: turn it on under What AURORA may write")
+    return {"log_id": writes.write_log.record(uid, body.write, body.detail, body.undo)}
+
+
 @me_router.get("/devices")
 async def my_devices() -> list[dict[str, Any]]:
     """The entry points connected to your account (browser extension, desktop app)."""

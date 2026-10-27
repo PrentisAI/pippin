@@ -420,8 +420,10 @@ NOTIFY_EVENTS: dict[str, str] = {
     "skill_suggestion": "A skill was proposed for the library",
     "compute_job": "A cluster job of an experiment ended",
     "estimate_exceeded": "An experiment costs or takes much more than estimated",
+    "memory_alert": "Something you would regret missing: a retraction in what you rely on, a paper overlapping your work",
 }
-DEFAULT_NOTIFY_EVENTS = ["decision_needed", "run_finished", "run_failed", "budget_warning", "estimate_exceeded"]
+DEFAULT_NOTIFY_EVENTS = ["decision_needed", "run_finished", "run_failed", "budget_warning", "estimate_exceeded",
+                         "memory_alert"]
 
 
 class NotifyChannel(_Section):

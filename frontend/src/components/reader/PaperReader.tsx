@@ -2,12 +2,13 @@
  *  Opened anywhere with the event `aurora:read-paper` ({ paper, space, cardId?, chatId?, from? }). */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import type { NotePlace, ReaderAgent, ReaderNote, ReaderView } from '../../types'
+import type { MemDissent, NotePlace, ReaderAgent, ReaderNote, ReaderView } from '../../types'
 import { ZoteroDialog } from '../ZoteroDialog'
 import './textLayer.css'
 import { PdfView, type Picked } from './PdfView'
 import { AGENTS, NotesPanel, avatar, inFilter, type Filter } from './NotesPanel'
 import { DeepReadPanel } from '../review/DeepReadPanel'
+import { DissentPanel } from '../memory/DissentPanel'
 
 export interface ReadRequest {
   /** The paper's key or ID. */
@@ -51,7 +52,8 @@ export default function PaperReader({ req, onClose }: { req: ReadRequest; onClos
   const [busyZ, setBusyZ] = useState(false)
   const [toast, setToast] = useState<{ text: string; undo?: () => void; key: number } | null>(null)
   const [unplaced, setUnplaced] = useState<Set<string>>(new Set())
-  const [side, setSide] = useState<'notes' | 'deep'>(req.tab ?? 'notes')
+  const [side, setSide] = useState<'notes' | 'deep' | 'saves'>(req.tab ?? 'notes')
+  const [dissent, setDissent] = useState<MemDissent | null | undefined>(undefined)
   const [flash, setFlash] = useState<{ quote: string; page: number; nonce: number } | null>(null)
   const asked = useRef(false)
   const q = useMemo(() => ({ space: req.space, card_id: req.cardId, chat_id: req.chatId }), [req])
@@ -60,6 +62,14 @@ export default function PaperReader({ req, onClose }: { req: ReadRequest; onClos
     try { setView(await api.reader.get(req.paper, q)); setError(null) } catch (e) { setError((e as Error).message) }
   }, [req.paper, q])
   useEffect(() => { load() }, [load])
+  // what you saved before that argues with this paper: the margin marks and the "Your saves" tab
+  const paperId = view?.paper.paper_id
+  useEffect(() => {
+    if (!paperId) return
+    let gone = false
+    api.memory.dissent(paperId, req.space).then((d) => { if (!gone) setDissent(d) }).catch(() => { if (!gone) setDissent(null) })
+    return () => { gone = true }
+  }, [paperId, req.space])
 
   // the agents read along once the paper is open (for the idea, if they mark passages on their own)
   useEffect(() => {
@@ -289,6 +299,12 @@ export default function PaperReader({ req, onClose }: { req: ReadRequest; onClos
                   dimmed={dimmed} scrollTo={scrollTo} picked={picked} onPick={setPicked}
                   onNote={(id) => { setFocusId(id); setPicked(null); if (dimmed.has(id)) setFilter('all') }}
                   onPlace={onPlace} onPages={setPages} onPage={setPage} onError={setPdfError} flash={flash} />
+                {(dissent?.items ?? []).some((it) => it.page === page - 1) && (() => {
+                  const here = dissent!.items.filter((it) => it.page === page - 1)
+                  const n = new Set(here.flatMap((it) => it.units.map((u) => u.unit_id))).size
+                  return <button className="mem-margin" onClick={() => { setSide('saves'); setFlash({ quote: here[0].quote, page: here[0].page, nonce: Date.now() }) }}>
+                    {n} of your saves argue with this page</button>
+                })()}
                 {picked && (
                   <SelectionMenu picked={picked} onClose={() => setPicked(null)} onHighlight={() => create('highlight')}
                     onComment={() => create('comment')} onAsk={(a) => create('ask', a)} />
@@ -302,8 +318,11 @@ export default function PaperReader({ req, onClose }: { req: ReadRequest; onClos
             <button role="tab" aria-selected={side === 'notes'} className={side === 'notes' ? 'on' : ''} onClick={() => setSide('notes')}>
               Notes <span className="rd-n">{notes.length}</span></button>
             <button role="tab" aria-selected={side === 'deep'} className={side === 'deep' ? 'on' : ''} onClick={() => setSide('deep')}>Deep read</button>
+            <button role="tab" aria-selected={side === 'saves'} className={side === 'saves' ? 'on' : ''} onClick={() => setSide('saves')}
+              title="What you saved before that argues with this paper">Your saves{dissent?.items.length ? <span className="rd-n warn">{dissent.items.length}</span> : null}</button>
           </div>
-          {side === 'notes'
+          {side === 'saves' ? <DissentPanel data={dissent} onQuote={(quote, pg) => setFlash({ quote, page: pg, nonce: Date.now() })} />
+            : side === 'notes'
             ? <NotesPanel view={view} notes={notes} filter={filter} setFilter={setFilter} focusId={focusId} unplaced={unplaced}
               onFocus={focus} onGoto={goto} actions={actions} />
             : <DeepReadPanel paper={p.key} space={req.space} mapId={req.mapId}

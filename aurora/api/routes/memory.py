@@ -95,7 +95,8 @@ def _source_view(s: dict[str, Any]) -> dict[str, Any]:
 
 @router.get("/sources")
 async def sources(limit: int = 50) -> list[dict[str, Any]]:
-    return [_source_view(s) for s in mem_store.sources(_uid(), max(1, min(500, limit)))]
+    # forgotten ones, and the old versions of edited notes, are not listed
+    return [_source_view(s) for s in mem_store.sources(_uid(), max(1, min(500, limit))) if s["state"] != "retired"]
 
 
 @router.get("/sources/{source_id}")
@@ -131,8 +132,15 @@ class Context(BaseModel):
 
 @router.post("/context")
 async def put_context(body: Context) -> dict[str, Any]:
-    """An entry point says what the person is doing now (kept in memory for a few hours, never stored)."""
-    return surface.report_context(_uid(), body.model_dump())
+    """An entry point says what the person is doing now (kept in memory for a few hours, never stored). In a PDF
+    reader other than AURORA's, the paper is told from the file name when it can be."""
+    ctx = body.model_dump()
+    if ctx["app"] in surface.PDF_READERS and not ctx["paper_id"] and ctx["title"]:
+        try:
+            ctx = await surface.infer_paper(_uid(), ctx)
+        except Exception:
+            pass                      # the file name only, then
+    return surface.report_context(_uid(), ctx)
 
 
 @router.get("/contexts")
@@ -268,7 +276,9 @@ async def split(evidence_id: str) -> dict[str, Any]:
     new = mem_store.add_unit(u["owner"], e["quote"][:300], f"Split from “{u['claim'][:120]}”. From {s.get('title', '')}.",
                              u["kind"])
     mem_store.move_evidence(evidence_id, new["unit_id"])
-    mem_store.mark(u["unit_id"], u["owner"], "split", {"evidence_id": evidence_id, "into": new["unit_id"]})
+    mem_store.mark(u["unit_id"], u["owner"], "split", {"evidence_id": evidence_id, "into": new["unit_id"],
+                                                      "quote": e["quote"][:300]})
+    mem_store.mark(new["unit_id"], u["owner"], "split_from", {"unit_id": u["unit_id"]})
     return await unit(new["unit_id"])
 
 
@@ -487,3 +497,454 @@ async def follow_items(follow_id: str, body: FollowItems) -> dict[str, Any]:
 @router.get("/digest")
 async def digest(hours: int = 24) -> dict[str, Any]:
     return relate.digest(_uid(), max(1, min(168, hours)))
+
+
+# ---------------------------------------------------------------------------
+# Interruptions
+
+
+@router.get("/alerts")
+async def alerts(unseen: bool = False, hours: int = 72) -> list[dict[str, Any]]:
+    """What was worth interrupting for (``tier: now``) or waits for the digest; entry points poll for the unseen."""
+    import time as _time
+    return mem_store.alerts(_uid(), since=_time.time() - max(1, min(24 * 30, hours)) * 3600, unseen=unseen)
+
+
+@router.post("/alerts/{alert_id}/seen")
+async def alert_seen(alert_id: str) -> dict[str, Any]:
+    import time as _time
+    a = mem_store.alert(alert_id)
+    if a is None or a["owner"] != _uid():
+        raise HTTPException(404, "No such alert")
+    mem_store.update_alert(alert_id, seen_at=a["seen_at"] or _time.time())
+    return mem_store.alert(alert_id)  # type: ignore[return-value]
+
+
+class Verdict(BaseModel):
+    worth: bool
+
+
+@router.post("/alerts/{alert_id}/verdict")
+async def alert_verdict(alert_id: str, body: Verdict) -> dict[str, Any]:
+    """Was it worth interrupting you? Not worth it: alerts of its kind wait for the digest from now on."""
+    from aurora.memory import alerts as al
+    try:
+        return al.verdict(_uid(), alert_id, body.worth)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from None
+
+
+@router.post("/alerts/check")
+async def check_now() -> dict[str, Any]:
+    """Check the papers you rely on for retractions now (otherwise once a day)."""
+    from aurora.memory import alerts as al
+    raised = await al.check_retractions(_uid(), force=True)
+    return {"checked": len(al.relied_on(_uid())), "retracted": raised}
+
+
+@router.delete("/sources/{source_id}")
+async def forget_source(source_id: str) -> dict[str, Any]:
+    """Take a saved thing out of your memory (units left without any source go too)."""
+    s = mem_store.source(source_id)
+    if s is None or s["owner"] != _uid():
+        raise HTTPException(404, "No such source")
+    return {"gone_units": mem_store.retire_source(source_id)}
+
+
+# ---------------------------------------------------------------------------
+# Writing: a citation for a sentence, and the references before you submit
+
+
+class CiteBody(BaseModel):
+    sentence: str
+    context: str = ""
+
+
+@router.post("/cite")
+async def cite(body: CiteBody) -> dict[str, Any]:
+    """Papers from your own library that back a sentence you are writing, each with the passage that does."""
+    from aurora.memory import cite as ct
+    if len(body.sentence.strip()) < 8:
+        raise HTTPException(400, "Give the sentence that needs a citation")
+    access, models = _access()
+    return await ct.suggest(access, models, _uid(), body.sentence.strip()[:2000], body.context)
+
+
+@router.post("/cite/hint")
+async def cite_hint(body: CiteBody) -> dict[str, Any]:
+    """Whether papers you have may back the sentence you stopped at (by meaning only; no model call)."""
+    from aurora.memory import cite
+    if len(body.sentence.strip()) < 40 or "\\cite" in body.sentence:
+        return {"papers": 0, "top": []}
+    access, models = _access()
+    return await cite.hint(access, models, _uid(), body.sentence)
+
+
+class AuditBody(BaseModel):
+    tex: str = ""
+    bib: str = ""
+    title: str = ""
+    pdf: str = ""            # or the manuscript as a PDF, base64
+
+
+@router.post("/audit")
+async def start_audit(body: AuditBody) -> dict[str, Any]:
+    """Check a manuscript's references: exist, retracted, misquoted, key work missing (in the background)."""
+    import base64
+
+    from aurora.memory import audit as au
+    pdf = b""
+    if body.pdf:
+        try:
+            pdf = base64.b64decode(body.pdf)
+        except ValueError:
+            raise HTTPException(400, "The PDF could not be read") from None
+        if not pdf.startswith(b"%PDF") or len(pdf) > 80 * 1024 * 1024:
+            raise HTTPException(400, "Give a PDF (at most 80 MB)")
+    elif "\\" not in body.tex and not body.bib.strip():
+        raise HTTPException(400, "Give the manuscript's LaTeX (and its .bib), or its PDF")
+    access, models = _access()
+    return au.start(access, models, _uid(), body.tex, body.bib, body.title, pdf=pdf)
+
+
+@router.get("/audits")
+async def audits() -> list[dict[str, Any]]:
+    from aurora.memory import audit as au
+    return au.listing(_uid())
+
+
+@router.get("/audits/{audit_id}")
+async def get_audit(audit_id: str) -> dict[str, Any]:
+    from aurora.memory import audit as au
+    a = au.get(audit_id)
+    if a is None or a["owner"] != _uid():
+        raise HTTPException(404, "No such check")
+    return a
+
+
+@router.get("/dissent")
+async def dissent(paper: str, space: str = "") -> dict[str, Any]:
+    """The sentences of a paper that what you saved before challenges or qualifies (for the reader's margin)."""
+    from aurora.literature.library import library
+    from aurora.memory import dissent as ds
+    e = library.paper(paper)
+    if e is None:
+        raise HTTPException(404, "No such paper")
+    cid = "" if not space or space.startswith("user:") or space == "global" else space
+    access, models = _access()
+    return await ds.find(access, models, _uid(), e["paper_id"], cid)
+
+
+# ---------------------------------------------------------------------------
+# The Zotero plugin: a paper read in the background
+
+
+class ZoteroItem(BaseModel):
+    doi: str = ""
+    arxiv: str = ""
+    title: str = ""
+    pdf: str = ""            # the PDF, base64, when Zotero has it
+
+
+@router.post("/zotero-read")
+async def zotero_read(body: ZoteroItem) -> dict[str, Any]:
+    """A paper added to Zotero: read it in the background (into the memory, and a card of it)."""
+    import base64
+
+    from aurora.memory import card
+    entry = await card.resolve(doi=body.doi, arxiv=body.arxiv, title=body.title)
+    if entry is None:
+        raise HTTPException(404, "The paper was not found in the scholarly indexes")
+    text = ""
+    if body.pdf:
+        try:
+            data = base64.b64decode(body.pdf)
+            if data.startswith(b"%PDF") and len(data) < 60 * 1024 * 1024:
+                from aurora.literature.pdfs import _text
+                from aurora.literature.reading import cached_pdf
+                text, _ = _text(data, pages=80)
+                # kept, so the margin ("your saves argue with this page") can read it too
+                target = cached_pdf(entry["paper_id"])
+                if not target.is_file():
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(data)
+        except Exception:
+            text = ""
+    access, models = _access()
+    card.start(access, models, _uid(), entry, text)
+    return card.view(_uid(), entry)
+
+
+@router.get("/zotero-card")
+async def zotero_card(doi: str = "", arxiv: str = "", title: str = "") -> dict[str, Any]:
+    """What the plugin shows beside an item: its card (methods, findings, limitations) and what your memory makes of it."""
+    from aurora.memory import card
+    entry = await card.resolve(doi=doi, arxiv=arxiv, title=title)
+    if entry is None:
+        raise HTTPException(404, "The paper was not found in the scholarly indexes")
+    return card.view(_uid(), entry)
+
+
+# ---------------------------------------------------------------------------
+# Your own notes (an Obsidian vault, or any folder of Markdown files)
+
+
+class VaultSettings(BaseModel):
+    path: str = ""
+    folders: list[str] = []
+    exclude: list[str] = []
+    on: bool = False
+
+
+@router.get("/vault")
+async def vault_settings() -> dict[str, Any]:
+    from aurora.memory import vault
+    uid = _uid()
+    return {**vault.settings(uid), "notes": len([n for n in vault.notes(uid) if n["source_id"]])}
+
+
+@router.put("/vault")
+async def put_vault(body: VaultSettings) -> dict[str, Any]:
+    """Which vault folder the console reads (on the machine it runs on), and which of its subfolders."""
+    from aurora.memory import vault
+    try:
+        return vault.set_settings(_uid(), body.path.strip(), body.folders, body.exclude, body.on)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+@router.post("/vault/scan")
+async def scan_vault() -> dict[str, Any]:
+    """Read the vault's new and changed notes now (otherwise every few minutes)."""
+    from aurora.memory import vault
+    access, models = _access()
+    return vault.scan(access, models, _uid())
+
+
+@router.get("/notes")
+async def list_notes() -> list[dict[str, Any]]:
+    from aurora.memory import vault
+    return vault.notes(_uid())
+
+
+class NoteBody(BaseModel):
+    vault: str
+    path: str
+    text: str
+    mtime: float = 0.0
+
+
+@router.post("/notes")
+async def put_note(body: NoteBody) -> dict[str, Any]:
+    """A note sent by the Obsidian plugin as you write it: read into your memory (its old version retired)."""
+    from aurora.memory import vault
+    if not body.vault.strip() or not body.path.strip():
+        raise HTTPException(400, "Give the vault and the note's path")
+    access, models = _access()
+    return vault.upsert(access, models, _uid(), body.vault.strip(), body.path.strip(), body.text[:vault.MAX_FILE], body.mtime)
+
+
+@router.delete("/notes")
+async def delete_note(vault_name: str, path: str) -> dict[str, Any]:
+    """A note deleted (or excluded) in the vault: what only it said goes from your memory."""
+    from aurora.memory import vault
+    return {"removed": vault.remove(_uid(), vault_name, path)}
+
+
+@router.get("/units/{unit_id}/markdown")
+async def unit_markdown(unit_id: str) -> dict[str, Any]:
+    """An idea unit as Markdown (claim, sources with their words, conflicts), to paste into a note."""
+    from aurora.memory import vault
+    _unit(unit_id)
+    return {"markdown": vault.markdown(unit_id)}
+
+
+# ---------------------------------------------------------------------------
+# Speaking: hold a key, say it, let go
+
+
+class Said(BaseModel):
+    text: str = ""            # the words, when the entry point recognised them itself (the desktop app does)
+    audio: str = ""           # or the recording, base64, recognised here (AURORA_WHISPER)
+    audio_type: str = "wav"
+    screenshot: str = ""      # the window spoken about, as a data: URL ("this figure")
+
+
+@router.post("/voice")
+async def voice_said(body: Said) -> dict[str, Any]:
+    """What was said, understood with what you are doing now and done: what to say back, what to show, how to undo."""
+    import base64
+
+    from aurora.memory import voice
+    text = body.text.strip()
+    if not text and body.audio:
+        try:
+            text = await voice.transcribe(base64.b64decode(body.audio), "." + body.audio_type.strip(".")[:5])
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+    if not text:
+        raise HTTPException(400, "Say something (send the words or the recording)")
+    shot = body.screenshot if body.screenshot.startswith("data:image/") and len(body.screenshot) < 8_000_000 else ""
+    access, models = _access()
+    return await voice.hear(access, models, _uid(), text, screenshot=shot)
+
+
+class Thought(BaseModel):
+    text: str
+
+
+@router.post("/thought")
+async def keep_thought(body: Thought) -> dict[str, Any]:
+    """A thought typed with the quick-note key: kept as your own note about what is in front (and as a note on its
+    Zotero item when you allowed that)."""
+    from aurora.memory import voice
+    if not body.text.strip():
+        raise HTTPException(400, "Write the thought")
+    access, models = _access()
+    return await voice.thought(access, models, _uid(), body.text[:4000])
+
+
+@router.get("/voice/turns")
+async def voice_turns(limit: int = 5) -> list[dict[str, Any]]:
+    """What was said and answered lately (the panel shows the full answer of what was spoken short)."""
+    from aurora.memory import voice
+    return voice.turns(_uid(), max(1, min(20, limit)))
+
+
+@router.post("/voice/undo/{undo_id}")
+async def voice_undo(undo_id: str) -> dict[str, Any]:
+    from aurora.memory import voice
+    try:
+        return {"undone": await voice.undo(_uid(), undo_id)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+@router.get("/voice/digest")
+async def voice_digest() -> dict[str, Any]:
+    """Today's digest to listen to, numbered so you can act on "the second one" afterwards."""
+    from aurora.memory import voice
+    return voice.spoken_digest(_uid())
+
+
+class SpeakBody(BaseModel):
+    text: str
+
+
+@router.post("/voice/speak")
+async def voice_speak(body: SpeakBody) -> Any:
+    """A long text in the cloud voice (when one is set up); otherwise the desktop app uses the system voice."""
+    from fastapi.responses import Response
+
+    from aurora.memory import voice
+    try:
+        return Response(await voice.cloud_speech(body.text), media_type="audio/mpeg")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+# ---------------------------------------------------------------------------
+# A claim into a brainstorm
+
+
+class ToBrainstorm(BaseModel):
+    space: str = ""           # empty: your own space
+    card_id: str = ""         # an idea it bears on (optional)
+    rel: str = "supports"     # supports | challenges
+
+
+@router.post("/units/{unit_id}/to-brainstorm")
+async def unit_to_brainstorm(unit_id: str, body: ToBrainstorm) -> dict[str, Any]:
+    """Bring a claim from your memory onto a brainstorm board, as material (private to you), filed under an idea if
+    you name one."""
+    from aurora.brainstorm.agents import memory_card
+    from aurora.brainstorm.store import bs_store
+    u = _unit(unit_id)
+    uid = _uid()
+    from aurora.api.routes.brainstorm import _may_write, _space
+    space, campaign_id = _space(body.space or f"user:{uid}")
+    _may_write(campaign_id)
+    card = memory_card(space, uid, u)
+    if body.card_id:
+        idea = bs_store.card(body.card_id)
+        if idea is None or idea["space"] != space:
+            raise HTTPException(404, "No such idea in that space")
+        bs_store.link(card["card_id"], idea["card_id"], "challenges" if body.rel == "challenges" else "supports")
+    return card
+
+
+# ---------------------------------------------------------------------------
+# Acting on the day's digest: what to read closely, the reading list, how two things differ
+
+
+@router.get("/digest/worth")
+async def digest_worth() -> list[dict[str, Any]]:
+    """One or two papers of the day worth reading closely: the feed's best fits for your projects, and papers you
+    saved today that bear most on your questions."""
+    from aurora.literature.library import library
+    from aurora.memory import card
+    from aurora.memory import voice as vc
+    uid = _uid()
+    out: list[dict[str, Any]] = []
+    for p in vc._feed_papers(uid):
+        url = p["url"]
+        e = await card.resolve(doi=url.split("doi.org/")[-1] if "doi.org/" in url else "",
+                               arxiv=url.rsplit("/", 1)[-1] if "arxiv.org/" in url else "", title=p["title"])
+        if e:
+            out.append({"paper_id": e["paper_id"], "title": e["paper"].title, "byline": e["paper"].byline(),
+                        "why": p["why"], "from": "the feed"})
+    import time as _t
+    since = _t.time() - 86400
+    saved = [s for s in mem_store.sources(uid, 200) if s["paper_id"] and s["created_at"] >= since and s["state"] == "done"]
+    saved.sort(key=lambda s: -len(s["result"].get("questions") or []))
+    for s in saved:
+        e = library.paper(s["paper_id"])
+        if e and not any(o["paper_id"] == e["paper_id"] for o in out):
+            q = len(s["result"].get("questions") or [])
+            out.append({"paper_id": e["paper_id"], "title": e["paper"].title, "byline": e["paper"].byline(),
+                        "why": f"You saved it today; it bears on {q} of your questions." if q else "You saved it today.",
+                        "from": "your memory"})
+    for o in out:
+        o["to_read"] = library.has_item("", o["paper_id"], owner=uid)
+    return out[:2]
+
+
+class PaperRef(BaseModel):
+    paper_id: str
+
+
+@router.post("/to-read")
+async def to_read(body: PaperRef) -> dict[str, Any]:
+    """Put a paper on your reading list (your Library: AURORA's own, nothing is written elsewhere)."""
+    from aurora.literature.library import library
+    if library.paper(body.paper_id) is None:
+        raise HTTPException(404, "No such paper")
+    added = library.add_item("", body.paper_id, source="to_read", added_by="you", owner=_uid())
+    return {"added": added}
+
+
+class CompareRef(BaseModel):
+    unit_id: str = ""
+    source_id: str = ""
+    paper_id: str = ""
+
+
+class CompareBody(BaseModel):
+    a: CompareRef
+    b: CompareRef
+
+
+@router.post("/compare")
+async def compare_two(body: CompareBody) -> dict[str, Any]:
+    """How two things you have differ (claims, saved sources or papers), each difference with the words it rests on."""
+    import re as _re
+
+    from aurora.memory import voice as vc
+    uid = _uid()
+    ts = [vc.target_of(uid, **x.model_dump()) for x in (body.a, body.b)]
+    if not all(ts):
+        raise HTTPException(404, "Name two claims, saved things or papers of yours")
+    access, models = _access()
+    zh = surface.language(uid).startswith("Chinese") or any(_re.search(r"[\u4e00-\u9fff]", t["title"]) for t in ts if t)
+    short, full = await vc.compare(access, models, ts, zh)  # type: ignore[arg-type]
+    return {"short": short, "text": full, "a": ts[0]["title"], "b": ts[1]["title"]}  # type: ignore[index]

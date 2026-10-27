@@ -31,6 +31,7 @@ question; results get overstated. AURORA is built around that:
 - **Try it in seconds, offline:** from a clone, `pip install -e . && aurora demo` —
   see [Installation](getting-started/installation.md).
 - **Run a real campaign:** [Your first campaign](getting-started/first-campaign.md).
+- **See every feature in one place:** [Everything AURORA does](features.md).
 - **Understand the system:** [How a campaign runs](concepts/pipeline.md).
 - **Use the web console:** [Web console](guide/web-console.md).
 - **Reproduce the paper:** [Reproducing the paper](reproducing.md).

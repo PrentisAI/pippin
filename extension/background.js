@@ -83,6 +83,7 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({ id: 'save-link', title: 'Save the link to AURORA', contexts: ['link'] })
   chrome.contextMenus.create({ id: 'follow-page', title: 'Follow this page in AURORA', contexts: ['page'] })
   chrome.alarms.create('follows', { periodInMinutes: 15 })
+  chrome.alarms.create('alerts', { periodInMinutes: 5 })
   if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
 })
 
@@ -99,6 +100,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 })
 
 chrome.commands.onCommand.addListener(async (command, tab) => {
+  if (command === 'cite-sentence') {
+    const [active] = tab ? [tab] : await chrome.tabs.query({ active: true, currentWindow: true })
+    chrome.tabs.sendMessage(active.id, { type: 'aurora:cite-now' }).catch(() => {})
+    return
+  }
   if (command !== 'save-page') return
   const [active] = tab ? [tab] : await chrome.tabs.query({ active: true, currentWindow: true })
   const page = await pageOf(active.id)
@@ -141,6 +147,15 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       .then((r) => reply({ ok: true, data: r })).catch((err) => reply({ ok: false, error: err.message }))
     return true
   }
+  if (msg.type === 'aurora:overleaf') {
+    overleaf(sender.tab, msg).then((r) => reply({ ok: true, data: r })).catch((err) => reply({ ok: false, error: err.message }))
+    return true
+  }
+  if (msg.type === 'aurora:api') {          // a call for a content script, with the console's address and token
+    api(msg.path, msg.body === undefined ? {} : { method: msg.method || 'POST', body: JSON.stringify(msg.body) })
+      .then((r) => reply({ ok: true, data: r })).catch((err) => reply({ ok: false, error: err.message }))
+    return true
+  }
   if (msg.type === 'aurora:read-follows') {
     readFollows().then((taken) => reply({ ok: true, taken })).catch((err) => reply({ ok: false, error: err.message }))
     return true
@@ -166,7 +181,38 @@ async function reportContext(msg, tab) {
 // ---------------------------------------------------------------------------------------------- reading what you follow
 
 let reading = false
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'follows') readFollows().catch(() => {}) })
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name === 'follows') readFollows().catch(() => {})
+  if (a.name === 'alerts') checkAlerts().catch(() => {})
+})
+
+// Only what you would regret missing interrupts (a retraction, a paper overlapping your work, an experiment waiting
+// for your decision); once each.
+async function checkAlerts() {
+  const alerts = await api('/memory/alerts?unseen=true&hours=48')
+  const { told = [] } = await chrome.storage.local.get('told')
+  for (const a of alerts.filter((x) => x.tier === 'now' && !told.includes(x.alert_id))) {
+    chrome.notifications.create(`alert:${a.alert_id}`, { type: 'basic', iconUrl: 'icons/48.png', title: a.title,
+      message: a.body.slice(0, 300), priority: 2, requireInteraction: a.kind !== 'overlap' })
+    if (a.ref && a.ref.url) await chrome.storage.local.set({ [`alertUrl:${a.alert_id}`]: a.ref.url })
+    told.push(a.alert_id)
+  }
+  await chrome.storage.local.set({ told: told.slice(-200) })
+}
+
+chrome.notifications.onClicked.addListener(async (id) => {
+  if (!id.startsWith('alert:')) return
+  const key = `alertUrl:${id.slice(6)}`
+  const stored = await chrome.storage.local.get(key)
+  if (stored[key]) {                 // a decision: straight to the experiment (it is marked seen once decided)
+    chrome.tabs.create({ url: stored[key] })
+    chrome.storage.local.remove(key)
+    return
+  }
+  api(`/memory/alerts/${id.slice(6)}/seen`, { method: 'POST', body: '{}' }).catch(() => {})
+  const s = await settings()
+  chrome.tabs.create({ url: panelUrl(s) })
+})
 
 export async function readFollows() {
   const s = await settings()
@@ -204,4 +250,69 @@ async function readPage(f) {
   } finally {
     chrome.tabs.remove(tab.id).catch(() => {})
   }
+}
+
+
+// ---------------------------------------------------------------------------------------------- Overleaf
+
+// The editor is CodeMirror 6 in the page's own world: what is around the cursor is read there, and a citation is
+// inserted there, as an edit you can undo with ⌘Z.
+function overleafEditor(action, text) {
+  const tree = () => [...document.querySelectorAll('[role="treeitem"]')]
+  const nameOf = (e) => ((e.querySelector('.item-name, .item-name-button') || e).textContent || '').trim()
+  if (action === 'files') return { files: tree().map(nameOf).filter(Boolean) }
+  if (action === 'open') {             // open a file of the project in the editor, by its name
+    const item = tree().find((e) => nameOf(e) === text)
+    if (!item) return { error: `There is no ${text} in the project` }
+    ;(item.querySelector('.item-name-button, button, .entity') || item).click()
+    return { opened: text }
+  }
+  const el = document.querySelector('.cm-content')
+  const view = el && el.cmView && el.cmView.view
+  if (!view) return { error: 'The Overleaf editor is not open' }
+  const state = view.state
+  const pos = state.selection.main.head
+  if (action === 'read') {
+    const doc = state.doc.toString()
+    const before = doc.slice(Math.max(0, pos - 1500), pos)
+    const after = doc.slice(pos, pos + 1500)
+    const start = Math.max(before.lastIndexOf('. '), before.lastIndexOf('\n\n'))
+    const endA = after.indexOf('. ')
+    const endB = after.indexOf('\n\n')
+    const end = [endA, endB].filter((x) => x >= 0).reduce((a, b) => Math.min(a, b), after.length)
+    const sentence = (before.slice(start + 1) + after.slice(0, end + 1)).replace(/\s+/g, ' ').trim()
+    const file = (document.querySelector('.file-tree .selected .item-name, [role="treeitem"][aria-selected="true"]') || {}).textContent || ''
+    return { sentence, context: before.slice(-800) + after.slice(0, 400), file: file.trim(), pos }
+  }
+  if (action === 'insert') {
+    // after the sentence's last word, before its full stop when the cursor sits right after one
+    let at = pos
+    const prev = state.doc.sliceString(Math.max(0, pos - 1), pos)
+    if (prev === '.') at = pos - 1
+    view.dispatch({ changes: { from: at, insert: text }, selection: { anchor: at + text.length } })
+    return { inserted: text, at }
+  }
+  if (action === 'doc') {
+    const file = (document.querySelector('.file-tree .selected .item-name, [role="treeitem"][aria-selected="true"]') || {}).textContent || ''
+    return { file: file.trim(), text: state.doc.toString() }
+  }
+  if (action === 'append') {
+    const end = state.doc.length
+    view.dispatch({ changes: { from: end, insert: (state.doc.sliceString(end - 1, end) === '\n' ? '' : '\n') + text + '\n' } })
+    return { appended: true }
+  }
+  return { error: 'unknown action' }
+}
+
+async function overleaf(tab, msg) {
+  const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: 'MAIN', func: overleafEditor,
+    args: [msg.action, msg.text || ''] })
+  const out = (res && res.result) || {}
+  if (out.error) throw new Error(out.error)
+  if (msg.action === 'read' && out.sentence) {
+    const s = await settings()
+    if (s.reportContext) api('/memory/context', { method: 'POST', body: JSON.stringify({ app: 'Overleaf', title: tab.title,
+      url: tab.url, selection: out.sentence, text: out.context, via: 'overleaf' }) }).catch(() => {})
+  }
+  return out
 }

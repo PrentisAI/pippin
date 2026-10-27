@@ -125,8 +125,22 @@ async def read_here(follow: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 async def tick() -> int:
-    """Run the follows read here that are due, for everyone."""
+    """Run the follows read here that are due, for everyone; check what people rely on for retractions."""
+    from aurora.memory import alerts
     taken = 0
+    owners = {r["owner"] for r in mem_store._all("SELECT DISTINCT owner FROM mem_sources")}
+    for owner in owners:
+        try:
+            await alerts.check_retractions(owner)
+        except Exception:
+            logger.info("retraction check for %s failed", owner, exc_info=True)
+    from aurora.memory import vault
+    for owner in vault.owners():
+        try:
+            access, models = _access_of(owner)
+            vault.scan(access, models, owner)
+        except Exception:
+            logger.info("reading the vault of %s failed", owner, exc_info=True)
     for f in [x for x in mem_store.follows(via="server") if not x["paused"]
               and time.time() - x["last_run"] >= x["every_min"] * 60]:
         try:

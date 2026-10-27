@@ -45,6 +45,7 @@
       <div class="row">
         <button class="b" data-a="save" ${d.saved ? 'disabled' : ''}>${d.saved ? 'In your memory' : 'Save to memory'}</button>
         ${d.paper && z && z.connected ? `<button class="b q2" data-a="zotero" ${z.in_zotero ? 'disabled' : ''}>${z.in_zotero ? 'In Zotero' : 'Save to Zotero'}</button>` : ''}
+        ${d.paper ? '<button class="b q2" data-a="dissent">Sentences your saves argue with</button>' : ''}
       </div>${extra}`
     card.querySelector('.x').onclick = () => open(false)
     const s = card.querySelector('[data-a="save"]')
@@ -52,6 +53,17 @@
       s.disabled = true; s.textContent = 'Saving…'
       const r = await chrome.runtime.sendMessage({ type: 'aurora:save' })
       s.textContent = r && r.ok ? 'In your memory' : 'Could not save'
+    }
+    const db = card.querySelector('[data-a="dissent"]')
+    if (db) db.onclick = async () => {
+      db.disabled = true; db.textContent = 'Reading it against your memory…'
+      const r = await chrome.runtime.sendMessage({ type: 'aurora:api', path: `/memory/dissent?paper=${encodeURIComponent(d.paper.paper_id)}` })
+      if (!r || !r.ok) { db.textContent = (r && r.error) || 'Could not reach AURORA'; return }
+      const pdf = d.paper.arxiv ? `https://arxiv.org/pdf/${d.paper.arxiv}` : ''
+      const list = r.data.items.map((it) => `<div class="u" style="border-left:3px solid #f59e0b">
+        ${pdf ? `<a href="${pdf}#page=${it.page + 1}" target="_blank">p. ${it.page + 1}</a>` : `p. ${it.page + 1}`}: “${esc(it.quote)}”
+        <div class="sub">${esc(it.why)}</div>${it.units.map((u) => `<div class="sub">· ${esc(u.claim)}</div>`).join('')}</div>`).join('')
+      render(`<div class="sub" style="margin-top:8px">${r.data.items.length ? 'What you saved before argues with:' : esc(r.data.note || 'Nothing you saved argues with this paper.')}</div>${list}`)
     }
     const zb = card.querySelector('[data-a="zotero"]')
     if (zb) zb.onclick = async () => {

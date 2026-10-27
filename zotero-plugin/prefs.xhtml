@@ -1,0 +1,12 @@
+<vbox xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul" xmlns:html="http://www.w3.org/1999/xhtml">
+  <groupbox>
+    <label><html:h2>AURORA</html:h2></label>
+    <label value="Your AURORA console (the address you open it at)"/>
+    <html:input type="text" preference="extensions.aurora.server" style="width: 28em"/>
+    <label value="Token (only when the console has accounts: Memory → Browser extension and desktop app → Make a token)"/>
+    <html:input type="password" preference="extensions.aurora.token" style="width: 28em"/>
+    <checkbox label="Read every paper I add, in the background" preference="extensions.aurora.readNew"/>
+    <checkbox label="Tell AURORA which paper and passage I am reading (kept a few hours, never stored)" preference="extensions.aurora.reportContext"/>
+    <description>Writing into your library (a note with the card) needs “Write notes on Zotero items” allowed in AURORA (account button → What AURORA may write).</description>
+  </groupbox>
+</vbox>

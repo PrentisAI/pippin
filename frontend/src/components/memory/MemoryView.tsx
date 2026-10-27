@@ -3,17 +3,18 @@
  *  do both by hand. */
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import type { MemFollow, MemQuestion, MemReport, MemSource } from '../../types'
+import type { MemAudit, MemFollow, MemQuestion, MemReport, MemSource } from '../../types'
 import { MemoryPanel } from './MemoryPanel'
 
 const PLATFORM: Record<string, string> = {
   paper: 'Paper', arxiv: 'arXiv', zhihu: 'Zhihu', x: 'X', reddit: 'Reddit', xiaohongshu: 'Xiaohongshu', blog: 'Blog',
-  github: 'GitHub', web: 'Web', note: 'Note', text: 'Text',
+  github: 'GitHub', web: 'Web', note: 'Your note', text: 'Text',
 }
 
 export function MemoryView() {
   const [refresh, setRefresh] = useState(0)
   const [report, setReport] = useState(false)
+  const [audit, setAudit] = useState<string | null>(null)
   const bump = () => setRefresh((x) => x + 1)
   return (
     <div className="mem-page">
@@ -21,12 +22,15 @@ export function MemoryView() {
         <Save onSaved={bump} />
         <Reading onSet={bump} />
         <Questions onChanged={bump} />
+        <Audits onOpen={setAudit} />
         <Follows />
         <Connect />
+        <Notes />
         <Settings />
       </aside>
       <main className="mem-main">
-        {report ? <Report onClose={() => setReport(false)} /> : <MemoryPanel refreshKey={refresh} onReport={() => setReport(true)} />}
+        {audit ? <AuditReport id={audit} onClose={() => setAudit(null)} />
+          : report ? <Report onClose={() => setReport(false)} /> : <MemoryPanel refreshKey={refresh} onReport={() => setReport(true)} />}
       </main>
     </div>
   )
@@ -37,6 +41,7 @@ function Save({ onSaved }: { onSaved: () => void }) {
   const [text, setText] = useState('')
   const [sources, setSources] = useState<MemSource[]>([])
   const [err, setErr] = useState<string | null>(null)
+  const [forgetting, setForgetting] = useState<string | null>(null)
   const load = useCallback(async () => { try { setSources(await api.memory.sources(12)) } catch (e) { setErr((e as Error).message) } }, [])
   useEffect(() => { load() }, [load])
   const pending = sources.some((s) => s.state === 'pending')
@@ -68,6 +73,11 @@ function Save({ onSaved }: { onSaved: () => void }) {
         <div key={s.source_id} className={`mem-save st-${s.state}`}>
           <span className="mem-line"><b>{PLATFORM[s.platform] ?? s.platform}</b><span className="lit-sub">{s.title || s.url || 'Text'}</span></span>
           <span className="lit-sub">{s.state === 'pending' ? 'Reading it and merging…' : s.summary}</span>
+          {s.state !== 'pending' && (forgetting === s.source_id
+            ? <span className="mem-line"><span className="lit-sub">Take it out of your memory? Claims only it made go too.</span>
+                <button className="btn-sm" onClick={async () => { await api.memory.forget(s.source_id); setForgetting(null); load(); onSaved() }}>Forget it</button>
+                <button className="link-btn" onClick={() => setForgetting(null)}>keep</button></span>
+            : <button className="link-btn mem-forget" onClick={() => setForgetting(s.source_id)}>forget</button>)}
         </div>
       ))}</div>
     </section>
@@ -199,5 +209,133 @@ function Connect() {
       {token && <div className="mem-why"><span className="rv-small-h">Copy it now; it is not shown again</span><code className="mem-token">{token}</code>
         <button className="link-btn" onClick={() => { navigator.clipboard?.writeText(token).catch(() => {}) }}>copy</button></div>}
     </section>
+  )
+}
+
+/** Your own notes: an Obsidian vault (or any folder of Markdown files) read by the console, or sent by the plugin. */
+function Notes() {
+  const [v, setV] = useState<{ path: string; folders: string; exclude: string; on: boolean; notes: number } | null>(null)
+  const [msg, setMsg] = useState('')
+  useEffect(() => {
+    api.memory.vault().then((x) => setV({ path: x.path, folders: x.folders.join(', '), exclude: x.exclude.join(', '), on: x.on, notes: x.notes ?? 0 }))
+      .catch(() => {})
+  }, [])
+  if (!v) return null
+  const list = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean)
+  const save = async (on: boolean) => {
+    setMsg('')
+    try {
+      await api.memory.setVault({ path: v.path.trim(), folders: list(v.folders), exclude: list(v.exclude), on })
+      setV({ ...v, on })
+      if (on) { const r = await api.memory.scanVault(); setMsg(`Reading ${r.read} notes now; the rest follow every few minutes.`) }
+    } catch (e) { setMsg(e instanceof Error ? e.message : String(e)) }
+  }
+  return (
+    <section className="mem-card">
+      <h4>Your notes</h4>
+      <span className="lit-sub">Your own notes join your memory: what they claim is merged with what you saved, and a paper that disagrees
+        with your note is shown as such. Point the console at your Obsidian vault (a folder on the machine it runs on), or install the
+        Obsidian plugin, which sends notes as you write them. AURORA never writes into the vault from here.</span>
+      <input className="rd-in" value={v.path} onChange={(e) => setV({ ...v, path: e.target.value })} placeholder="Vault folder, e.g. ~/Documents/Research" aria-label="Vault folder" />
+      <input className="rd-in" value={v.folders} onChange={(e) => setV({ ...v, folders: e.target.value })} placeholder="Only these subfolders (comma-separated; empty: all)" aria-label="Subfolders" />
+      <input className="rd-in" value={v.exclude} onChange={(e) => setV({ ...v, exclude: e.target.value })} placeholder="Never these (e.g. Journal, Private)" aria-label="Excluded folders" />
+      <div className="mem-line">
+        {v.on ? <><span className="lit-sub">On · {v.notes} notes read</span><span className="mem-spacer" />
+          <button className="btn-sm" onClick={() => save(true)}>Save and read now</button>
+          <button className="link-btn" onClick={() => save(false)}>stop reading</button></>
+          : <button className="btn-sm lit-btn" disabled={!v.path.trim()} onClick={() => save(true)}>Read this vault</button>}
+      </div>
+      {msg && <span className="lit-sub">{msg}</span>}
+    </section>
+  )
+}
+
+/** Checking a manuscript's references before you submit it. */
+function Audits({ onOpen }: { onOpen: (id: string) => void }) {
+  const [list, setList] = useState<MemAudit[]>([])
+  const [tex, setTex] = useState('')
+  const [bib, setBib] = useState('')
+  const [open, setOpen] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const load = useCallback(async () => setList(await api.memory.audits()), [])
+  useEffect(() => { load().catch(() => {}) }, [load])
+  const readFile = (f: File | undefined, set: (s: string) => void) => { if (f) f.text().then(set) }
+  return (
+    <section className="mem-card">
+      <h4>Check a manuscript’s references</h4>
+      <span className="lit-sub">Before you submit: whether each reference exists, was retracted, says what your sentence says it does,
+        and which key work is missing. Nothing in the manuscript is changed. From Overleaf, the extension does this in one click.</span>
+      {!open ? <div className="cw-row"><button className="btn-sm lit-btn" onClick={() => setOpen(true)}>Check one</button></div> : (
+        <>
+          <label className="lit-sub">The manuscript as a PDF <input type="file" accept=".pdf,application/pdf" onChange={async (e) => {
+            const f = e.target.files?.[0]
+            if (!f) return
+            setErr(null)
+            try {
+              const bytes = new Uint8Array(await f.arrayBuffer())
+              let bin = ''
+              for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+              const a = await api.memory.auditPdf(btoa(bin), f.name.replace(/\.pdf$/i, ''))
+              setOpen(false); load(); onOpen(a.audit_id)
+            } catch (x) { setErr((x as Error).message) }
+          }} /></label>
+          <span className="lit-sub">or its sources:</span>
+          <label className="lit-sub">The LaTeX (.tex) <input type="file" accept=".tex,.txt" onChange={(e) => readFile(e.target.files?.[0], setTex)} /></label>
+          <textarea className="rd-in" rows={3} value={tex} onChange={(e) => setTex(e.target.value)} placeholder="or paste it" aria-label="LaTeX" />
+          <label className="lit-sub">The bibliography (.bib) <input type="file" accept=".bib,.txt" onChange={(e) => readFile(e.target.files?.[0], setBib)} /></label>
+          <textarea className="rd-in" rows={3} value={bib} onChange={(e) => setBib(e.target.value)} placeholder="or paste it" aria-label="BibTeX" />
+          <div className="cw-row"><button className="btn-sm btn-modify" disabled={!tex.trim()} onClick={async () => {
+            try { const a = await api.memory.audit(tex, bib); setOpen(false); setTex(''); setBib(''); load(); onOpen(a.audit_id) } catch (e) { setErr((e as Error).message) }
+          }}>Check the references</button><button className="btn-sm lit-btn" onClick={() => setOpen(false)}>Cancel</button></div>
+          {err && <div className="panel-message error">{err}</div>}
+        </>
+      )}
+      {list.map((a) => <button key={a.audit_id} className="mem-row" onClick={() => onOpen(a.audit_id)}>
+        <span>{a.title}</span><span className="lit-sub">{a.state === 'running' ? a.step || 'running…' : a.state} · {new Date(a.created_at * 1000).toLocaleDateString()}</span></button>)}
+    </section>
+  )
+}
+
+function AuditReport({ id, onClose }: { id: string; onClose: () => void }) {
+  const [a, setA] = useState<MemAudit | null>(null)
+  useEffect(() => {
+    let gone = false
+    const tick = async () => {
+      const x = await api.memory.getAudit(id).catch(() => null)
+      if (gone) return
+      setA(x)
+      if (x && x.state === 'running') setTimeout(tick, 2500)
+    }
+    tick()
+    return () => { gone = true }
+  }, [id])
+  const r = a?.report ?? {}
+  const flagged = (r.entries ?? []).filter((e) => e.status !== 'verified' || e.retracted)
+  return (
+    <div className="mem-panel">
+      <div className="mem-head"><b className="mem-logo">{a?.title || 'References'}</b><button className="link-btn" onClick={onClose}>← Back</button></div>
+      {!a ? <div className="panel-empty">Loading…</div> : a.state === 'running' ? <div className="panel-empty">{a.step || 'Checking…'}</div>
+        : a.state === 'failed' ? <div className="panel-message error">{a.error}</div> : (
+        <div className="mem-body">
+          <span className="lit-sub">{r.counts?.entries} references · {r.counts?.verified} found in the indexes · {r.counts?.retracted} retracted ·
+            {' '}{r.counts?.miscites} citations that do not fully hold · {r.counts?.missing} key works not cited</span>
+          {(r.entries ?? []).some((e) => e.retracted) && <section className="mem-zone"><h4>Retracted</h4>
+            {(r.entries ?? []).filter((e) => e.retracted).map((e) => <div key={e.key} className="mem-row static clash"><span><b>[{e.key}]</b> {e.found_title || e.title}</span><span className="lit-sub">{e.retracted}</span></div>)}</section>}
+          {flagged.some((e) => e.status !== 'verified') && <section className="mem-zone"><h4>Not found as written</h4>
+            {flagged.filter((e) => e.status !== 'verified').map((e) => <div key={e.key} className="mem-row static"><span><b>[{e.key}]</b> {e.title}</span><span className="lit-sub">{e.status}: {e.reason}</span></div>)}</section>}
+          {(r.miscites ?? []).length > 0 && <section className="mem-zone"><h4>Citations that do not fully hold</h4>
+            {r.miscites!.map((m, i) => <div key={i} className="mem-why">
+              <span><b>[{m.key}]</b> line {m.line} · {m.verdict === 'no' ? 'not supported' : 'partly supported'}</span>
+              <span className="lit-sub">“{m.sentence}”</span><span>{m.issue}</span>
+              {m.quote && <blockquote className="pl-quote">{m.quote}</blockquote>}</div>)}</section>}
+          {(r.missing ?? []).length > 0 && <section className="mem-zone"><h4>Key work not cited</h4>
+            {r.missing!.map((m) => <div key={m.paper_id} className="mem-why"><span><b>{m.title}</b> <span className="lit-sub">{m.byline}</span></span><span>{m.why}</span>
+              <button className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={() => navigator.clipboard?.writeText(m.bibtex).catch(() => {})}>copy BibTeX</button></div>)}</section>}
+          {((r.unused ?? []).length > 0 || (r.undefined ?? []).length > 0) && <section className="mem-zone"><h4>Housekeeping</h4>
+            {(r.undefined ?? []).length > 0 && <span>Cited but not in the .bib: {r.undefined!.join(', ')}</span>}
+            {(r.unused ?? []).length > 0 && <span className="lit-sub">In the .bib but never cited: {r.unused!.join(', ')}</span>}</section>}
+        </div>
+      )}
+    </div>
   )
 }

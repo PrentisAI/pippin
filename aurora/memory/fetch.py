@@ -29,6 +29,8 @@ PLATFORMS = {
 
 
 def platform_of(url: str) -> str:
+    if url.startswith("obsidian://"):
+        return "note"                     # your own note (from your Obsidian vault)
     host = urlparse(url).netloc.lower().removeprefix("www.")
     for domain, name in PLATFORMS.items():
         if host == domain or host.endswith("." + domain):

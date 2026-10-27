@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>AURORA listens only while you hold ⌥⇧Space, to hear what you ask. The recording is not kept.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>AURORA reads which app and window are in front, to know what you are working on.</string>
+</dict>
+</plist>

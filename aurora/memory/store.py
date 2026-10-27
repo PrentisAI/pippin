@@ -113,6 +113,27 @@ CREATE TABLE IF NOT EXISTS mem_follows (    -- people, topics and threads follow
     paused     INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS mem_alerts (     -- what is worth interrupting for, and how it was told
+    alert_id   TEXT PRIMARY KEY,
+    owner      TEXT NOT NULL,
+    kind       TEXT NOT NULL,                     -- retraction | overlap
+    tier       TEXT NOT NULL,                     -- now (interrupts) | digest (waits for the digest)
+    key        TEXT NOT NULL,                     -- what it is about (one alert per thing)
+    title      TEXT NOT NULL,
+    body       TEXT NOT NULL DEFAULT '',
+    ref        TEXT NOT NULL DEFAULT '{}',
+    sent       TEXT NOT NULL DEFAULT '',          -- where it went (channels), or why not
+    created_at REAL NOT NULL,
+    seen_at    REAL,
+    verdict    TEXT NOT NULL DEFAULT ''           -- '' | worth | not_worth
+);
+CREATE UNIQUE INDEX IF NOT EXISTS mem_alerts_key ON mem_alerts(owner, kind, key);
+CREATE TABLE IF NOT EXISTS mem_retractions (
+    doi        TEXT PRIMARY KEY,
+    retracted  INTEGER NOT NULL DEFAULT 0,
+    notice     TEXT NOT NULL DEFAULT '',
+    checked_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS mem_asks (
     ask_id      TEXT PRIMARY KEY,
     owner       TEXT NOT NULL,
@@ -435,6 +456,58 @@ class MemoryStore:
 
     def delete_follow(self, follow_id: str) -> None:
         self._x("DELETE FROM mem_follows WHERE follow_id=?", (follow_id,))
+
+    # ------------------------------------------------------------------ alerts and retractions
+
+    def add_alert(self, owner: str, kind: str, tier: str, key: str, title: str, body: str = "",
+                  ref: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        """A new alert, or None when this thing was already alerted about."""
+        aid = _new("al")
+        with self._lock:
+            cur = self._conn.execute("INSERT OR IGNORE INTO mem_alerts (alert_id, owner, kind, tier, key, title, body, ref, "
+                                     "created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                                     (aid, owner, kind, tier, key, title[:300], body[:3000], json.dumps(ref or {}), time.time()))
+            self._conn.commit()
+        return self.alert(aid) if cur.rowcount else None
+
+    def alert(self, alert_id: str) -> dict[str, Any] | None:
+        r = self._one("SELECT * FROM mem_alerts WHERE alert_id=?", (alert_id,))
+        if r:
+            r["ref"] = json.loads(r["ref"])
+        return r
+
+    def alerts(self, owner: str, *, since: float = 0, unseen: bool = False) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM mem_alerts WHERE owner=? AND created_at>=?" + (" AND seen_at IS NULL" if unseen else "")
+        rows = self._all(sql + " ORDER BY created_at DESC", (owner, since))
+        for r in rows:
+            r["ref"] = json.loads(r["ref"])
+        return rows
+
+    def update_alert(self, alert_id: str, **fields: Any) -> None:
+        cols = {k: v for k, v in fields.items() if k in ("seen_at", "verdict", "sent", "tier")}
+        if cols:
+            self._x(f"UPDATE mem_alerts SET {', '.join(f'{k}=?' for k in cols)} WHERE alert_id=?", (*cols.values(), alert_id))
+
+    def retraction(self, doi: str) -> dict[str, Any] | None:
+        return self._one("SELECT * FROM mem_retractions WHERE doi=?", (doi.lower(),))
+
+    def set_retraction(self, doi: str, retracted: bool, notice: str = "") -> None:
+        self._x("INSERT OR REPLACE INTO mem_retractions (doi, retracted, notice, checked_at) VALUES (?,?,?,?)",
+                (doi.lower(), int(retracted), notice[:500], time.time()))
+
+    def retire_source(self, source_id: str) -> list[str]:
+        """A source replaced by a newer version of itself (an edited note): its evidence goes, and units left with
+        no evidence go with it. Returns those units."""
+        with self._lock:
+            units = [r[0] for r in self._conn.execute("SELECT DISTINCT unit_id FROM mem_evidence WHERE source_id=?",
+                                                      (source_id,)).fetchall()]
+            self._conn.execute("DELETE FROM mem_evidence WHERE source_id=?", (source_id,))
+            self._conn.execute("UPDATE mem_sources SET state='retired' WHERE source_id=?", (source_id,))
+            self._conn.commit()
+        gone = [u for u in units if not self._all("SELECT 1 FROM mem_evidence WHERE unit_id=? LIMIT 1", (u,))]
+        for u in gone:
+            self.delete_unit(u)
+        return gone
 
     def version(self, owner: str) -> str:
         """Changes when the person's memory changes (for caches)."""

@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "The orb, the peek bubble and the settings window",
-  "windows": ["orb", "peek", "settings"],
+  "windows": ["orb", "peek", "settings", "note"],
   "permissions": ["core:default", "core:event:default", "core:window:default", "global-shortcut:default"]
 }

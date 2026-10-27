@@ -47,6 +47,11 @@ nobody:
 | Moderately (default) | A cheap check on each message decides whether one agent should answer. Thinking out loud gets no reply. |
 | Very | Up to two agents answer most messages. |
 
+**Your memory.** In your own brainstorms the Librarian and the Skeptic can also search your
+[memory](memory.md) (what you saved from papers, posts and your notes) and record a claim from it as evidence,
+marked *From your memory*; the Skeptic looks there first for what contradicts an idea. A shared brainstorm never
+uses it. From the Memory page, **Bring to a brainstorm** does the same by hand.
+
 **Deep search** asks the Librarian for a thorough search: many searches from
 different angles (the claim, its mechanism, competing explanations, methods,
 the closest prior work), then an overview of the most relevant papers and of

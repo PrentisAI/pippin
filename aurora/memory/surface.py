@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import time
 from typing import Any
 
@@ -29,6 +30,7 @@ SURFACE, ABSORBED = 3, 5
 STANCES = ("challenges", "adds", "supports", "background", "tool")
 CONTEXT_TTL = 6 * 3600
 _contexts: dict[str, dict[str, Any]] = {}            # owner -> the latest context an entry point reported
+_history: dict[str, list[dict[str, Any]]] = {}       # owner -> what they had open lately
 _cache: dict[tuple[str, str, str], dict[str, Any]] = {}
 _ctx_vecs: dict[str, list[float]] = {}
 
@@ -39,7 +41,79 @@ def report_context(owner: str, ctx: dict[str, Any]) -> dict[str, Any]:
             ("app", "title", "url", "paper_id", "page", "selection", "text", "via")}
     keep["at"] = time.time()
     _contexts[owner] = keep
+    if keep["title"] or keep["url"] or keep["paper_id"]:      # what was read lately ("the one before")
+        h = [x for x in _history.get(owner, []) if (x["url"], x["title"]) != (keep["url"], keep["title"])
+             and time.time() - x["at"] < CONTEXT_TTL]
+        _history[owner] = [*h, keep][-20:]
     return keep
+
+
+PDF_READERS = ("Preview", "Adobe Acrobat", "Adobe Acrobat Reader", "Acrobat Reader", "Skim", "PDF Expert", "Highlights",
+               "PDFgear", "Foxit PDF Reader", "Sioyek")
+_ARXIV_ID = re.compile(r"(?<![\d.])(\d{4}\.\d{4,5})(v\d+)?(?![\d])")
+_inferred: dict[str, str] = {}          # a PDF reader's window title -> the paper it is ('' when none)
+
+
+def pdf_title(title: str) -> tuple[str, str]:
+    """(file name without .pdf, page) from a PDF reader's window title: "paper.pdf – Page 3 of 12", "paper.pdf (page 3)"."""
+    page = ""
+    m = re.search(r"[Pp]age\s+(\d+)", title)
+    if m:
+        page = m.group(1)
+    name = re.split(r"\s+[–—-]\s+(?:[Pp]age|Edited|Locked)|\s+\((?:page|Page)", title)[0].strip()
+    return re.sub(r"\.pdf$", "", name, flags=re.I).strip(), page
+
+
+async def infer_paper(owner: str, ctx: dict[str, Any]) -> dict[str, Any]:
+    """In a PDF reader that is not AURORA's (Preview, Acrobat…) only the file name is known: which paper it is, if
+    it can be told. An arXiv id in the name; a paper of your Library or your memory with that title; else the
+    scholarly indexes, by the title in the name (Zotero names files "Author - Year - Title")."""
+    import difflib
+
+    from aurora.literature.library import library
+    name, page = pdf_title(ctx.get("title", ""))
+    if page and not ctx.get("page"):
+        ctx["page"] = page
+    if not name:
+        return ctx
+    if name in _inferred:
+        pid = _inferred[name]
+    else:
+        pid = ""
+        m = _ARXIV_ID.search(name)
+        title = re.sub(r"[_]+", " ", name)
+        parts = [p.strip() for p in re.split(r"\s+-\s+", title)]
+        if len(parts) >= 3 and re.fullmatch(r"\d{4}", parts[1] or ""):
+            title = " - ".join(parts[2:])                 # Zotero's "Author - Year - Title"
+        if m:
+            from aurora.memory.card import resolve
+            e = await resolve(arxiv=m.group(1))
+            pid = e["paper_id"] if e else ""
+        else:
+            mine = [library.paper(i["paper_id"]) for i in library.items("", owner=owner)]
+            mine += [library.paper(s["paper_id"]) for s in mem_store.sources(owner, 500) if s["paper_id"]]
+            best = max(((difflib.SequenceMatcher(None, title.lower(), e["paper"].title.lower()).ratio(), e)
+                        for e in mine if e), key=lambda x: x[0], default=(0.0, None))
+            if best[1] is not None and best[0] >= 0.85:
+                pid = best[1]["paper_id"]
+            elif len(title.split()) >= 4:
+                from aurora.memory.card import resolve
+                e = await resolve(title=title)
+                pid = e["paper_id"] if e else ""
+        _inferred[name] = pid
+        if len(_inferred) > 500:
+            _inferred.pop(next(iter(_inferred)))
+    if pid:
+        e = library.paper(pid)
+        ctx["paper_id"] = pid
+        if e:
+            ctx["title"] = e["paper"].title
+    return ctx
+
+
+def recent_contexts(owner: str) -> list[dict[str, Any]]:
+    """What the person had open in the last hours, the latest last (kept in memory only)."""
+    return [x for x in _history.get(owner, []) if time.time() - x["at"] < CONTEXT_TTL]
 
 
 def current_context(owner: str) -> dict[str, Any] | None:
@@ -190,7 +264,9 @@ def _item(u: dict[str, Any], layer: str, ctx: dict[str, Any], clash: dict[str, s
     return {"unit_id": u["unit_id"], "claim": u["claim"], "gist": u["gist"], "kind": u["kind"], "layer": layer,
             "stance": u.get("stance", "background"), "why": why, "relevance": round(u.get("relevance", 0.0), 3),
             "sources": len({e["source_id"] for e in ev}), "platforms": platforms, "sunk": bool(u.get("sunk")),
-            "clash_with": {"unit_id": other["unit_id"], "claim": other["claim"]} if other else None, "moved": moved,
+            "clash_with": {"unit_id": other["unit_id"], "claim": other["claim"],
+                           "yours": any(e["platform"] == "note" for e in mem_store.evidence(other["unit_id"]))}
+            if other else None, "yours": "note" in platforms, "moved": moved,
             "answers": [{"question": a["question"], "answer": a["answer"], "at": a["answered_at"]}
                         for a in mem_store.asks(u["owner"]) if a["answer"] and u["unit_id"] in a["basis"]][-2:]}
 
@@ -224,7 +300,7 @@ Do not summarise. Ask them ONE question, in {lang_of(owner)}, that makes them ta
 their own work: which side they lean to and why, what in their own setup decides it, what would change their mind. \
 Name the claims it rests on in a few words. Two or three sentences at most.
 
-JSON: {{"question": "..."}}""", max_tokens=1200)
+JSON: {{"question": "..."}}""", max_tokens=3000)
     q = llm.unlabel(out.get("question", ""))
     if not q:
         return None
@@ -243,7 +319,36 @@ def answer(owner: str, ask_id: str, text: str) -> dict[str, Any]:
     mem_store.answer_ask(ask_id, text)
     for uid in a["basis"]:
         mem_store.mark(uid, owner, "answer", {"ask_id": ask_id})
+    try:
+        to_plan(owner, a, text)
+    except Exception:                 # brainstorms are optional for the memory
+        logger.info("adding an answer to the research plan failed", exc_info=True)
     return mem_store.ask(ask_id)  # type: ignore[return-value]
+
+
+def to_plan(owner: str, a: dict[str, Any], text: str) -> list[str]:
+    """What you answered to "Ask me" joins the research plan of the question it is about (the plan the Mentor builds
+    with you), so the plan and your thinking log are one record. The question: the context's, when it is one of
+    yours settled with the Mentor; else the settled questions the units it was asked from bear on."""
+    from aurora.brainstorm.store import bs_store
+    qids: list[str] = []
+    if a["context"].startswith("q:"):
+        qids.append(a["context"][2:])
+    else:
+        for uid in a["basis"]:
+            qids += [b["question_id"] for b in mem_store.bears(unit_id=uid) if b["relevance"] >= ingest.BEARS]
+    added = []
+    for qid in dict.fromkeys(qids):
+        q = mem_store.question(qid)
+        if not q or q["owner"] != owner or q["origin"] != "mentor" or not q["ref"]:
+            continue
+        chat = bs_store.chat(q["ref"])
+        if chat is None:
+            continue
+        ins = bs_store.add_insight(chat["chat_id"], chat["space"], owner, "evidence",
+                                   f"{text.strip()} (asked by your memory: {a['question']})", quote=text.strip(), origin="you")
+        added.append(ins["insight_id"])
+    return added
 
 
 # ---------------------------------------------------------------------------
@@ -261,19 +366,44 @@ async def synthesis(access: Any, models: dict[str, str], owner: str, question_id
         return {"question": q["text"], "text": "", "units": []}
     ref = {u["unit_id"]: f"U{i + 1}" for i, u in enumerate(units)}
     lines = "\n".join(f"[{ref[u['unit_id']]}] {u['claim']} — {u['gist'][:300]}" for u in units)
+    fmap = await map_for(access, models, owner, q["text"], chat_id=q["ref"] if q["origin"] == "mentor" else "")
+    from aurora.review.fieldmap import summary_for_agents
+    field = f"\nThe map of the field around it (“{fmap['topic']}”):\n{summary_for_agents(fmap, 4000)}\n" if fmap else ""
+    start = ("start from where the field stands (the map: how far each capability is, what is unsolved), then "
+             if fmap else "")
+    cite = ", and papers of the map by their [Key]" if fmap else ""
     out = await llm.ask(access.with_model(models["memory"]), "memory_synthesis", f"""The researcher's question: \
 {q['text']}
-
+{field}
 What their memory holds on it:
 {lines}
 
-Write, in {lang_of(owner)}, what this adds up to for their question: where the claims agree, where they conflict and \
-why, what is still open. Integrate, do not list one claim after another. Cite claims only as [U1], [U2]. At most \
-two short paragraphs.
+Write, in {lang_of(owner)}, what this adds up to for their question: {start}where the claims agree, where they \
+conflict and why, what is still open. Integrate, do not list one claim after another. Cite claims only as [U1], \
+[U2]{cite}. At most {'three' if fmap else 'two'} short paragraphs.
 
-JSON: {{"text": "..."}}""", max_tokens=2000)
+JSON: {{"text": "..."}}""", max_tokens=5000)
     return {"question": q["text"], "text": llm.unlabel(out.get("text", "")),
+            "map": {"map_id": fmap["map_id"], "topic": fmap["topic"]} if fmap else None,
             "units": [{"ref": ref[u["unit_id"]], "unit_id": u["unit_id"], "claim": u["claim"]} for u in units]}
+
+
+async def map_for(access: Any, models: dict[str, str], owner: str, text: str, *, chat_id: str = "",
+                  floor: float = 0.55) -> dict[str, Any] | None:
+    """The map of the field a question (or a manuscript) sits in: the one made from the conversation where the
+    question was settled, else the researcher's map whose topic is nearest in meaning (if near enough)."""
+    from aurora.review.store import review_store
+    rows = review_store._all("SELECT map_id, topic, brief, chat_id FROM rv_maps WHERE owner=? AND (state='ready' OR "
+                             "version>0) ORDER BY updated_at DESC LIMIT 40", (owner,))
+    if not rows:
+        return None
+    pick = next((r for r in rows if chat_id and r["chat_id"] == chat_id), None)
+    if pick is None:
+        vecs = await ingest.embed(access, models["embedding"], [text] + [f"{r['topic']}\n{r['brief'][:500]}" for r in rows])
+        scored = sorted(((ingest.relevance(ingest.cosine(vecs[0], v)), r) for v, r in zip(vecs[1:], rows, strict=False)),
+                        key=lambda x: -x[0])
+        pick = scored[0][1] if scored and scored[0][0] >= floor else None
+    return review_store.map(pick["map_id"]) if pick else None
 
 
 def report(owner: str, days: int = 7) -> dict[str, Any]:

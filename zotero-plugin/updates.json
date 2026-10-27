@@ -1,0 +1,13 @@
+{
+  "addons": {
+    "aurora@prentis.ai": {
+      "updates": [
+        {
+          "version": "0.1.0",
+          "update_link": "https://github.com/prentisai/aurora/releases/download/zotero-v0.1.0/aurora-zotero.xpi",
+          "applications": { "zotero": { "strict_min_version": "6.999" } }
+        }
+      ]
+    }
+  }
+}
