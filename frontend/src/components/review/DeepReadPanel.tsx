@@ -130,7 +130,7 @@ export function DeepReadPanel({ paper, space, mapId, onQuote }: {
             <div className="rv-challenge-in">
               <input className="rv-in" value={ask} onChange={(e) => setAsk(e.target.value)} aria-label="Ask more"
                 placeholder="Ask more about this question…"
-                onKeyDown={(e) => { if (e.key === 'Enter' && ask.trim()) { run(() => api.review.followUp(read.read_id, q, ask.trim())); setAsk('') } }} />
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && ask.trim()) { run(() => api.review.followUp(read.read_id, q, ask.trim())); setAsk('') } }} />
               <button className="rd-act" disabled={!ask.trim() || busy} onClick={() => { run(() => api.review.followUp(read.read_id, q, ask.trim())); setAsk('') }}>Ask</button>
             </div>
             <button className="link-btn" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => run(() => api.review.again(read.read_id, [q]))}>Answer this question again</button>

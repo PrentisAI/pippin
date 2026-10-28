@@ -36,11 +36,30 @@ function ago(t?: number | null): string {
   return new Date(t * 1000).toLocaleDateString()
 }
 
-export default function PaperReader({ req, onClose }: { req: ReadRequest; onClose: () => void }) {
+export default function PaperReader({ req, onClose, docked, full, onToggleFull }: {
+  req: ReadRequest
+  onClose: () => void
+  /** In a column beside the page it was opened from (the brainstorm), rather than over it. */
+  docked?: boolean
+  /** Docked, but shown full screen for now. */
+  full?: boolean
+  onToggleFull?: () => void
+}) {
+  // in a column: the PDF alone, narrower; the notes open below it when wanted
+  const compact = !!docked && !full
   const [view, setView] = useState<ReaderView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pdfError, setPdfError] = useState<string | null>(null)
-  const [zoom, setZoom] = useState(1.25)
+  const [zoom, setZoom] = useState(compact ? 0.8 : 1.25)
+  const [sideOpen, setSideOpen] = useState(!compact || req.tab === 'deep')
+  // going full screen or back to the column: the size that fits it
+  const wasFull = useRef(full)
+  useEffect(() => {
+    if (!docked || wasFull.current === full) return
+    wasFull.current = full
+    setZoom(full ? 1.25 : 0.8)
+    if (full) setSideOpen(true)
+  }, [docked, full])
   const [pages, setPages] = useState(0)
   const [page, setPage] = useState(1)
   const [focusId, setFocusId] = useState<string | null>(null)
@@ -75,7 +94,7 @@ export default function PaperReader({ req, onClose }: { req: ReadRequest; onClos
   useEffect(() => {
     if (!view || asked.current || !view.idea || !view.agents_mark || !view.pdf.available && !view.pdf.openable) return
     asked.current = true
-    api.reader.readAlong(req.paper, { space: req.space, card_id: view.idea.card_id, chat_id: req.chatId })
+    api.reader.readAlong(req.paper, { space: req.space, card_id: view.idea.kind === 'conversation' ? undefined : view.idea.card_id, chat_id: req.chatId })
       .then((r) => { if (r.started) load() }).catch(() => {})
   }, [view, req, load])
 
@@ -192,20 +211,22 @@ export default function PaperReader({ req, onClose }: { req: ReadRequest; onClos
       if (picked) setPicked(null)
       else if (zpop) setZpop(false)
       else if (focusId) setFocusId(null)
+      else if (docked && full) onToggleFull?.()
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
-  }, [picked, zpop, focusId])
+  }, [picked, zpop, focusId, docked, full, onToggleFull])
+  const rdClass = `rd${docked ? ' docked' : ''}${docked && full ? ' full' : ''}`
 
   if (error && !view) {
     return (
-      <div className="rd">
-        <header className="rd-head"><button className="rd-tb ghost" onClick={onClose}>← {req.from ?? 'Back'}</button></header>
+      <div className={rdClass}>
+        <header className="rd-head"><button className="rd-tb ghost" onClick={onClose}>← {docked ? 'Close' : req.from ?? 'Back'}</button></header>
         <div className="rd-fail">The paper could not be opened: {error}</div>
       </div>
     )
   }
-  if (!view) return <div className="rd"><div className="rd-loading">Opening the paper…</div></div>
+  if (!view) return <div className={rdClass}><div className="rd-loading">Opening the paper…</div></div>
 
   const p = view.paper
   const z = view.zotero
@@ -216,11 +237,13 @@ export default function PaperReader({ req, onClose }: { req: ReadRequest; onClos
   const authors = p.authors.length > 3 ? `${p.authors.slice(0, 3).map((a) => a.split(/[ ,]/).filter(Boolean).pop()).join(', ')} et al.` : p.authors.join(', ')
 
   return (
-    <div className="rd">
+    <div className={rdClass}>
       <header className="rd-head">
-        <button className="rd-tb ghost" onClick={onClose}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>
-          {req.from ?? 'Back'}
+        <button className="rd-tb ghost" onClick={onClose} title={docked ? 'Close the paper' : undefined}>
+          {docked
+            ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+            : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>}
+          {docked ? '' : req.from ?? 'Back'}
         </button>
         <div className="rd-title">
           <span className="rd-title-main" title={p.title}>{p.title}</span>
@@ -239,10 +262,24 @@ export default function PaperReader({ req, onClose }: { req: ReadRequest; onClos
             <span className="rd-sub">{reading.some((a) => view.reads[a.name]?.state === 'reading') ? 'reading along' : 'read along'}</span>
           </div>
         )}
-        <button className={`rd-tb${zpop ? ' on' : ''}`} onClick={() => setZpop(!zpop)} aria-expanded={zpop}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M5 5h14L5 19h14" /></svg>
-          {zLabel}
-        </button>
+        {compact && (
+          <button className={`rd-tb${sideOpen ? ' on' : ''}`} onClick={() => setSideOpen(!sideOpen)} aria-expanded={sideOpen}
+            title="Your notes, the agents' marks, the deep read">Notes <span className="rd-n">{notes.length}</span></button>
+        )}
+        {!compact && (
+          <button className={`rd-tb${zpop ? ' on' : ''}`} onClick={() => setZpop(!zpop)} aria-expanded={zpop}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M5 5h14L5 19h14" /></svg>
+            {zLabel}
+          </button>
+        )}
+        {docked && (
+          <button className="rd-tb" onClick={onToggleFull} title={full ? 'Back into the column (Esc)' : 'Full screen'}
+            aria-label={full ? 'Exit full screen' : 'Full screen'}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              {full ? <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /> : <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />}</svg>
+            {full ? '' : 'Full screen'}
+          </button>
+        )}
         {zpop && (
           <div className="rd-zpop" role="dialog" aria-label="Notes and Zotero">
             <div className="rd-row-between"><b>Notes and Zotero</b><button className="rd-act quiet" aria-label="Close" onClick={() => setZpop(false)}>✕</button></div>
@@ -290,14 +327,14 @@ export default function PaperReader({ req, onClose }: { req: ReadRequest; onClos
         </div>
       )}
 
-      <div className="rd-body">
+      <div className={`rd-body${compact ? ' stacked' : ''}`}>
         <main className="rd-main" aria-label="Paper">
           {view.pdf.available || view.pdf.openable ? (
             !pdfError ? (
               <>
-                <PdfView url={api.reader.pdfUrl(p.paper_id, view.space)} scale={zoom} notes={notes} focusId={focusId}
+                <PdfView url={api.reader.pdfUrl(p.paper_id, view.space)} paper={{ id: p.paper_id, space: view.space }} scale={zoom} notes={notes} focusId={focusId}
                   dimmed={dimmed} scrollTo={scrollTo} picked={picked} onPick={setPicked}
-                  onNote={(id) => { setFocusId(id); setPicked(null); if (dimmed.has(id)) setFilter('all') }}
+                  onNote={(id) => { setFocusId(id); setPicked(null); setSideOpen(true); if (dimmed.has(id)) setFilter('all') }}
                   onPlace={onPlace} onPages={setPages} onPage={setPage} onError={setPdfError} flash={flash} />
                 {(dissent?.items ?? []).some((it) => it.page === page - 1) && (() => {
                   const here = dissent!.items.filter((it) => it.page === page - 1)
@@ -313,7 +350,7 @@ export default function PaperReader({ req, onClose }: { req: ReadRequest; onClos
             ) : <NoPdf paper={p} message={pdfError} />
           ) : <NoPdf paper={p} message="There is no PDF of this paper here yet." />}
         </main>
-        <div className="rd-side">
+        {sideOpen && <div className="rd-side">
           <div className="rd-tabs" role="tablist">
             <button role="tab" aria-selected={side === 'notes'} className={side === 'notes' ? 'on' : ''} onClick={() => setSide('notes')}>
               Notes <span className="rd-n">{notes.length}</span></button>
@@ -327,7 +364,7 @@ export default function PaperReader({ req, onClose }: { req: ReadRequest; onClos
               onFocus={focus} onGoto={goto} actions={actions} />
             : <DeepReadPanel paper={p.key} space={req.space} mapId={req.mapId}
               onQuote={(quote, pg) => setFlash({ quote, page: pg, nonce: Date.now() })} />}
-        </div>
+        </div>}
       </div>
       {zdialog && <ZoteroDialog onClose={() => { setZdialog(false); load() }} />}
     </div>

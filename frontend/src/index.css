@@ -203,6 +203,12 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
   padding: 16px 16px 12px;
   border-bottom: 1px solid var(--border-subtle);
 }
+.sidebar-brand .home-link {
+  display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;
+  border: none; background: transparent; padding: 0; margin: 0;
+  font: inherit; text-align: left; cursor: pointer; border-radius: 8px;
+}
+.sidebar-brand .home-link:hover .name { color: var(--accent); }
 .sidebar-brand .logo {
   width: 30px; height: 30px;
   background: var(--accent);
@@ -2864,8 +2870,10 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 .lib-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 
 /* ── Brainstorm ── */
-.bs-page { flex: 1; min-height: 0; display: grid; grid-template-columns: 240px minmax(0, 1fr) minmax(320px, 440px); color: var(--fg); background: var(--bg); }
-.bs-left { border-right: 1px solid var(--border-subtle); overflow-y: auto; padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; background: var(--bg-raised); }
+.bs-page { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--bs-left, 240px) 6px minmax(360px, 1fr) 6px var(--bs-right, 400px); color: var(--fg); background: var(--bg); }
+/* the borders between the columns are handles: drag to resize, double-click for the default widths */
+.bs-page > .resize-handle { width: 6px; }
+.bs-left { overflow-y: auto; padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; background: var(--bg-raised); }
 .bs-field { display: flex; flex-direction: column; gap: 4px; padding: 0 8px; font-size: 11px; color: var(--fg-dim); }
 .bs-field select, .bs-composer input, .bs-ev input { font: inherit; font-size: 12.5px; padding: 6px 8px; border-radius: 7px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); min-width: 0; }
 .bs-members { display: flex; align-items: center; gap: 8px; padding: 8px; }
@@ -2919,7 +2927,7 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 .bs-composer input { flex: 1; border: none; background: none; padding: 6px 2px; }
 .bs-composer input:focus { outline: none; }
 .bs-about { font-size: 12px; color: var(--fg-muted); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.bs-right { border-left: 1px solid var(--border-subtle); display: flex; flex-direction: column; min-height: 0; background: var(--bg-raised); }
+.bs-right { display: flex; flex-direction: column; min-height: 0; background: var(--bg-raised); }
 .bs-right .team-tabs { padding: 0 14px; margin: 8px 0 0; }
 .bs-right-body { flex: 1; overflow-y: auto; padding: 12px 14px 20px; display: flex; flex-direction: column; gap: 10px; }
 .bs-idea { border: 1px solid var(--border-subtle); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; background: var(--bg); }
@@ -2946,6 +2954,8 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 .bs-disabled { opacity: .55; cursor: default; }
 @media (max-width: 1100px) {
   .bs-page { grid-template-columns: 200px minmax(0, 1fr); }
+  .bs-page > .resize-handle { display: none; }
+  .bs-left { border-right: 1px solid var(--border-subtle); }
   .bs-right { grid-column: 1 / -1; border-left: none; border-top: 1px solid var(--border-subtle); max-height: 50vh; }
 }
 @media (max-width: 720px) {
@@ -3535,7 +3545,7 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 .rd-page canvas { display: block; }
 .rd-marks { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
 .rd-mark { position: absolute; border-radius: 2px; mix-blend-mode: multiply; transition: outline-color .15s; }
-.rd-mark.focus { outline: 2px solid #3b6fd4; outline-offset: 1px; mix-blend-mode: normal; }
+.rd-mark.focus { mix-blend-mode: multiply; }   /* the note in focus: a deeper colour, not a box around each line */
 .rd-text.textLayer { z-index: 2; }
 .rd-text.textLayer ::selection { background: rgba(59,111,212,.28); }
 .rd-pnum { position: absolute; bottom: -18px; right: 0; font-size: 11px; color: var(--fg-dim); }
@@ -3946,3 +3956,51 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 .mem-row-wrap { display: flex; flex-direction: column; }
 .mem-row-wrap.gone { opacity: .45; }
 .mem-acts { display: flex; gap: 10px; padding: 0 10px 4px; font-size: 12px; }
+
+/* ── The start page: a short conversation ── */
+.home-chat .welcome-inner { max-width: 640px; text-align: left; }
+.home-thread { display: flex; flex-direction: column; gap: 14px; margin-bottom: 18px; max-height: 62vh; overflow-y: auto; padding: 2px; }
+.home-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.home-chip {
+  border: 1px solid var(--border); background: var(--bg-raised); color: var(--fg);
+  border-radius: 999px; padding: 6px 13px; font: inherit; font-size: 12.5px; cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.home-chip:hover:not(:disabled) { border-color: var(--accent-border); background: var(--bg-hover); }
+.home-chip.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.home-chip:disabled { opacity: .6; cursor: default; }
+.home-card { display: flex; gap: 8px; align-items: center; margin-top: 10px; max-width: 520px; }
+.home-card.col { flex-direction: column; align-items: stretch; }
+.home-card .fd-input { flex: 1; }
+.home-steps { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--fg-muted); line-height: 1.6; }
+.home-steps code { font-size: 11.5px; background: var(--bg-surface); padding: 1px 5px; border-radius: 4px; }
+a.home-chip { text-decoration: none; display: inline-block; }
+.home-top { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+.home-failed { margin-top: 8px; font-size: 12px; color: var(--red); white-space: pre-wrap; max-width: 520px; }
+.home-thread .msg-bubble code { font-size: 12px; background: var(--bg-raised); padding: 1px 5px; border-radius: 4px; }
+.home-typing { color: var(--fg-dim); letter-spacing: 2px; }
+.bs-composer textarea { flex: 1; border: none; background: none; padding: 6px 2px; font: inherit; font-size: 12.5px; line-height: 1.5; color: var(--fg); resize: none; max-height: 160px; overflow-y: auto; min-width: 0; }
+.bs-composer textarea:focus { outline: none; }
+.bs-composer .bs-row:has(> textarea) { align-items: flex-end; }
+/* the reader in the brainstorm's right column: the PDF alone, the notes below it when opened */
+.bs-right > .rd.docked { position: relative; inset: auto; z-index: auto; flex: 1; min-height: 0; }
+.rd.docked .rd-head { height: auto; min-height: 52px; flex-wrap: wrap; gap: 6px 8px; padding: 8px 10px; }
+.rd.docked .rd-presence .rd-sub { display: none; }
+.rd-body.stacked { flex-direction: column; }
+.rd-body.stacked .rd-main { min-height: 0; }   /* the PDF scrolls inside the column, not past it */
+.rd-body.stacked .rd-side { width: auto; height: 45%; flex: none; border-left: none; border-top: 1px solid var(--border-subtle); }
+.bs-right > .rd.docked.full { position: fixed; inset: 0; z-index: 200; }
+/* speaking in a brainstorm */
+.bs-mic { flex: none; width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-raised); color: var(--fg-muted); cursor: pointer; display: grid; place-items: center; }
+.bs-mic:hover:not(:disabled) { color: var(--fg); background: var(--bg-hover); }
+.bs-mic.on { color: #fff; background: var(--red); border-color: var(--red); animation: bs-mic-pulse 1.2s ease-in-out infinite; }
+@keyframes bs-mic-pulse { 50% { box-shadow: 0 0 0 5px var(--red-dim); } }
+.bs-quick button.on { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); }
+.bs-speak { border: none; background: none; color: var(--fg-dim); cursor: pointer; padding: 0 4px; vertical-align: middle; }
+.bs-speak:hover { color: var(--accent); }
+.bs-voice-err { font-size: 12px; color: var(--red); }
+.bs-composer textarea.bs-hearing { color: var(--fg-muted); }
+.bs-speak.on { color: var(--accent); }
+.bs-stop-hint { opacity: .7; font-size: .92em; }
+.bs-quick button.suggested { border-color: var(--accent-border); }
+.bs-sug-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 6px; vertical-align: middle; }

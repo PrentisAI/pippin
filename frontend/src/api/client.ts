@@ -1,4 +1,4 @@
-import type { DeepRead, IdeaVersion, MemAlert, MemVault, MemVoiceTurn, MemAudit, MemCite, MemDissent, MemDigest, MemFollow, MemAsk, MemQuestion, MemReport, MemSource, MemSurface, MemUnit, WriteLevel, WriteSettings, PlanInsight, ResearchPlan, FieldMap, FieldMapSummary, LitPaper, NotePlace, ReaderAgent, ReaderNote, ReaderView, Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { PdfProgress, DeepRead, IdeaVersion, MemAlert, MemVault, MemVoiceTurn, MemAudit, MemCite, MemDissent, MemDigest, MemFollow, MemAsk, MemQuestion, MemReport, MemSource, MemSurface, MemUnit, WriteLevel, WriteSettings, PlanInsight, ResearchPlan, FieldMap, FieldMapSummary, LitPaper, NotePlace, ReaderAgent, ReaderNote, ReaderView, Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -135,6 +135,9 @@ export const api = {
     voiceTurns: (limit = 5) => request<MemVoiceTurn[]>(`/memory/voice/turns?limit=${limit}`),
     voiceUndo: (id: string) => request<{ undone: boolean }>(`/memory/voice/undo/${id}`, post({})),
     voice: (text: string) => request<MemVoiceTurn>('/memory/voice', post({ text })),
+    voiceStatus: () => request<{ hear: boolean; cloud_voice: boolean; live: 'fast' | 'accurate' | 'off' }>('/memory/voice/status'),
+    voiceTranscribe: (audio: string, audio_type: string, live = false) =>
+      request<{ text: string }>('/memory/voice/transcribe', post({ audio, audio_type, live })),
     toBrainstorm: (id: string, space = '', card_id = '', rel = 'supports') =>
       request<{ card_id: string }>(`/memory/units/${id}/to-brainstorm`, post({ space, card_id, rel })),
     worth: () => request<{ paper_id: string; title: string; byline: string; why: string; from: string; to_read: boolean }[]>('/memory/digest/worth'),
@@ -370,6 +373,11 @@ export const api = {
     get: (paper: string, q: { space?: string; card_id?: string; chat_id?: string }) =>
       request<ReaderView>(`/reader/papers/${encodeURIComponent(paper)}?${new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][])}`),
     pdfUrl: (paper: string, space: string) => `${BASE_URL}/reader/papers/${encodeURIComponent(paper)}/pdf?space=${encodeURIComponent(space)}`,
+    /** Start fetching the paper's open PDF now, so it is there when it is opened. */
+    prefetch: (paper: string, space: string) =>
+      request<PdfProgress>(`/reader/papers/${encodeURIComponent(paper)}/prefetch?space=${encodeURIComponent(space)}`, post()),
+    pdfProgress: (paper: string, space: string) =>
+      request<PdfProgress>(`/reader/papers/${encodeURIComponent(paper)}/pdf/progress?space=${encodeURIComponent(space)}`),
     addNote: (paper: string, body: { space: string; card_id?: string; chat_id?: string; text: string; comment?: string; draft?: boolean; ask?: ReaderAgent } & NotePlace) =>
       request<ReaderNote>(`/reader/papers/${encodeURIComponent(paper)}/notes`, post(body)),
     change: (annId: string, body: { comment?: string; keep?: boolean; shared?: boolean; place?: NotePlace }) =>
@@ -419,6 +427,7 @@ export const api = {
     deleteChat: (chatId: string) => request<{ ok: boolean }>(`/brainstorm/chats/${chatId}`, del),
     say: (chatId: string, text: string, focus = '', attachments: BsAttachment[] = []) =>
       request<{ message: BsMessage; agents: string[] }>(`/brainstorm/chats/${chatId}/messages`, post({ text, focus, attachments })),
+    guide: (chatId: string, on: boolean) => request<{ guided: boolean }>(`/brainstorm/chats/${chatId}/guide`, post({ on })),
     deep: (chatId: string, text: string, focus = '') =>
       request<{ message: BsMessage; agents: string[] }>(`/brainstorm/chats/${chatId}/deep`, post({ text, focus })),
     thread: (cardId: string) => request<{ card: BsCard; messages: BsMessage[]; pending: boolean; links: BsLink[] }>(`/brainstorm/cards/${cardId}/thread`),
@@ -489,6 +498,10 @@ export const api = {
     dismiss: () => request<{ ok: boolean }>('/setup/dismiss', post()),
     setKey: (key: string) => request<SetupStatus>('/setup/key', put({ key })),
     pull: () => request<SetupStatus>('/setup/pull', post()),
+    installClaude: () => request<SetupStatus>('/setup/claude', post()),
+    startDocker: () => request<{ ok: boolean }>('/setup/docker', post()),
+    linkDocker: () => request<SetupStatus>('/setup/docker/link', post()),
+    dockerPath: (path: string) => request<SetupStatus>('/setup/docker/path', put({ path })),
     demo: () => request<{ campaign_id: string; experiment_id: string }>('/demo', post()),
   },
   onboarding: {
@@ -505,6 +518,10 @@ export const api = {
     remove: (id: string) => request<{ ok: boolean }>(`/examples/${id}`, del),
   },
   paper: (ident: string) => request<LitPaper>(`/library/papers/${encodeURIComponent(ident)}`),
+  home: {
+    reply: (text: string, history: { from: string; text: string }[]) =>
+      request<{ intent: 'question' | 'unsure' | 'how' | 'other' | null; reply: string }>('/home/reply', post({ text, history })),
+  },
   help: {
     pages: () => request<{ pages: HelpPage[] }>('/help/docs'),
     page: (path: string) => request<{ path: string; title: string; markdown: string }>(`/help/docs/${path}`),

@@ -113,7 +113,7 @@ export function HelpPanel({ collapsed, panelRef, onAction }: {
         </section>
 
         <section className="help-section help-more">
-          <button className="link-btn" onClick={() => updateOnboarding({ done: false, step: 'welcome' }).catch(() => {})}>Open the welcome again</button>
+          <button className="link-btn" onClick={() => onAction('start')}>Back to the start page</button>
           <button className="link-btn" onClick={() => updateOnboarding({ tips_reset: true }).catch(() => {})}>Show the first-time tips again</button>
           {ob && <button className="link-btn" onClick={() => updateOnboarding({ examples_hidden: !ob.examples_hidden }).then(() => onAction('refresh')).catch(() => {})}>
             {ob.examples_hidden ? 'Show the examples in my projects' : 'Hide the examples from my projects'}</button>}

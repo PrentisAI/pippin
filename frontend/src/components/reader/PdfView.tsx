@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as pdfjs from 'pdfjs-dist'
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist'
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import type { NotePlace, ReaderNote } from '../../types'
+import { api } from '../../api/client'
+import type { NotePlace, PdfProgress, ReaderNote } from '../../types'
 import { locate, selectionPlace, sortIndex, textOffset } from './locate'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerSrc
@@ -13,6 +14,24 @@ pdfjs.GlobalWorkerOptions.workerSrc = workerSrc
 export interface Picked { text: string; place: NotePlace; x: number; y: number }
 
 type View = [number, number, number, number]
+type Box = [number, number, number, number]
+
+/** A highlight's lines without overlap: the text layer's boxes are taller than the line spacing, and where two
+ *  overlap the colour doubles into a dark band across the words. Overlapping lines meet halfway instead. */
+function untangle(rects: Box[]): Box[] {
+  const rs = rects.map((r) => [...r] as Box)
+  for (const a of rs) {
+    for (const b of rs) {
+      // a is the line above b (PDF points: y grows upwards), and they share some width
+      if (a !== b && a[3] > b[3] && a[1] < b[3] && a[0] < b[2] && b[0] < a[2]) {
+        const mid = (a[1] + b[3]) / 2
+        a[1] = mid
+        b[3] = mid
+      }
+    }
+  }
+  return rs
+}
 
 function rgba(hex: string, a: number): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex || '')
@@ -20,8 +39,10 @@ function rgba(hex: string, a: number): string {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`
 }
 
-export function PdfView({ url, scale, notes, focusId, dimmed, scrollTo, picked, onPick, onNote, onPlace, onPages, onPage, onError, flash }: {
+export function PdfView({ url, paper, scale, notes, focusId, dimmed, scrollTo, picked, onPick, onNote, onPlace, onPages, onPage, onError, flash }: {
   url: string
+  /** The paper and its space: how far its download is, shown while it opens. */
+  paper?: { id: string; space: string }
   scale: number
   notes: ReaderNote[]
   focusId: string | null
@@ -46,6 +67,16 @@ export function PdfView({ url, scale, notes, focusId, dimmed, scrollTo, picked, 
   const scrollRef = useRef<HTMLDivElement>(null)
   const pages = useRef(new Map<number, PDFPageProxy>())
   const tried = useRef(new Set<string>())
+  // a paper opened the first time is fetched from where it is published first: say how far that is
+  const [fetching, setFetching] = useState<PdfProgress | null>(null)
+  useEffect(() => {
+    if (doc || !paper) return
+    let gone = false
+    const look = () => api.reader.pdfProgress(paper.id, paper.space).then((pr) => { if (!gone) setFetching(pr) }).catch(() => {})
+    look()
+    const t = setInterval(look, 800)
+    return () => { gone = true; clearInterval(t) }
+  }, [doc, paper?.id, paper?.space]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let gone = false
@@ -177,7 +208,9 @@ export function PdfView({ url, scale, notes, focusId, dimmed, scrollTo, picked, 
   return (
     <div className="rd-scroll" ref={scrollRef} onScroll={onScroll} onMouseUp={onMouseUp}>
       <div className="rd-hint">Select words to highlight them, write a note or ask an agent about them.</div>
-      {!doc && <div className="rd-loading">Opening the PDF…</div>}
+      {!doc && <div className="rd-loading">{fetching?.state === 'fetching'
+        ? `Downloading the PDF from where it is published${fetching.total ? `: ${(fetching.loaded / 1e6).toFixed(1)} of ${(fetching.total / 1e6).toFixed(1)} MB` : '…'}`
+        : 'Opening the PDF…'}</div>}
       {doc && views.map((v, i) => (
         <PdfPage key={i} index={i} page={pages.current.get(i)!} view={v} scale={scale} root={scrollRef}
           notes={byPage.get(i) ?? []} focusId={focusId} dimmed={dimmed} lit={lit?.page_index === i ? lit.rects : undefined} />
@@ -234,15 +267,16 @@ function PdfPage({ index, page, view, scale, root, notes, focusId, dimmed, lit }
     <div className="rd-page" data-page={index} ref={el} style={{ width: w, height: h, ['--scale-factor' as string]: scale }}>
       <canvas ref={canvas} style={{ width: w, height: h }} />
       <div className="rd-marks" aria-hidden="true">
-        {notes.map((n) => n.rects.map((r, k) => {
+        {notes.map((n) => untangle(n.rects as Box[]).map((r, k) => {
           const dim = dimmed.has(n.ann_id)
           const sug = n.state === 'suggested'
+          const focus = n.ann_id === focusId
           return (
             <span key={`${n.ann_id}-${k}`} className={`rd-mark${sug ? ' sug' : ''}${n.ann_id === focusId ? ' focus' : ''}${dim ? ' dim' : ''}`}
               style={{
                 left: (r[0] - view[0]) * scale, top: (view[3] - r[3]) * scale,
                 width: (r[2] - r[0]) * scale, height: (r[3] - r[1]) * scale,
-                background: dim ? 'rgba(120,128,145,.12)' : rgba(n.color, sug ? 0.12 : 0.38),
+                background: dim ? 'rgba(120,128,145,.12)' : rgba(n.color, focus ? (sug ? 0.3 : 0.6) : sug ? 0.12 : 0.38),
                 borderBottom: sug && !dim ? `2px dashed ${n.color}` : undefined,
               }} />
           )

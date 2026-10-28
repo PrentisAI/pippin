@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { api } from '../../api/client'
 import type { BsSpace, LitItem, LitPaper } from '../../types'
 import { short } from './common'
 
@@ -25,6 +26,8 @@ export function PaperDetail({ paper, space, onBack, onIdea, onAsk, onRead, onSta
   const [allAuthors, setAllAuthors] = useState(false)
   const p = paper
   const readable = !!(p.pdf_file || p.pdf_url || p.arxiv_id)
+  // the PDF is fetched while the paper is looked at, so "Read the PDF" opens it at once
+  useEffect(() => { if (readable && p.key) api.reader.prefetch(p.key, space.space).catch(() => {}) }, [readable, p.key, space.space])
   const page = p.doi ? `https://doi.org/${p.doi}` : p.arxiv_id ? `https://arxiv.org/abs/${p.arxiv_id}` : p.url
   const where = p.doi ? 'DOI' : p.arxiv_id ? 'arXiv' : 'the paper’s page'
   // the ideas of this space it is evidence for or against

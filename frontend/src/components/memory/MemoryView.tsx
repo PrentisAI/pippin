@@ -114,7 +114,7 @@ function Questions({ onChanged }: { onChanged: () => void }) {
       ))}
       {!qs.length && <span className="lit-sub">None yet. Questions you settle with the Mentor come here on their own.</span>}
       <div className="mem-line"><input className="rd-in" value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a question" aria-label="Add a question"
-        onKeyDown={async (e) => { if (e.key === 'Enter' && text.trim()) { await api.memory.addQuestion(text.trim()); setText(''); load(); onChanged() } }} /></div>
+        onKeyDown={async (e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && text.trim()) { await api.memory.addQuestion(text.trim()); setText(''); load(); onChanged() } }} /></div>
     </section>
   )
 }
@@ -183,7 +183,7 @@ function Follows() {
         </div>
       ))}
       <div className="mem-line"><input className="rd-in" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://… to follow" aria-label="Follow"
-        onKeyDown={async (e) => { if (e.key === 'Enter' && url.trim()) { try { await api.memory.addFollow(url.trim()); setUrl(''); setErr(null); load() } catch (x) { setErr((x as Error).message) } } }} /></div>
+        onKeyDown={async (e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && url.trim()) { try { await api.memory.addFollow(url.trim()); setUrl(''); setErr(null); load() } catch (x) { setErr((x as Error).message) } } }} /></div>
       {err && <div className="panel-message error">{err}</div>}
     </section>
   )

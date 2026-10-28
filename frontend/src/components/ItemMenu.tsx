@@ -106,7 +106,7 @@ export function InlineRename({ value, onSave, onCancel }: {
     <input className="inline-rename" autoFocus value={text} onChange={(e) => setText(e.target.value)}
       onFocus={(e) => e.target.select()} onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') finish(true)
+        if (e.key === 'Enter' && !e.nativeEvent.isComposing) finish(true)
         if (e.key === 'Escape') finish(false)
       }}
       onBlur={() => finish(true)} />

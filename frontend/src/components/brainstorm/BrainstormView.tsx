@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, describeError } from '../../api/client'
 import { useAuth } from '../../auth'
 import type { Activity, AddFound, BsAttachment, BsCard, BsChat, BsMessage, BsSpace, BsSuggestion, ProjectLiterature, ZoteroStatus } from '../../types'
@@ -8,10 +8,14 @@ import { RULE_LABELS } from '../LiteratureView'
 import { CardDrawer } from './CardDrawer'
 import { IdeasPane } from './Ideas'
 import { FILTER_LABELS, PapersPane, inFilter, type PaperFilter } from './Papers'
-import { ACTIVITY, AGENT_ASK, Avatar, BULB, CHAT, LENS, LOCK, Rich, VisPill, analyse, ago, short } from './common'
+import { ACTIVITY, Avatar, BULB, CHAT, LENS, LOCK, Rich, VisPill, analyse, ago, short } from './common'
 import { NewCard, PickFile, PickPaper, Promote, ShareChat } from './dialogs'
 import { FirstTip } from '../../onboarding/FirstTip'
+import { seeTip } from '../../onboarding/store'
 import { readPaper } from '../reader/open'
+import { isEcho, speak, spoken, stopSpeaking, useVoice } from './voice'
+import type { ReadRequest } from '../reader/PaperReader'
+const PaperReader = lazy(() => import('../reader/PaperReader'))
 import { ActionWidget, MapPane } from '../review/ChatWidgets'
 import { PlanPane } from './Plan'
 
@@ -19,8 +23,23 @@ type Dialog = null | { kind: 'share' } | { kind: 'projectShare' } | { kind: 'pro
   | { kind: 'bring' } | { kind: 'attachPaper' } | { kind: 'attachFile' } | { kind: 'zotero' }
 
 /** The brainstorm space of a project (or your own): conversations with the agents and the ideas they produce. */
-export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
-  initialSpace?: string | null; onOpenProject: (campaignId: string) => void; onOpenLibrary: () => void
+// the widths of the side columns, kept in this browser
+const BS_COLS = { left: 240, right: 400, reader: 640 }
+const BS_COLS_KEY = 'aurora.brainstorm.cols'
+const BS_CENTER_MIN = 360
+function loadCols(): typeof BS_COLS {
+  try { return { ...BS_COLS, ...JSON.parse(localStorage.getItem(BS_COLS_KEY) || '{}') } } catch { return BS_COLS }
+}
+
+export function BrainstormView({ initialSpace, opening, onOpeningSent, reader, onCloseReader, onOpenProject, onOpenLibrary }: {
+  initialSpace?: string | null
+  /** A paper open in the reader: it takes the right column, beside the conversation. */
+  reader?: ReadRequest | null
+  onCloseReader?: () => void
+  /** What the person said on the start page: a new brainstorm opens with it, addressed to the Mentor. */
+  opening?: string | null
+  onOpeningSent?: () => void
+  onOpenProject: (campaignId: string) => void; onOpenLibrary: () => void
 }) {
   const auth = useAuth()
   const [spaces, setSpaces] = useState<{ space: string; name: string; project: boolean; can_write: boolean }[]>([])
@@ -104,6 +123,59 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
     await loadSpace()
     return c.chat_id
   }
+  // arriving from the start page: carry on the conversation there with the Mentor, without the tip
+  const openingSent = useRef(false)
+  useEffect(() => {
+    if (!opening || !space || space.space !== spaceId || openingSent.current) return
+    openingSent.current = true
+    seeTip('brainstorm')
+    act(async () => {
+      const c = await api.brainstorm.newChat(spaceId)
+      await api.brainstorm.say(c.chat_id, `@Mentor ${opening}`)
+      setChatId(c.chat_id)
+      await loadSpace()
+      onOpeningSent?.()
+    })
+  }, [opening, space, spaceId]) // eslint-disable-line react-hooks/exhaustive-deps
+  const pageRef = useRef<HTMLDivElement>(null)
+  const [cols, setCols] = useState(loadCols)
+  // the reader in the right column, and whether it is full screen for now
+  const [full, setFull] = useState(false)
+  useEffect(() => { setFull(false) }, [reader])
+  const rightKey: 'reader' | 'right' = reader ? 'reader' : 'right'
+  useEffect(() => { try { localStorage.setItem(BS_COLS_KEY, JSON.stringify(cols)) } catch { /* this visit only */ } }, [cols])
+  // drag a border between columns; the conversation in the middle keeps room to be read
+  const dragCol = (side: 'left' | 'right') => (e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const start = cols
+    const handle = e.currentTarget
+    document.body.classList.add('resizing')
+    handle.classList.add('dragging')
+    const onMove = (ev: MouseEvent) => {
+      const room = (pageRef.current?.clientWidth ?? 1400) - 12 - BS_CENTER_MIN
+      const d = ev.clientX - startX
+      setCols(side === 'left'
+        ? { ...start, left: Math.round(Math.max(180, Math.min(420, room - start.right, start.left + d))) }
+        : { ...start, [rightKey]: Math.round(Math.max(280, Math.min(rightKey === 'reader' ? 1400 : 720, room - start.left, start[rightKey] - d))) })
+    }
+    const onUp = () => {
+      document.body.classList.remove('resizing')
+      handle.classList.remove('dragging')
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
+  // the message box grows with what is written, up to a few lines
+  const msgRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    const el = msgRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`
+  }, [text])
   const showIdea = (id: string) => {
     const c = cards.get(id)
     if (c && c.type !== 'idea') { setDrawer(id); return }
@@ -114,7 +186,7 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
   }
   const askAbout = (q: string) => {
     setText(q)
-    setTimeout(() => (document.querySelector('.bs-composer input[aria-label="Message"]') as HTMLInputElement | null)?.focus(), 50)
+    setTimeout(() => (document.querySelector('.bs-composer [aria-label="Message"]') as HTMLTextAreaElement | null)?.focus(), 50)
   }
   const askAgent = (agent: string, cardId: string) => act(async () => {
     const id = await ensureChat()
@@ -134,6 +206,83 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
       loadSpace()
     })
   }
+  // speaking instead of typing: the words go into the message box; hands-free, what is said is sent, the
+  // agents' answers are read aloud, and it listens again
+  const [handsFree, setHandsFree] = useState(false)
+  const [speaking, setSpeaking] = useState(false)
+  const handsFreeNow = useRef(false)
+  useEffect(() => { handsFreeNow.current = handsFree }, [handsFree])
+  const sendText = (t: string) => act(async () => {
+    const id = await ensureChat()
+    await api.brainstorm.say(id, t, live ? '' : focus, attachments)
+    setAttachments([])
+    setChat(await api.brainstorm.chat(id))
+    loadSpace()
+  })
+  // what was in the box when speaking began: the words so far are shown after it, live
+  const typedBefore = useRef('')
+  const withTyped = (words: string) => (typedBefore.current.trim() ? `${typedBefore.current.trim()} ${words}` : words)
+  // typing takes over from speaking at any moment: what is typed stays, the voice stops
+  const typing = useRef(false)
+  // what was read aloud last, and when: words heard that only repeat it are its echo, not the researcher
+  const lastSpoken = useRef<{ text: string; at: number }>({ text: '', at: 0 })
+  const echo = (words: string) => Date.now() - lastSpoken.current.at < 120_000 && isEcho(words, lastSpoken.current.text)
+  const voice = useVoice((words, auto) => {
+    if (typing.current || echo(words)) return
+    if (auto && handsFreeNow.current) { setText(typedBefore.current); sendText(withTyped(words)) }
+    else setText(withTyped(words))
+  }, (soFar) => { if (!typing.current && !echo(soFar)) setText(withTyped(soFar)) })
+  const startVoice = (auto: boolean) => { typing.current = false; typedBefore.current = text; voice.start(auto) }
+  // which answer is being read aloud by its speaker button (null: none, or hands-free reading)
+  const [readingId, setReadingId] = useState<string | null>(null)
+  // settle: how long it still counts as speaking after playback ends (the speakers lag, Bluetooth most), so
+  // hands-free does not start listening into the tail of it
+  const readAloud = (said: string, then?: () => void, id: string | null = null, settle = 0) => {
+    setSpeaking(true)
+    setReadingId(id)
+    lastSpoken.current = { text: spoken(said), at: Date.now() }
+    speak(said, voice.cloudVoice, () => {
+      lastSpoken.current.at = Date.now()
+      setReadingId(null)
+      window.setTimeout(() => { setSpeaking(false); then?.() }, settle)
+    })
+  }
+  /** Stop all voice: reading aloud, listening, hands-free. */
+  const quiet = () => {
+    setHandsFree(false)
+    voice.cancel()
+    stopSpeaking()
+    setSpeaking(false)
+    setReadingId(null)
+  }
+  const voiceOn = handsFree || speaking || voice.state !== 'idle'
+  useEffect(() => {
+    if (!voiceOn) return
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') quiet() }
+    window.addEventListener('keydown', key)
+    return () => window.removeEventListener('keydown', key)
+  }, [voiceOn]) // eslint-disable-line react-hooks/exhaustive-deps
+  const lastRead = useRef<string | null>(null)
+  useEffect(() => {
+    if (!handsFree) return
+    if (voice.error) { setHandsFree(false); return }
+    if (!chat || chat.pending || busy || speaking || voice.state !== 'idle') return
+    // the answers since you last spoke, read aloud; then it listens for yours
+    const msgs = chat.messages
+    let mine = -1
+    msgs.forEach((m, i) => { if (m.mine) mine = i })
+    const answers = msgs.slice(mine + 1).filter((m) => m.agent && m.text && !m.pending)
+    const last = answers.length ? answers[answers.length - 1].msg_id : null
+    if (last && lastRead.current !== last) {
+      lastRead.current = last
+      // then it listens again (below), once the speakers have gone quiet
+      readAloud(answers.map((m) => m.text).join('\n'), undefined, null, 700)
+      return
+    }
+    startVoice(true)
+  }, [handsFree, chat, busy, speaking, voice.state, voice.error]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!handsFree) { stopSpeaking(); setSpeaking(false); voice.cancel() } }, [handsFree]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => stopSpeaking(), [])
   const deep = () => act(async () => {
     const id = await ensureChat()
     await api.brainstorm.deep(id, text.trim(), focus)
@@ -166,6 +315,42 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
   const projects = spaces.filter((s) => s.project && s.can_write)
   const papersCount = lit?.papers.length ?? space.papers
   const ruleNow: AddFound = (lit?.rule as AddFound) ?? 'cited'
+  // the moves: any of them at any time, on the idea in focus or, without one, on the conversation so far (with
+  // what is typed, if anything); none waits for another to be done first
+  const guided = !!chat?.chat.guided
+  const typed = text.trim()
+  const ask = (to: string, about: string) => { sendText(`@${to} ${about}${typed ? `: ${typed}` : ''}`); setText('') }
+  const onIdea = (agent: string, fallback: string) => () => (focusCard && !typed ? askAgent(agent, focusCard.card_id) : ask(agent, fallback))
+  const moves: { key: string; label: string; title: string; run: () => void; on?: boolean; off?: string }[] = [
+    { key: 'think', label: guided ? 'Mentor guiding · pause' : 'Think it through', on: guided,
+      title: guided ? 'Pause the Mentor: your messages go to whoever fits them; resume any time, it keeps what it learned'
+        : 'The Mentor helps you think it through by asking',
+      run: () => (guided
+        ? act(async () => { const id = await ensureChat(); await api.brainstorm.guide(id, false); await loadChat() })
+        : ask('Mentor', 'Help me think this through')) },
+    { key: 'challenge', label: 'Challenge it', title: 'The Skeptic looks for the weakest point', run: onIdea('Skeptic', 'What is the weakest point of what we have so far?') },
+    { key: 'test', label: 'Make it testable', title: 'Methods turns it into something you could test', run: onIdea('Methods', 'How could what we have so far be tested?') },
+    { key: 'known', label: "What's known", title: 'The Librarian searches thoroughly, from many angles', run: deep },
+    { key: 'map', label: 'Map the field', title: 'Zoom out: the Librarian maps the whole direction with you', run: () => ask('Librarian', 'Map the field around what we are discussing') },
+    { key: 'versions', label: 'Write versions', title: 'Two or three drafts of your idea, to edit or take', run: () => ask('Methods', 'Write two or three versions of my idea') },
+    { key: 'write', label: 'Write it down', title: 'Your question as it stands, written down for you to change', run: () => ask('Mentor', 'Write my research question down as it stands, as a first version') },
+    { key: 'table', label: 'Round table', off: focusCard ? '' : 'Needs an idea on the board: Write it down first, or pick one on the right',
+      title: 'Several models develop your idea into its strongest version, or meet live with you', run: () => focusCard && setDialog({ kind: 'promote', card: focusCard }) },
+  ]
+  // one or two moves suggested from where things are; a suggestion, never a gate
+  const suggested = ((): string[] => {
+    const mineSaid = (chat?.messages ?? []).filter((m) => m.mine && m.kind === 'text').length
+    if (!focusCard) return ideas.length === 0 && mineSaid >= 6 ? ['write'] : mineSaid === 0 ? ['think'] : []
+    const near = new Set(space.links.filter((l) => l.to_card === focusCard!.card_id || l.from_card === focusCard!.card_id)
+      .flatMap((l) => [l.from_card, l.to_card]))
+    const linked = space.cards.filter((c) => near.has(c.card_id) && c.card_id !== focusCard!.card_id)
+    const out: string[] = []
+    if (!linked.some((c) => c.type === 'material')) out.push('known')
+    if (!(chat?.messages ?? []).some((m) => m.who === 'Skeptic')) out.push('challenge')
+    if (linked.some((c) => c.type === 'question' && !c.answer)) out.push('think')
+    if (!out.length) out.push('table')
+    return out.slice(0, 2)
+  })()
   const ideaActions = {
     onToggle: (id: string) => setExpanded((x) => ({ ...x, [id]: !x[id] })),
     onDiscuss: (id: string) => setFocus(id),
@@ -178,7 +363,7 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
   }
 
   return (
-    <div className="bs-page">
+    <div className="bs-page" ref={pageRef} style={{ '--bs-left': `${cols.left}px`, '--bs-right': `${cols[rightKey]}px` } as React.CSSProperties}>
       {/* ── left: spaces, conversations, the Library, agents ── */}
       <nav className="bs-left" aria-label="Brainstorm spaces">
         <label className="bs-field">Space
@@ -259,6 +444,8 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
         <div className="lit-sub" style={{ padding: '4px 8px 0' }}>Their calls use {auth.accounts ? 'your API key' : 'the server’s key'}.</div>
         {space.project && <button className="bs-item" onClick={() => onOpenProject(space.space)}><span>Open the project</span><span className="lit-sub">→</span></button>}
       </nav>
+      <div className="resize-handle" role="separator" aria-orientation="vertical" title="Drag to resize; double-click to reset"
+        onMouseDown={dragCol('left')} onDoubleClick={() => setCols(BS_COLS)} />
 
       {/* ── middle: the conversation ── */}
       <section className="bs-center" aria-label="Conversation">
@@ -302,7 +489,8 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
               Not sure yet what you want to ask? Say so: the Mentor will help you find your question.</div>
           )}
           {chat?.messages.map((m) => <Message key={m.msg_id} m={m} space={space} cards={cards} onIdea={showIdea} onPaper={showPaper}
-            spaceId={spaceId} onChanged={() => { loadChat(); loadSpace() }}
+            spaceId={spaceId} onChanged={() => { loadChat(); loadSpace() }} reading={readingId === m.msg_id}
+            onSpeak={(t) => { if (readingId === m.msg_id) { stopSpeaking(); setSpeaking(false); setReadingId(null) } else readAloud(t, undefined, m.msg_id) }}
             onConsent={(share) => act(async () => { await api.brainstorm.consent(m.msg_id, share); await loadChat(); loadSpace() })} />)}
         </div>
         {error && <div className="panel-message error" style={{ margin: '0 16px' }}>{error}</div>}
@@ -313,13 +501,19 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
                 : 'This round table has finished. Its ideas and questions are on the board.'}</div>
             ) : (
               <div className="bs-quick">
-                {focusCard && AGENT_ASK.map(([agent, label]) => <button key={agent} type="button" disabled={busy} onClick={() => askAgent(agent, focusCard!.card_id)}>{label}</button>)}
-                {focusCard && <button type="button" onClick={() => setDialog({ kind: 'promote', card: focusCard! })}>Turn into a proposal</button>}
-                <button type="button" disabled={busy || (!focusCard && !text.trim())} title={!focusCard && !text.trim() ? 'Pick an idea, or type what to search for' : 'The Librarian searches thoroughly, from many angles'} onClick={deep}>Deep search</button>
-                <button type="button" title="Zoom out: the Librarian maps a whole direction with you" onClick={() => {
-                  setText(text.trim() ? text : 'What has been done on ')
-                  setTimeout(() => (document.querySelector('.bs-composer input[aria-label="Message"]') as HTMLInputElement | null)?.focus(), 30)
-                }}>What has been done on…</button>
+                <button type="button" className={handsFree ? 'on' : ''} aria-pressed={handsFree}
+                  title={handsFree ? 'Back to typing (Esc, or just start typing)' : 'Talk instead of typing: what you say is sent after a pause, and the answers are read aloud'}
+                  onClick={() => setHandsFree(!handsFree)}>
+                  {handsFree ? (voice.state === 'listening' ? '● Listening… (hands-free on)' : voice.state === 'transcribing' ? 'Writing down what you said…'
+                    : speaking ? 'Speaking… (hands-free on)' : chat?.pending || busy ? 'Waiting for the answer… (hands-free on)' : 'Hands-free on') : 'Hands-free'}
+                  {handsFree && <span className="bs-stop-hint"> · Esc to stop</span>}
+                </button>
+                {moves.map((mv) => (
+                  <button key={mv.key} type="button" disabled={busy || !!mv.off} title={mv.off || mv.title}
+                    className={`${mv.on ? 'on' : ''}${suggested.includes(mv.key) ? ' suggested' : ''}`} onClick={mv.run}>
+                    {suggested.includes(mv.key) && <span className="bs-sug-dot" aria-label="Suggested next" />}{mv.label}
+                  </button>
+                ))}
               </div>
             )}
             <div className="bs-composer">
@@ -338,17 +532,42 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
                       </div>
                     )}</span>
                 )}
-                <input aria-label="Message" placeholder={currentChat?.run_id ? 'Speak in the round table' : chat?.chat.guided ? 'Answer the Mentor, or name another agent' : 'Think out loud, or @Skeptic @Methods @Librarian @Mentor'}
-                  value={text} onChange={(e) => setText(e.target.value)} disabled={!!currentChat?.run_id && !live} />
+                {!currentChat?.run_id || live ? (
+                  <button type="button" className={`bs-mic${voice.state === 'listening' ? ' on' : ''}`} disabled={voice.state === 'transcribing'}
+                    aria-label={voice.state === 'listening' ? 'Stop and write down what you said' : 'Speak instead of typing'}
+                    title={voice.state === 'listening' ? 'Stop: what you said goes into the message box' : 'Speak instead of typing'}
+                    onClick={() => { stopSpeaking(); setSpeaking(false); if (voice.state === 'listening') voice.stop(); else startVoice(false) }}>
+                    {voice.state === 'transcribing' ? <span className="spinner" /> : voice.state === 'listening'
+                      ? <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" /></svg>
+                      : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>}
+                  </button>
+                ) : null}
+                <textarea ref={msgRef} rows={1} className={voice.state !== 'idle' ? 'bs-hearing' : undefined} aria-label="Message" placeholder={currentChat?.run_id ? 'Speak in the round table' : chat?.chat.guided ? 'Answer the Mentor, or name another agent' : 'Think out loud, or @Skeptic @Methods @Librarian @Mentor'}
+                  value={text} onChange={(e) => { if (voiceOn) { typing.current = true; quiet() } setText(e.target.value) }}
+                  disabled={!!currentChat?.run_id && !live}
+                  onKeyDown={(e) => {
+                    // Enter sends, Shift+Enter is a new line; Enter that picks a word in an input method is neither
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); e.currentTarget.form?.requestSubmit() }
+                  }} />
                 <button className="btn-sm btn-modify" disabled={busy || !text.trim()}>Send</button>
               </div>
+              {voice.error && <div className="bs-voice-err">{voice.error} <button type="button" className="link-btn" onClick={() => voice.setError(null)}>dismiss</button></div>}
             </div>
           </form>
         ) : <div className="bs-foot lit-sub">You can read this space; writing in it needs comment rights in the project.</div>}
       </section>
+      <div className="resize-handle" role="separator" aria-orientation="vertical" title="Drag to resize; double-click to reset"
+        onMouseDown={dragCol('right')} onDoubleClick={() => setCols(BS_COLS)} />
 
       {/* ── right: ideas and papers ── */}
-      <aside className="bs-right" aria-label="Ideas and papers">
+      <aside className="bs-right" aria-label={reader ? 'The paper' : 'Ideas and papers'}>
+        {reader && (
+          <Suspense fallback={<div className="rd docked"><div className="rd-loading">Opening the paper…</div></div>}>
+            <PaperReader key={`${reader.paper}|${reader.space}|${reader.cardId ?? ''}`} req={reader} onClose={() => onCloseReader?.()}
+              docked full={full} onToggleFull={() => setFull((f) => !f)} />
+          </Suspense>
+        )}
+        {!reader && <>
         <div className="team-tabs" role="tablist">
           <button role="tab" aria-selected={tab === 'ideas'} className={tab === 'ideas' ? 'on' : ''} onClick={() => setTab('ideas')}>Ideas · {ideas.length}</button>
           <button role="tab" aria-selected={tab === 'papers'} className={tab === 'papers' ? 'on' : ''} onClick={() => setTab('papers')}>Papers · {papersCount}</button>
@@ -375,6 +594,7 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
                 chatId: chatId ?? undefined, from: 'Brainstorm' })} />
           )}
         </div>
+        </>}
       </aside>
 
       {drawer && cards.get(drawer) && (
@@ -417,9 +637,13 @@ export function BrainstormView({ initialSpace, onOpenProject, onOpenLibrary }: {
   )
 }
 
-function Message({ m, space, cards, onIdea, onPaper, onConsent, spaceId, onChanged }: {
+function Message({ m, space, cards, onIdea, onPaper, onConsent, spaceId, onChanged, onSpeak, reading }: {
   m: BsMessage; space: BsSpace; cards: Map<string, BsCard>; onIdea: (id: string) => void; onPaper: (key: string) => void; onConsent: (share: boolean) => void
   spaceId: string; onChanged: () => void
+  /** Read an answer aloud, or stop reading it. */
+  onSpeak?: (text: string) => void
+  /** It is being read aloud now. */
+  reading?: boolean
 }) {
   const agent = space.agents[m.who]
   const seat = /^p\d\d$/.test(m.who)
@@ -452,7 +676,12 @@ function Message({ m, space, cards, onIdea, onPaper, onConsent, spaceId, onChang
   return (
     <div className="bs-msg"><Avatar name={m.who === 'Chair' ? 'CH' : m.who} agent={agent} />
       <div className="bs-msg-main">
-        <div className="bs-who"><b>{seat ? `Seat ${m.who}` : m.who}</b>{role && <span className="lit-sub"> · {role}</span>}</div>
+        <div className="bs-who"><b>{seat ? `Seat ${m.who}` : m.who}</b>{role && <span className="lit-sub"> · {role}</span>}
+          {onSpeak && m.text && !m.pending && <button type="button" className={`bs-speak${reading ? ' on' : ''}`}
+            title={reading ? 'Stop reading (Esc)' : 'Read it aloud'} aria-label={reading ? 'Stop reading' : 'Read it aloud'} onClick={() => onSpeak(m.text)}>
+            {reading
+              ? <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" /></svg>
+              : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" /></svg>}</button>}</div>
         {steps.length > 0 && (
           <div className="bs-steps">{steps.map((s, i) => <div key={i}>{s === 'Thinking' ? BULB : LENS}
             <span><Rich text={s} cards={cards} onIdea={onIdea} onPaper={onPaper} />{m.pending && i === steps.length - 1 ? '…' : ''}</span></div>)}</div>

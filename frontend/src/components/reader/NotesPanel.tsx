@@ -71,9 +71,11 @@ export function NotesPanel({ view, notes, filter, setFilter, focusId, unplaced, 
         </div>
         {view.idea
           ? <div className="rd-idea"><svg className="rd-idea-ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z" /></svg>
-              <span>Reading for your idea: <b>{view.idea.text}</b></span></div>
-          : <div className="rd-idea quiet">Open the paper from an idea in a brainstorm and the agents read it with you, for that idea.
-              You can always ask them about a passage.</div>}
+              {view.idea.kind === 'conversation'
+                ? <span>Reading for <b>what you said in this brainstorm</b>. No idea is written down yet; once one is, they read for it.</span>
+                : <span>Reading for your idea: <b>{view.idea.text}</b></span>}</div>
+          : <div className="rd-idea quiet">Open the paper from a brainstorm and the agents read it with you, for your idea or for
+              what you are talking about. You can always ask them about a passage.</div>}
         <div className="rd-chips" role="group" aria-label="Show notes by">
           {filters.map((x) => (
             <button key={x.f} className={`rd-chip${filter === x.f ? ' on' : ''}`} onClick={() => { setFilter(x.f); onFocus(null) }}>
@@ -162,7 +164,7 @@ function NoteCard({ n, focused, unplaced, canShare, onFocus, onGoto, actions }: 
           <label className="rd-sub" htmlFor={`cm-${n.ann_id}`}>Your note (mention @Skeptic, @Methods or @Librarian to ask)</label>
           <textarea id={`cm-${n.ann_id}`} ref={input} className="rd-in" value={draft} onChange={(e) => setDraft(e.target.value)}
             placeholder="What does this passage mean for the idea?"
-            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) actions.save(n, draft) }} />
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey)) actions.save(n, draft) }} />
           <div className="rd-actions end">
             <button className="rd-act quiet" onClick={() => actions.cancel(n)}>Cancel</button>
             <button className="rd-act keep" onClick={() => actions.save(n, draft)}>Save note</button>
@@ -173,7 +175,7 @@ function NoteCard({ n, focused, unplaced, canShare, onFocus, onGoto, actions }: 
         <div className="rd-edit" onClick={(e) => e.stopPropagation()}>
           <textarea className="rd-in small" aria-label="Reply" value={draft} onChange={(e) => setDraft(e.target.value)}
             placeholder={agent ? `Reply to the ${n.author}…` : 'Reply, or ask @Skeptic, @Methods, @Librarian…'}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} />
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && !e.shiftKey) { e.preventDefault(); send() } }} />
           <div className="rd-actions end"><button className="rd-act" disabled={!draft.trim() || sending} onClick={send}>Reply</button></div>
         </div>
       )}

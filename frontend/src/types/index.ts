@@ -1071,7 +1071,16 @@ export interface RunEstimate {
 export interface ForkPoint { id: string; label: string; phase: string; completed_jobs: string[]; round: number; cost_usd: number; at: number; files: number; bytes: number; skipped: string[] }
 export interface ForkPoints { points: ForkPoint[]; ideas: { id: string; seat: string; model: string; headline: string; text: string }[]; chosen: string; running: boolean }
 
-export interface SetupCheck { key: string; label: string; required: boolean; ok: boolean; detail: string; fix: string; action?: string }
+/** How far a paper's open PDF is: here, being fetched (bytes so far, of how many), or not to be had. */
+export interface PdfProgress { state: 'ready' | 'fetching' | 'none'; loaded: number; total: number }
+
+export interface SetupCheck {
+  key: string; label: string; required: boolean; ok: boolean; detail: string; fix: string; action?: string
+  /** Docker: where its commands are linked on a Mac (Homebrew's bin, else /usr/local/bin) */
+  link_dir?: string
+  /** what went wrong in the last install from the console */
+  error?: string
+}
 export interface SetupStatus { checks: SetupCheck[]; ready: boolean; dismissed: boolean; local: boolean }
 
 // ---------------------------------------------------------------------------
@@ -1178,7 +1187,8 @@ export interface ReaderView {
   campaign_id: string
   pdf: { available: boolean; openable: boolean }
   notes: ReaderNote[]
-  idea: { card_id: string; text: string } | null
+  /** What the agents read for: an idea, or (none written down yet) the conversation's own words. */
+  idea: { card_id: string; text: string; kind?: 'idea' | 'conversation' } | null
   reads: Partial<Record<ReaderAgent, { state: 'reading' | 'done' | 'failed'; detail: string }>>
   agents_mark: boolean
   can_share: boolean

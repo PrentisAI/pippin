@@ -17,7 +17,6 @@ import { LiteratureView, RULE_HINTS, RULE_LABELS, RuleSelect } from '../componen
 import { LibraryView } from '../components/LibraryView'
 import { MemoryView } from '../components/memory/MemoryView'
 import { CiteProvider, CiteText } from '../components/Cite'
-import { SetupCard, TEMPLATES } from '../components/Welcome'
 import { CompareView } from '../components/results/CompareView'
 import { ReportView } from '../components/results/ReportView'
 import { ForkDialog } from '../components/results/ForkDialog'
@@ -26,7 +25,6 @@ import { AccountButton } from '../components/AccountMenu'
 import { useAuth } from '../auth'
 import { ClusterJobsPanel } from '../components/ClusterJobsPanel'
 import { formatCost, formatDuration } from '../format'
-import { WelcomeWizard } from '../onboarding/WelcomeWizard'
 import { Tour } from '../onboarding/Tour'
 import { DocViewer, HelpPanel } from '../onboarding/HelpPanel'
 import { ExamplesView } from '../onboarding/ExamplesView'
@@ -58,6 +56,7 @@ import {
   type LibraryRef,
   type OtherProject,
   type RunEstimate,
+  type SetupStatus,
 } from '../types'
 import { turnKey, type StreamEvent } from '../types/chat'
 import type { ReadRequest } from '../components/reader/PaperReader'
@@ -142,6 +141,9 @@ function ErrorBanner({ message, onDismiss }: { message: string | null; onDismiss
 // SVG Icons
 // ---------------------------------------------------------------------------
 
+const HomeIcon = () => (
+  <svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 01-1 1h-5v-6h-6v6H4a1 1 0 01-1-1z"/></svg>
+)
 const FolderIcon = () => (
   <svg viewBox="0 0 24 24"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
 )
@@ -235,6 +237,8 @@ function ActivityBar({
   page,
   onTogglePanel,
   onOpenPage,
+  onHome,
+  atHome,
   helpBadge,
 }: {
   activePanel: string
@@ -242,11 +246,15 @@ function ActivityBar({
   page: MainPage
   onTogglePanel: (panel: string) => void
   onOpenPage: (page: MainPage) => void
+  /** Back to the start page, where a new question begins. */
+  onHome: () => void
+  atHome: boolean
   /** Things of the getting-started checklist not tried yet. */
   helpBadge: number
 }) {
   return (
     <div className="activity-bar">
+      <button className={`ab-btn${atHome ? ' active' : ''}`} title="Home" aria-label="Home, the start page" onClick={onHome}><HomeIcon /></button>
       <button className={`ab-btn${activePanel === 'projects' ? ' active' : ''}`} title="Projects" onClick={() => onTogglePanel('projects')}><FolderIcon /></button>
       <button className={`ab-btn${page === 'brainstorm' ? ' active' : ''}`} title="Brainstorm" onClick={() => onOpenPage(page === 'brainstorm' ? null : 'brainstorm')}><BulbIcon /></button>
       <button className={`ab-btn${page === 'library' ? ' active' : ''}`} title="Library" onClick={() => onOpenPage(page === 'library' ? null : 'library')}><BooksIcon /></button>
@@ -368,8 +376,10 @@ function SidebarPanel({
   return (
     <div className={`sidebar${collapsed ? ' collapsed' : ''}`} ref={sidebarRef} data-tour="sidebar">
       <div className="sidebar-brand">
-        <div className="logo">A</div>
-        <div className="name">AURORA</div>
+        <button className="home-link" title="Home" onClick={onNewProject}>
+          <div className="logo">A</div>
+          <div className="name">AURORA</div>
+        </button>
         <button className="new-btn" title="New project" onClick={onNewProject}>+</button>
       </div>
       <div className="sidebar-list">
@@ -474,101 +484,388 @@ function SidebarPanel({
 // ---------------------------------------------------------------------------
 
 // the templates of a field first
-const FIELD_TEMPLATES: Record<string, string[]> = {
-  materials: ['simulation', 'open', 'reproduce'], ml: ['ablation', 'reproduce', 'data'], bio: ['data', 'reproduce', 'open'],
-  data: ['data', 'open', 'reproduce'],
+// dockerAsk: has the person installed Docker? dockerPath: where its command is; unsure: no question yet
+type HomeCard = 'paths' | 'tour' | 'step' | 'next' | 'dockerAsk' | 'dockerPath' | 'unsure'
+interface HomeMsg { from: 'bot' | 'user'; text: string; card?: HomeCard }
+type HomeMode = 'project' | 'brainstorm'
+
+const HOME_GREETING: HomeMsg = {
+  from: 'bot', card: 'paths',
+  text: 'Hi, I’m AURORA. What would you like to do?',
+}
+// what each way needs on this machine, in the order it is set up
+const HOME_NEEDS: Record<HomeMode, string[]> = { project: ['model_key', 'claude', 'docker'], brainstorm: ['model_key'] }
+const HOME_DONE: Record<string, string> = { model_key: 'Connected to the models.', claude: 'Claude Code is installed.', docker: 'Docker is running.' }
+const DOCKER_WHY = 'Docker: it keeps each experiment in its own sandbox, so the agents cannot touch anything else on your Mac.'
+const DOCKER_INSTALL = 'It is the one thing to install yourself, since its installer asks for your Mac password:\n'
+  + '1. Download Docker Desktop (button below) and open the downloaded file.\n'
+  + '2. Drag Docker into Applications, then open it from there.\n'
+  + '3. Accept its terms and enter your password when it asks; the recommended settings are fine.\n'
+  + 'You can leave this page open meanwhile: I’ll notice as soon as Docker is running.'
+const DOCKER_WHERE = 'Where is its `docker` command? In a terminal, run `which docker` and paste what it prints here. '
+  + 'For example: ~/.docker/bin/docker, /usr/local/bin/docker or /opt/homebrew/bin/docker.'
+const HOME_ASK: Record<HomeMode, string> = {
+  project: 'What would you like to find out? A sentence or two is enough, for example “Does data augmentation still help when the training set is large?” or “Reproduce Table 2 of arXiv 2405.01234”.',
+  brainstorm: 'What’s on your mind, even roughly: a topic, a hunch, something that puzzled you?',
+}
+const HOME_NEXT: Record<HomeMode, string> = {
+  project: 'Here is what happens on the next page, your project:\n'
+    + '1. Its assistant reads your question and asks about anything unclear. Just answer in the chat.\n'
+    + '2. It then proposes a plan: the steps, the models, and an estimate of cost and time. Click Start, or tell it what to change.\n'
+    + '3. While the experiment runs you can watch it and write to it at any time; it stops and asks you when a decision is yours.',
+  brainstorm: 'Here is what happens on the next page, a brainstorm:\n'
+    + '1. The Mentor picks up what you just said and asks you questions, one at a time. Just answer.\n'
+    + '2. As it gets clearer, your question and plan build up on the right.\n'
+    + '3. For a second opinion, write @Skeptic, @Methods or @Librarian.',
 }
 
-function WelcomeView({ onSend, onOpenRun, onOpenExample }: {
+// the conversation is kept in this browser, so it is still there when the person comes back (never the key)
+interface HomeSaved { msgs: HomeMsg[]; mode: HomeMode; stage: 'idle' | 'setup' | 'ask' | 'next'; step: string | null; question: string }
+const HOME_STORE = 'aurora.home.v1'
+function loadHome(): HomeSaved | null {
+  try { const raw = localStorage.getItem(HOME_STORE); return raw ? JSON.parse(raw) as HomeSaved : null } catch { return null }
+}
+function saveHome(saved: HomeSaved | null) {
+  try { if (saved) localStorage.setItem(HOME_STORE, JSON.stringify(saved)); else localStorage.removeItem(HOME_STORE) } catch { /* kept for this visit only */ }
+}
+
+/** The start page: a short scripted conversation (it needs no model). It finds out what the person
+ *  wants, sets up this machine for it one thing at a time, says what the next page is for, and only
+ *  then takes them there. */
+function WelcomeView({ onSend, onOpenRun, onOpenExample, onBrainstorm }: {
   onSend: (text: string) => Promise<void>
   onOpenRun: (cid: string, runId: string) => void
   /** The finished example, with the tour. */
   onOpenExample: () => void
+  /** The brainstorm, where the Mentor takes it from what the person said. */
+  onBrainstorm: (opening: string) => void
 }) {
-  const ob = useOnboarding()
-  const order = FIELD_TEMPLATES[ob?.field ?? ''] ?? []
-  const templates = TEMPLATES.slice().sort((a, b) => (order.indexOf(a.id) + 1 || 99) - (order.indexOf(b.id) + 1 || 99))
+  const [saved] = useState(loadHome)
+  const [msgs, setMsgs] = useState<HomeMsg[]>(saved?.msgs?.length ? saved.msgs : [HOME_GREETING])
   const [input, setInput] = useState('')
-  const [sending, setSending] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [template, setTemplate] = useState<string | null>(null)
+  const [setup, setSetup] = useState<SetupStatus | null>(null)
+  const [key, setKey] = useState('')
+  const [dockerPath, setDockerPath] = useState('')
+  const [mode, setMode] = useState<HomeMode>(saved?.mode ?? 'project')
+  // setting up: the thing being set up now; asking: waiting for the question; next: ready to go
+  const [stage, setStage] = useState<'idle' | 'setup' | 'ask' | 'next'>(saved?.stage ?? 'idle')
+  const [step, setStep] = useState<string | null>(saved?.step ?? null)
+  const [question, setQuestion] = useState(saved?.question ?? '')
+  useEffect(() => { if (msgs.length > 1) saveHome({ msgs, mode, stage, step, question }) }, [msgs, mode, stage, step, question])
+  const dockerAction = useRef<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const demo = async () => {
-    setError(null)
-    try { const r = await api.setup.demo(); onOpenRun(r.campaign_id, r.experiment_id) } catch (e) { setError(`Could not start the demo: ${describeError(e)}`) }
-  }
-  const applyTemplate = (id: string) => {
-    const t = TEMPLATES.find((x) => x.id === id)
-    if (!t) return
-    setTemplate(id)
-    setInput(t.text)
-    window.setTimeout(() => {
-      const el = textareaRef.current
-      if (!el) return
-      el.focus()
-      const start = t.text.indexOf('[')
-      if (start >= 0) el.setSelectionRange(start, t.text.indexOf(']', start) + 1)
-    }, 0)
-  }
+  const endRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => { textareaRef.current?.focus() }, [])
-
+  useEffect(() => {
+    textareaRef.current?.focus()
+    api.setup.get().then(setSetup).catch(() => {})
+    // this conversation replaces the welcome wizard
+    updateOnboarding({ done: true }).catch(() => {})
+  }, [])
+  useEffect(() => { endRef.current?.scrollIntoView({ block: 'nearest' }) }, [msgs, busy])
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 260) + 'px'
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px'
     }
   }, [input])
 
-  const handleSubmit = async () => {
-    if (!input.trim() || sending) return
-    setSending(true)
-    setError(null)
-    try {
-      await onSend(input.trim())
-    } catch (err) {
-      setError(`Could not create the project: ${describeError(err)}`)
-    } finally {
-      setSending(false)
+  const say = (...m: HomeMsg[]) => setMsgs((prev) => [...prev, ...m])
+  const check = (k: string) => setup?.checks.find((c) => c.key === k)
+  const missing = (s: SetupStatus, m: HomeMode) => HOME_NEEDS[m].filter((k) => s.checks.some((c) => c.key === k && c.required && !c.ok))
+
+  const introduce = (k: string) => {
+    const c = check(k)
+    if (k === 'model_key') return 'The models: AURORA reaches them through OpenRouter: one key covers Claude, GPT, Gemini and the rest. Create a key at openrouter.ai → Keys and paste it below. It is saved on this machine, not in this chat.'
+    if (k === 'claude') return 'Claude Code: the program the research agents work in. I can install it for you; it takes about a minute.'
+    const why = DOCKER_WHY
+    if (c?.action === 'start') return `${why} Docker Desktop is installed but not running yet. If its window is open, accept its terms and enter your Mac password when it asks; otherwise I can start it for you. I’ll notice as soon as it is running.`
+    const dir = c?.link_dir ?? '/opt/homebrew/bin'
+    if (c?.action === 'link') return dir === '/usr/local/bin'
+      ? `${why} Docker Desktop is installed, but its \`docker\` command is not linked where I can find it. In a terminal, run: sudo ln -s /Applications/Docker.app/Contents/Resources/bin/docker /usr/local/bin/docker`
+      : `${why} Docker Desktop is installed, but its \`docker\` command is not linked into ${dir}, where I look for it. I can link it for you.`
+    return `${why} I can’t find Docker on this Mac yet. Have you installed it already?`
+  }
+  // a setup step's message; for a Docker that cannot be found, it first asks whether it is installed
+  const stepMsg = (k: string): HomeMsg => {
+    const action = check(k)?.action ?? ''
+    return { from: 'bot', card: k === 'docker' && action !== 'start' && action !== 'link' ? 'dockerAsk' : 'step', text: introduce(k) }
+  }
+  const dockerAnswer = (installed: boolean) => installed
+    ? say({ from: 'user', text: 'Yes, it’s installed' }, { from: 'bot', card: 'dockerPath', text: DOCKER_WHERE })
+    : say({ from: 'user', text: 'Not yet' }, { from: 'bot', card: 'step', text: DOCKER_INSTALL })
+  // once the person has said what they want: set up what is missing, one thing at a time, then go on
+  const afterSetup = (m: HomeMode, q: string) => {
+    if (q) { setStage('next'); say({ from: 'bot', card: 'next', text: HOME_NEXT[m] }) } else { setStage('ask'); say({ from: 'bot', text: HOME_ASK[m] }); textareaRef.current?.focus() }
+  }
+  const begin = (m: HomeMode, q: string) => {
+    setMode(m)
+    setQuestion(q)
+    if (!setup) { afterSetup(m, q); return }
+    const todo = missing(setup, m)
+    if (!todo.length) {
+      // nothing to set up: still fetch the sandbox image now, or the first experiment waits for it
+      if (m === 'project' && setup.checks.some((c) => c.key === 'image' && !c.ok)) api.setup.pull().then(setSetup).catch(() => {})
+      afterSetup(m, q)
+      return
     }
+    setStage('setup')
+    setStep(todo[0])
+    say({ from: 'bot', text: `Let’s get this Mac ready first. ${todo.length === 1 ? 'One thing is' : `${todo.length} things are`} missing; I’ll go one at a time.` },
+      stepMsg(todo[0]))
+  }
+  // the checks changed: when the current step is done, say so and move on
+  useEffect(() => {
+    if (stage !== 'setup' || !setup || !step) return
+    const todo = missing(setup, mode)
+    if (todo[0] === step) {
+      // still on Docker, but what it needs changed (installed, so now to link or start): say what now
+      const action = check('docker')?.action ?? ''
+      if (step === 'docker' && dockerAction.current !== null && action !== dockerAction.current) say(stepMsg('docker'))
+      dockerAction.current = step === 'docker' ? action : null
+      return
+    }
+    say({ from: 'bot', text: `✓ ${HOME_DONE[step] ?? 'Done.'}` })
+    if (todo.length) { setStep(todo[0]); say(stepMsg(todo[0])); return }
+    setStep(null)
+    if (mode === 'project' && setup.checks.some((c) => c.key === 'image' && !c.ok)) {
+      // the first run would wait for it otherwise
+      api.setup.pull().then(setSetup).catch(() => {})
+      say({ from: 'bot', text: 'All set: this Mac can run experiments now. I’m also downloading the sandbox image in the background, so your first experiment starts sooner.' })
+    } else say({ from: 'bot', text: 'All set.' })
+    afterSetup(mode, question)
+  }, [setup]) // eslint-disable-line react-hooks/exhaustive-deps
+  // installs run in the background, Docker takes a while to start, and the person may install it
+  // outside: look again now and then
+  useEffect(() => {
+    if (stage !== 'setup' || (step !== 'docker' && step !== 'claude')) return
+    const t = setInterval(() => { api.setup.get().then(setSetup).catch(() => {}) }, 5000)
+    return () => clearInterval(t)
+  }, [stage, step])
+
+  const doing = async (what: string, fn: () => Promise<void>) => {
+    setBusy(what)
+    setError(null)
+    try { await fn() } catch (e) { setError(describeError(e)) } finally { setBusy(null) }
+  }
+  const pick = (choice: 'question' | 'unsure' | 'show') => {
+    if (choice === 'show') {
+      say({ from: 'user', text: 'Show me how it works first' },
+        { from: 'bot', card: 'tour', text: 'Two ways, neither needs a key or costs anything: watch a small study run from start to finish (scripted, a few seconds), or walk through a finished one with a guided tour.' })
+      return
+    }
+    const m: HomeMode = choice === 'unsure' ? 'brainstorm' : 'project'
+    say({ from: 'user', text: choice === 'unsure' ? 'I’m still working out the question' : 'Start my own experiment' })
+    begin(m, '')
+  }
+  const submit = async () => {
+    const text = input.trim()
+    if (!text || busy) return
+    setInput('')
+    say({ from: 'user', text })
+    // the buttons of what is going on stay under the reply (a card shows only on the last message)
+    const current = [...msgs].reverse().find((m) => m.card)?.card
+    if (stage === 'setup') {
+      // said while setting up: kept, and taken as the question once the Mac is ready
+      if (!question) setQuestion(text)
+      say({ from: 'bot', card: current, text: question ? 'Noted. Let’s finish setting up first.' : 'Got it, I’ll keep that for when we are set up.' })
+      return
+    }
+    if (stage === 'next') {
+      // more before going on: passed on with the rest
+      setQuestion((q) => (q ? `${q}\n${text}` : text))
+      say({ from: 'bot', card: 'next', text: `Added: I’ll pass that on too. ${mode === 'brainstorm' ? 'Go to the brainstorm' : 'Go to your project'} when you are ready.` })
+      return
+    }
+    const asQuestion = () => { if (stage === 'ask') { setQuestion(text); afterSetup(mode, text) } else begin('project', text) }
+    // a rough thought for the Mentor needs no reading; anything else, once there is a key, is read by a
+    // model, so "no idea" or "what is this?" is not taken for a research question
+    if (mode === 'brainstorm' && stage === 'ask') { asQuestion(); return }
+    if (!check('model_key')?.ok) { asQuestion(); return }
+    setBusy('think')
+    const r = await api.home.reply(text, msgs.map((m) => ({ from: m.from, text: m.text }))).catch(() => null)
+    setBusy(null)
+    if (!r?.intent || r.intent === 'question') {
+      if (r?.reply) say({ from: 'bot', text: r.reply })
+      asQuestion()
+    } else if (r.intent === 'unsure') {
+      say({ from: 'bot', card: 'unsure', text: `${r.reply} You can work it out with the Mentor, who asks you questions until it is clear, or look at an example study first.` })
+    } else if (r.intent === 'how') {
+      say({ from: 'bot', card: 'tour', text: `${r.reply} The quickest way to see it is an example.` })
+    } else {
+      say({ from: 'bot', text: r.reply || 'What would you like to find out?' })
+      textareaRef.current?.focus()
+    }
+  }
+  const go = () => doing('go', async () => {
+    if (mode === 'brainstorm') onBrainstorm(question)
+    else await onSend(question)
+    // the page is left now: what is shown on coming back is written here, not by the effect
+    const short = question.length > 80 ? `${question.slice(0, 77)}…` : question
+    saveHome({
+      msgs: [...msgs, { from: 'bot', card: 'paths', text: mode === 'brainstorm'
+        ? `I took you to a brainstorm with the Mentor about “${short}”; you find it under Brainstorm in the left bar. Anything else?`
+        : `I opened a project for “${short}”; you find it in the project list on the left. Start something else?` }],
+      mode, stage: 'idle', step: null, question: '',
+    })
+  })
+  const startOver = () => {
+    saveHome(null)
+    setMsgs([HOME_GREETING]); setStage('idle'); setStep(null); setQuestion(''); setMode('project'); setError(null)
+    textareaRef.current?.focus()
+  }
+
+  const last = msgs.length - 1
+  const card = (m: HomeMsg, i: number) => {
+    if (i !== last || !m.card) return null
+    if (m.card === 'paths') return (
+      <div className="home-chips">
+        <button className="home-chip" onClick={() => pick('question')}>Start my own experiment</button>
+        <button className="home-chip" onClick={() => pick('unsure')}>I’m still working out the question</button>
+        <button className="home-chip" onClick={() => pick('show')}>Show me how it works first</button>
+      </div>
+    )
+    if (m.card === 'unsure') return (
+      <div className="home-chips">
+        <button className="home-chip primary" onClick={() => { say({ from: 'user', text: 'Think it through with the Mentor' }); begin('brainstorm', 'I don’t know yet what to research.') }}>Think it through with the Mentor</button>
+        <button className="home-chip" onClick={() => say({ from: 'user', text: 'Show me an example first' },
+          { from: 'bot', card: 'tour', text: 'Two ways, neither costs anything: watch a small study run from start to finish (scripted, a few seconds), or walk through a finished one with a guided tour.' })}>Show me an example first</button>
+        <button className="home-chip" onClick={() => { say({ from: 'user', text: 'I’ll type a question' }, { from: 'bot', text: 'Go ahead: a sentence or two is enough.' }); setMode('project'); setStage('ask'); textareaRef.current?.focus() }}>I’ll type a question</button>
+      </div>
+    )
+    if (m.card === 'tour') return (
+      <div className="home-chips">
+        <button className="home-chip" onClick={() => doing('demo', async () => { const r = await api.setup.demo(); onOpenRun(r.campaign_id, r.experiment_id) })}>Watch a run</button>
+        <button className="home-chip" onClick={onOpenExample}>Walk through a finished run</button>
+        <button className="home-chip" onClick={() => { say({ from: 'user', text: 'Start my own experiment' }); begin('project', '') }}>Start my own experiment</button>
+      </div>
+    )
+    if (m.card === 'dockerAsk') return (
+      <div className="home-chips">
+        <button className="home-chip" onClick={() => dockerAnswer(true)}>Yes, it’s installed</button>
+        <button className="home-chip" onClick={() => dockerAnswer(false)}>Not yet</button>
+      </div>
+    )
+    if (m.card === 'dockerPath') return (
+      <>
+        <form className="home-card" onSubmit={(e) => {
+          e.preventDefault()
+          doing('path', async () => {
+            const s = await api.setup.dockerPath(dockerPath.trim())
+            setDockerPath('')
+            setSetup(s)
+            const d = s.checks.find((c) => c.key === 'docker')
+            // found, but not answering yet: say what is left (when it answers, the step is done on its own)
+            if (d && !d.ok) say({ from: 'bot', card: 'step', text: 'Found it, but Docker is not running yet. Open Docker Desktop (accept its terms and enter your password if it asks), or let me start it. I’ll notice as soon as it is running.' })
+          })
+        }}>
+          <input className="fd-input" placeholder="e.g. ~/.docker/bin/docker" aria-label="Where the docker command is"
+            value={dockerPath} onChange={(e) => setDockerPath(e.target.value)} autoFocus />
+          <button className="btn-sm btn-approve" disabled={!!busy || !dockerPath.trim()}>{busy === 'path' ? 'Checking…' : 'Use this'}</button>
+        </form>
+        <div className="home-chips">
+          <button className="home-chip" onClick={() => dockerAnswer(false)}>I haven’t installed it after all</button>
+        </div>
+      </>
+    )
+    if (m.card === 'next') return (
+      <div className="home-chips">
+        <button className="home-chip primary" disabled={!!busy} onClick={go}>
+          {busy === 'go' ? 'Opening…' : mode === 'brainstorm' ? 'Go to the brainstorm' : 'Go to my project'}
+        </button>
+      </div>
+    )
+    if (step === 'model_key') return (
+      <form className="home-card" onSubmit={(e) => {
+        e.preventDefault()
+        doing('key', async () => { const s = await api.setup.setKey(key.trim()); setKey(''); setSetup(s) })
+      }}>
+        <input className="fd-input" type="password" autoComplete="off" placeholder="sk-or-…" aria-label="OpenRouter key"
+          value={key} onChange={(e) => setKey(e.target.value)} autoFocus />
+        <button className="btn-sm btn-approve" disabled={!!busy || key.trim().length < 20}>{busy === 'key' ? 'Checking…' : 'Connect'}</button>
+      </form>
+    )
+    const failed = (k: string) => check(k)?.error
+      ? <div className="home-failed">The last try did not work: {check(k)!.error}</div> : null
+    if (step === 'claude') {
+      const installing = check('claude')?.action === 'installing'
+      return (
+        <>
+          <div className="home-chips">
+            <button className="home-chip primary" disabled={!!busy || installing} onClick={() => doing('claude', async () => setSetup(await api.setup.installClaude()))}>
+              {installing ? 'Installing… (about a minute)' : 'Install it for me'}
+            </button>
+          </div>
+          {!installing && failed('claude')}
+        </>
+      )
+    }
+    if (step === 'docker') {
+      const action = check('docker')?.action
+      return (
+        <>
+        <div className="home-chips">
+          {action === 'start' && (
+            <button className="home-chip primary" disabled={!!busy} onClick={() => doing('docker', async () => { await api.setup.startDocker(); setSetup(await api.setup.get()) })}>
+              {busy === 'docker' ? 'Starting…' : 'Start Docker for me'}</button>
+          )}
+          {action === 'link' && check('docker')?.link_dir !== '/usr/local/bin' && (
+            <button className="home-chip primary" disabled={!!busy} onClick={() => doing('docker', async () => setSetup(await api.setup.linkDocker()))}>
+              {busy === 'docker' ? 'Linking…' : 'Link it for me'}</button>
+          )}
+          {(action === 'download' || !action) && (
+            <>
+              <a className="home-chip primary" href="https://www.docker.com/products/docker-desktop/" target="_blank" rel="noreferrer">Download Docker Desktop</a>
+              <button className="home-chip" onClick={() => say({ from: 'user', text: 'I’ve installed it' }, { from: 'bot', card: 'dockerPath', text: DOCKER_WHERE })}>I’ve installed it</button>
+            </>
+          )}
+          <button className="home-chip" disabled={!!busy} onClick={() => doing('check', async () => setSetup(await api.setup.get()))}>
+            {busy === 'check' ? 'Checking…' : 'Check now'}</button>
+        </div>
+        </>
+      )
+    }
+    return null
   }
 
   return (
-    <div className="welcome">
+    <div className="welcome home-chat">
       <div className="welcome-inner">
-        <h1>What would you like to research?</h1>
-        <p>Describe your research goal, and I'll set up a project for you.</p>
-        <SetupCard onDemo={demo} />
+        {msgs.length > 1 && <div className="home-top"><button className="link-btn" onClick={startOver}>Start over</button></div>}
+        <div className="home-thread" aria-live="polite">
+          {msgs.map((m, i) => (
+            <div key={i} className={`msg-row${m.from === 'user' ? ' user' : ''}`}>
+              {m.from === 'bot' && <div className="msg-avatar bot">A</div>}
+              <div>
+                <div className={`msg-bubble ${m.from}`}>{m.text.split('`').map((part, k) => k % 2 ? <code key={k}>{part}</code> : part)}</div>
+                {card(m, i)}
+              </div>
+            </div>
+          ))}
+          {busy === 'think' && (
+            <div className="msg-row"><div className="msg-avatar bot">A</div><div className="msg-bubble bot home-typing" aria-label="Thinking">…</div></div>
+          )}
+          <div ref={endRef} />
+        </div>
+        <ErrorBanner message={error} onDismiss={() => setError(null)} />
         <div className="input-wrap" data-tour="brief">
           <textarea
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing && !e.shiftKey) { e.preventDefault(); submit() }
             }}
-            placeholder="e.g. Investigate why the model's accuracy drops on longer inputs..."
+            placeholder={stage === 'next' ? 'Add anything else, or go on'
+              : stage === 'setup' ? 'Say anything meanwhile, e.g. what you want to find out'
+              : stage === 'ask' && mode === 'brainstorm' ? 'Whatever is on your mind, roughly is fine' : 'What would you like to find out?'}
             rows={1}
           />
-          <button className="send-btn" disabled={!input.trim() || sending} onClick={handleSubmit}>
-            {sending ? <span className="spinner" /> : <SendSvgIcon />}
+          <button className="send-btn" disabled={!input.trim() || !!busy} onClick={submit}>
+            <SendSvgIcon />
           </button>
-        </div>
-        <ErrorBanner message={error} onDismiss={() => setError(null)} />
-        {template && input.includes('[') && <div className="welcome-hint">Fill in the parts in [brackets] (the first is selected), then send. The front desk asks about anything unclear before it proposes a run.</div>}
-        <div className="templates" role="group" aria-label="Start from a template" data-tour="templates">
-          {templates.map((t) => (
-            <button key={t.id} className={`template${template === t.id ? ' on' : ''}`} onClick={() => applyTemplate(t.id)}>
-              <b>{t.title}</b><span>{t.blurb}</span><span className="lit-sub">{t.phases}</span>
-            </button>
-          ))}
-        </div>
-        <div className="welcome-more" aria-label="Not sure where to start">
-          <span className="lit-sub">Not sure where to start?</span>
-          <button className="link-btn" onClick={onOpenExample}>Walk through a finished run</button>
-          <button className="link-btn" onClick={demo}>Watch a run happen</button>
-          <button className="link-btn" onClick={() => startTour('app')}>Tour the console</button>
-          <button className="link-btn" onClick={() => window.dispatchEvent(new CustomEvent('aurora:open-panel', { detail: 'help' }))}>Help and checklist</button>
         </div>
       </div>
     </div>
@@ -1017,7 +1314,7 @@ function ChatArea({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing && !e.shiftKey) { e.preventDefault(); handleSend() }
             }}
             placeholder={placeholder}
             disabled={chatClosed}
@@ -2137,17 +2434,26 @@ export default function Home() {
   const [page, setPage] = useState<MainPage>(null)
   // a paper open in the reader, over whatever page it was opened from
   const [reading, setReading] = useState<ReadRequest | null>(null)
+  // opened on the brainstorm page, the reader sits in its right column (and can go full screen)
+  const [readingDocked, setReadingDocked] = useState(false)
+  const pageNow = useRef<MainPage>(null)
   // a map of a field open over the page (the reader opens over it in turn)
   const [mapping, setMapping] = useState<MapRequest | null>(null)
   useEffect(() => {
-    const open = (e: Event) => setReading((e as CustomEvent<ReadRequest>).detail)
+    const open = (e: Event) => { setReadingDocked(pageNow.current === 'brainstorm'); setReading((e as CustomEvent<ReadRequest>).detail) }
     const map = (e: Event) => setMapping((e as CustomEvent<MapRequest>).detail)
     window.addEventListener('aurora:read-paper', open)
     window.addEventListener('aurora:open-map', map)
     return () => { window.removeEventListener('aurora:read-paper', open); window.removeEventListener('aurora:open-map', map) }
   }, [])
+  useEffect(() => {
+    pageNow.current = page
+    if (page !== 'brainstorm' && readingDocked) setReading(null)
+  }, [page, readingDocked])
   // the space the brainstorm page opens on (a project's, from its tab bar; else your own)
   const [bsSpace, setBsSpace] = useState<string | null>(null)
+  // what the person said on the start page, for the Mentor to take up
+  const [bsOpening, setBsOpening] = useState<string | null>(null)
   useEffect(() => {
     const open = (e: Event) => { setBsSpace((e as CustomEvent<string>).detail); setPage('brainstorm') }
     window.addEventListener('aurora:open-brainstorm', open)
@@ -2441,7 +2747,8 @@ export default function Home() {
   return (
     <div className="shell">
       <ActivityBar activePanel={activePanel} explorerActive={rightPanel === 'files'} onTogglePanel={handleTogglePanel}
-        page={page} onOpenPage={setPage} helpBadge={ob ? ob.checklist.filter((c) => !c.done).length : 0} />
+        page={page} onOpenPage={setPage} onHome={goHome} atHome={!page && !activeCampaignId}
+        helpBadge={ob ? ob.checklist.filter((c) => !c.done).length : 0} />
 
       <SidebarPanel
         campaigns={campaigns}
@@ -2509,20 +2816,23 @@ export default function Home() {
             <FieldMapView key={`${mapping.space}|${mapping.mapId ?? ''}`} req={mapping} onClose={() => setMapping(null)} />
           </Suspense>
         )}
-        {reading && (
+        {reading && !readingDocked && (
           <Suspense fallback={<div className="rd"><div className="rd-loading">Opening the paper…</div></div>}>
             <PaperReader key={`${reading.paper}|${reading.space}|${reading.cardId ?? ''}`} req={reading} onClose={() => setReading(null)} />
           </Suspense>
         )}
         {view === 'team' && <TeamView />}
         {view === 'memory' && <MemoryView />}
-        {view === 'brainstorm' && <BrainstormView initialSpace={bsSpace ?? activeCampaignId} onOpenProject={(cid) => { setPage(null); selectCampaign(cid) }}
+        {view === 'brainstorm' && <BrainstormView initialSpace={bsSpace ?? activeCampaignId}
+          opening={bsOpening} onOpeningSent={() => setBsOpening(null)}
+          reader={reading && readingDocked ? reading : null} onCloseReader={() => setReading(null)} onOpenProject={(cid) => { setPage(null); selectCampaign(cid) }}
           onOpenLibrary={() => setPage('library')} />}
         {view === 'library' && <LibraryView onOpenProject={(cid) => { setPage(null); selectCampaign(cid) }} />}
         {view === 'examples' && <ExamplesView onOpen={(cid, run) => { setPage(null); openRun(cid, run) }} onDemo={runDemo}
           onDuplicated={async (cid, brief) => { await fetchCampaigns(); setPage(null); toProject(cid, { draft: brief, tab: 'project' }); openProject(cid) }} />}
         {view === 'welcome' && (
-          <WelcomeView onSend={handleNewProject} onOpenRun={openRun} onOpenExample={() => openExample(true)} />
+          <WelcomeView onSend={handleNewProject} onOpenRun={openRun} onOpenExample={() => openExample(true)}
+            onBrainstorm={(opening) => { setBsOpening(opening); setBsSpace(null); setPage('brainstorm') }} />
         )}
 
         {view === 'campaign' && activeCampaignId && (
@@ -2560,9 +2870,6 @@ export default function Home() {
           </>
         )}
       </div>
-      {ob && !ob.wizard.done && (
-        <WelcomeWizard ob={ob} onExample={() => openExample(true)} onDemo={runDemo} onOwn={goHome} />
-      )}
       <Tour actions={tourActions} />
       <DocViewer />
     </div>

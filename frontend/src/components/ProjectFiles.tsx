@@ -146,7 +146,7 @@ export function ProjectFilesDialog({ campaignId, mode = 'manage', initial = [], 
         {newFolder !== null && (
           <div className="files-newfolder">
             <input autoFocus value={newFolder} placeholder="folder name" onChange={(e) => setNewFolder(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') makeFolder(); if (e.key === 'Escape') setNewFolder(null) }} />
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) makeFolder(); if (e.key === 'Escape') setNewFolder(null) }} />
             <button className="btn-sm" onClick={makeFolder}>Create</button>
           </div>
         )}
