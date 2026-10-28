@@ -727,7 +727,9 @@ export interface ZoteroStatus {
   options?: ZoteroOptions
   last_sync?: number | null
   last_error?: string
-  last_report?: { collections?: number; seen?: number; added?: number; vouched?: number; pdfs?: number; notes?: number; pushed?: number; idea_notes?: number; problems?: string[] }
+  last_report?: { collections?: number; seen?: number; added?: number; vouched?: number; pdfs?: number; notes?: number; pushed?: number; idea_notes?: number; problems?: string[]
+    /** papers that would have been sent, held because writing into Zotero is off (or only when you do it) */
+    held?: number; held_level?: 'off' | 'ask' | 'auto' }
   syncing?: boolean
   key_hint?: string
   mappings?: ZoteroMapping[]

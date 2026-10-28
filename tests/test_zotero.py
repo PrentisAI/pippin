@@ -262,3 +262,23 @@ async def test_idea_summaries_go_to_zotero_as_notes_when_asked(client, zot):
     note = next(c for c in zot.created if c["itemType"] == "note")
     assert note["parentItem"] == "I1" and "Zn at Cu steps is the active site." in note["note"] and "supports" in note["note"]
     assert (await z.sync("local", "You")).idea_notes == 0                  # once
+
+
+async def test_papers_held_by_the_write_permission_are_counted_not_dropped(client, zot):
+    """Writing off (or only when the person does it): the sync sends nothing, and says how many it held back and why."""
+    del zot.items["P1"]
+    cid = client.post("/api/campaigns/quick", json={"prompt": "Methanol"}).json()["campaign_id"]
+    client.post("/api/zotero/connect", json={"method": "web", "api_key": "secret-zotero-key-123"})
+    zotero_store.set_maps("local", [{"library": "user", "collection_key": "COLA", "name": "Methanol", "campaign_id": cid}])
+    await z.sync("local", "You")
+    lit = ProjectLiterature(cid, run_id="r1")
+    await lit.check_text("[ref: Attention Is All You Need; Vaswani; 2017]", by="p01", place="Ideation")
+    report = await z.sync("local", "You")
+    assert (report.pushed, report.held, report.held_level) == (0, 1, "off") and zot.created == []
+    from aurora.auth import writes
+    writes.set_levels("local", {"zotero.save": "ask"})
+    report = await z.sync("local", "You")
+    assert (report.pushed, report.held, report.held_level) == (0, 1, "ask")
+    writes.set_levels("local", {"zotero.save": "auto"})
+    report = await z.sync("local", "You")
+    assert (report.pushed, report.held) == (1, 0)

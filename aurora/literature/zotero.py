@@ -565,6 +565,8 @@ class SyncReport:
     linked_pdfs: int = 0            # PDFs that are files on the person's computer (not in Zotero's storage)
     notes: int = 0
     pushed: int = 0                 # papers sent to Zotero
+    held: int = 0                   # papers that would have been sent, but writing into Zotero is not allowed on its own
+    held_level: str = ""            # the permission that held them: off, or ask (only when the person does it)
     idea_notes: int = 0             # idea summaries written as notes on Zotero items
     problems: list[str] = field(default_factory=list)
 
@@ -761,14 +763,19 @@ async def _pull_item(user_id: str, who: str, m: dict[str, Any], item: dict[str, 
             take_annotation(user_id, lib, paper_id, cid or f"user:{user_id}", ad)
 
 
+def _missing(user_id: str, m: dict[str, Any], only: set[str] | None = None) -> list[str]:
+    """The papers of the project (or the person's Library) that the collection lacks."""
+    have = zotero_store.papers_in(user_id, m["library"])
+    items = library.items(m["campaign_id"], owner="" if m["campaign_id"] else user_id)
+    return [i["paper_id"] for i in items if i["paper_id"] not in have
+            and (i["paper_id"] in only if only is not None else i["source"] != "zotero")]
+
+
 async def push(user_id: str, m: dict[str, Any], client: ZoteroClient, report: SyncReport,
                only: set[str] | None = None) -> None:
     """Verified papers of the project (or the person's Library) that the collection lacks (or just ``only``)."""
     lib, cid, ck = m["library"], m["campaign_id"], m["collection_key"]
-    have = zotero_store.papers_in(user_id, lib)
-    items = library.items(cid, owner="" if cid else user_id)
-    missing = [i["paper_id"] for i in items if i["paper_id"] not in have
-               and (i["paper_id"] in only if only is not None else i["source"] != "zotero")][:MAX_PUSH_PER_SYNC]
+    missing = _missing(user_id, m, only)[:MAX_PUSH_PER_SYNC]
     new: list[tuple[str, dict[str, Any]]] = []
     for pid in missing:
         entry = library.paper(pid)
@@ -832,6 +839,10 @@ async def sync(user_id: str, who: str, *, campaign_id: str | None = None,
                     await push(user_id, m, client, report)
                 except ZoteroError as exc:
                     report.problems.append(f"Sending papers to “{m['name']}”: {exc}")
+            elif options["push"] and can_write and (held := len(_missing(user_id, m))):
+                # what would have gone, said rather than silently left out
+                report.held += held
+                report.held_level = writes.level(user_id, "zotero.save")
             if options.get("idea_notes") and can_write and writes.allowed(user_id, "zotero.note", background=True):
                 try:
                     await idea_notes(user_id, m, client, report)

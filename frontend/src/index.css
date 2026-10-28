@@ -4007,3 +4007,5 @@ a.home-chip { text-decoration: none; display: inline-block; }
 /* the Library's title, buttons and tabs stay in view while the page scrolls */
 .lib-top { position: sticky; top: -28px; z-index: 6; background: var(--bg); padding-top: 12px; }   /* sticks over the page's own top padding (28px), and overlaps nothing above it (the first-time tip) */
 .lib-top .team-tabs { margin-bottom: 0; }
+.zot-held { margin: 10px 0; padding: 10px 12px; border-radius: 8px; background: var(--accent-dim); font-size: 13px; line-height: 1.5; }
+.zot-held .bs-row { margin-top: 8px; gap: 8px; flex-wrap: wrap; }

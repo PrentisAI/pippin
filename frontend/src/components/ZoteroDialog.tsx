@@ -92,6 +92,34 @@ export function ZoteroDialog({ onClose, onChanged }: { onClose: () => void; onCh
                 {' '}{report.notes ?? 0} highlights and notes{report.pushed ? `, ${report.pushed} papers sent to Zotero` : ''}{report.idea_notes ? `, ${report.idea_notes} idea notes` : ''}</span>
             )}</div>
           {status.last_error && <div className="modal-error">{status.last_error}</div>}
+          {(report?.held ?? 0) > 0 && !status.syncing && (
+            // papers the sync would have sent, but writing into Zotero is not allowed on its own: said, with the way out
+            <div className="zot-held">
+              <b>{report!.held} paper{report!.held === 1 ? '' : 's'} not sent to Zotero yet.</b>{' '}
+              {report!.held_level === 'ask'
+                ? 'Saving papers to Zotero is set to “When I do it”, so a sync does not send them on its own.'
+                : 'Saving papers to Zotero is off (account button → What AURORA may write).'}
+              <div className="bs-row">
+                {report!.held_level === 'ask' && (
+                  <button className="btn-sm btn-approve" disabled={busy} onClick={() => run(async () => {
+                    for (const m of status.mappings ?? []) await api.zotero.push(m.campaign_id)
+                    update(await api.zotero.get())
+                  })}>Send them now</button>
+                )}
+                <button className={`btn-sm ${report!.held_level === 'ask' ? '' : 'btn-approve'}`} disabled={busy} onClick={() => run(async () => {
+                  await api.me.setWrites({ 'zotero.save': 'auto' })
+                  update(await api.zotero.sync())
+                })}>Allow it, and send them on every sync</button>
+                {report!.held_level !== 'ask' && (
+                  <button className="btn-sm" disabled={busy} onClick={() => run(async () => {
+                    await api.me.setWrites({ 'zotero.save': 'ask' })
+                    for (const m of status.mappings ?? []) await api.zotero.push(m.campaign_id)
+                    update(await api.zotero.get())
+                  })}>Only when I ask: send them now</button>
+                )}
+              </div>
+            </div>
+          )}
           {(report?.problems?.length ?? 0) > 0 && <details className="modal-hint"><summary>{report!.problems!.length} things to look at</summary>
             <ul>{report!.problems!.slice(0, 20).map((p) => <li key={p}>{p}</li>)}</ul></details>}
           <div className="share-section-title">Collections and projects</div>
