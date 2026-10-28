@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "aurora-console",
+      "runtimeExecutable": ".venv/bin/aurora",
+      "runtimeArgs": ["serve", "--port", "8002"],
+      "port": 8002
+    }
+  ]
+}
