@@ -4004,3 +4004,6 @@ a.home-chip { text-decoration: none; display: inline-block; }
 .bs-stop-hint { opacity: .7; font-size: .92em; }
 .bs-quick button.suggested { border-color: var(--accent-border); }
 .bs-sug-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 6px; vertical-align: middle; }
+/* the Library's title, buttons and tabs stay in view while the page scrolls */
+.lib-top { position: sticky; top: -28px; z-index: 6; background: var(--bg); padding-top: 28px; margin-top: -28px; }   /* covers the page's own top padding (28px) */
+.lib-top .team-tabs { margin-bottom: 0; }

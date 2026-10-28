@@ -101,6 +101,8 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
         <b>The Library.</b> The papers of all your projects — the ones agents cite, each checked against the scholarly indexes,
         and the ones you add — with your notes and Zotero. The feed shows what is new from the people and topics you follow.
       </FirstTip>
+      {/* the title, its buttons and the tabs stay in view while the page scrolls */}
+      <div className="lib-top">
       <div className="lib-head">
         <h1>Library</h1>
         <div className="bs-row">
@@ -109,13 +111,14 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
           <button className="btn-sm lit-btn" onClick={() => setZotero(true)}>Zotero</button>
         </div>
       </div>
-      {zotero && <ZoteroDialog onClose={() => { setZotero(false); loadSaved() }} />}
-      {adding && <AddToLibrary onClose={() => setAdding(false)} onAdded={() => { loadSaved(); toast({ text: 'Added to your library.' }) }} />}
       <div className="team-tabs" role="tablist">
         <button role="tab" aria-selected={tab === 'feed'} className={tab === 'feed' ? 'on' : ''} onClick={() => setTab('feed')}>Feed</button>
         <button role="tab" aria-selected={tab === 'saved'} className={tab === 'saved' ? 'on' : ''} onClick={() => setTab('saved')}>Saved · {savedCount}</button>
         <button role="tab" aria-selected={tab === 'search'} className={tab === 'search' ? 'on' : ''} onClick={() => setTab('search')}>Search</button>
       </div>
+      </div>
+      {zotero && <ZoteroDialog onClose={() => { setZotero(false); loadSaved() }} />}
+      {adding && <AddToLibrary onClose={() => setAdding(false)} onAdded={() => { loadSaved(); toast({ text: 'Added to your library.' }) }} />}
       {error && <div className="panel-message error" style={{ margin: '8px 0' }}>{error}</div>}
 
       <div className="fd-cols">
