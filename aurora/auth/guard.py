@@ -182,6 +182,8 @@ RULES: dict[tuple[str, str], str] = {
     ("POST", "/api/memory/voice/undo/{undo_id}"): "any",
     ("GET", "/api/memory/voice/digest"): "any",
     ("POST", "/api/memory/voice/speak"): "any",
+    ("GET", "/api/memory/voice/status"): "any",
+    ("POST", "/api/memory/voice/transcribe"): "any",
     ("POST", "/api/memory/ask"): "any",
     ("POST", "/api/memory/asks/{ask_id}/answer"): "any",
     ("GET", "/api/memory/questions"): "any",

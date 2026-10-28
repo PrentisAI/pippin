@@ -411,6 +411,25 @@ class UploadsConfig(_Section):
                                   description="Most a project's uploaded files may take in all (GB).")
 
 
+class VoiceConfig(_Section):
+    """Speaking in the web console (the brainstorm's microphone)."""
+
+    live: Literal["fast", "accurate", "off"] = Field(
+        default="fast",
+        description="Words shown while you speak. 'fast': a small whisper model (AURORA_WHISPER_LIVE), a few "
+                    "times a second; 'accurate': the main model (AURORA_WHISPER), about once a second; 'off': "
+                    "only when you stop. What is sent is always recognised again by the main model.",
+    )
+    speech: Literal["model", "browser"] = Field(
+        default="model",
+        description="Answers read aloud by 'model': speech_model through api_base_url (the same key; a few "
+                    "tenths of a cent an answer), or by 'browser': the browser's own voice (free, mechanical). A "
+                    "speech service in AURORA_TTS_BASE_URL is used instead of either when set.",
+    )
+    speech_model: str = Field(default="openai/gpt-audio-mini", description="A model that talks, to read answers aloud.")
+    speech_voice: str = Field(default="alloy", description="Its voice (alloy, ash, ballad, coral, echo, sage, shimmer, verse, ...).")
+
+
 NOTIFY_EVENTS: dict[str, str] = {
     "decision_needed": "A decision is waiting for you",
     "run_finished": "An experiment finished",
@@ -761,6 +780,7 @@ class AuroraConfig(_Section):
     )
     skills: SkillsConfig = Field(default_factory=lambda: SkillsConfig())
     uploads: UploadsConfig = Field(default_factory=lambda: UploadsConfig())
+    voice: VoiceConfig = Field(default_factory=lambda: VoiceConfig())
     skills_dirs: list[str] = Field(
         default_factory=list,
         description="Directories of Claude Code skills (<name>/SKILL.md) written by you; every agent "

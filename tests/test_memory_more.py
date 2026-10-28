@@ -210,3 +210,94 @@ def test_a_questions_synthesis_starts_from_the_map_of_its_field(client, model):
     s = client.get(f"/api/memory/questions/{q['question_id']}/synthesis").json()
     assert s["map"]["map_id"] == m["map_id"]
     assert "The map of the field around it" in model.prompts["memory_synthesis"]
+
+
+def test_a_recording_becomes_words_for_a_message_box(client, monkeypatch, tmp_path):  # noqa: F811
+    """Speaking into the brainstorm: the console only recognises the words (whisper), it does nothing with them."""
+    import base64
+    import stat
+
+    whisper = tmp_path / "whisper-cli"
+    whisper.write_text("#!/bin/sh\necho '[00:00:00.000 --> 00:00:02.000]  I want to work on egocentric memory'\n")
+    whisper.chmod(whisper.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.delenv("AURORA_WHISPER", raising=False)
+    assert client.get("/api/memory/voice/status").json()["hear"] is False
+    audio = base64.b64encode(b"RIFF....WAVEfmt fake").decode()
+    assert client.post("/api/memory/voice/transcribe", json={"audio": audio, "audio_type": "wav"}).status_code == 400
+    monkeypatch.setenv("AURORA_WHISPER", f"{whisper} -nt -f {{audio}}")
+    assert client.get("/api/memory/voice/status").json()["hear"] is True
+    r = client.post("/api/memory/voice/transcribe", json={"audio": audio, "audio_type": "wav"})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"text": "I want to work on egocentric memory"}
+    assert client.post("/api/memory/voice/transcribe", json={"audio": "not base64!", "audio_type": "wav"}).status_code == 400
+
+
+def test_words_while_speaking_use_the_fast_model_and_a_window_cut_to_the_recording(client, monkeypatch, tmp_path):  # noqa: F811
+    import base64
+    import stat
+    import struct
+
+    def whisper(name):
+        w = tmp_path / name
+        w.write_text(f'#!/bin/sh\necho "{name} $*"\n')
+        w.chmod(w.stat().st_mode | stat.S_IEXEC)
+        return w
+    monkeypatch.setenv("AURORA_WHISPER", f"{whisper('main')} -f {{audio}}")
+    monkeypatch.setenv("AURORA_WHISPER_LIVE", f"{whisper('small')} -f {{audio}}")
+    # two seconds of 16 kHz mono WAV: a window of 2 * 50 + 64 frames
+    pcm = b"\0\0" * 32000
+    wav = b"RIFF" + struct.pack("<I", 36 + len(pcm)) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, 16000, 32000, 2, 16) \
+        + b"data" + struct.pack("<I", len(pcm)) + pcm
+    audio = base64.b64encode(wav).decode()
+    live = client.post("/api/memory/voice/transcribe", json={"audio": audio, "audio_type": "wav", "live": True}).json()["text"]
+    assert live.startswith("small --audio-ctx 164 ")
+    final = client.post("/api/memory/voice/transcribe", json={"audio": audio, "audio_type": "wav"}).json()["text"]
+    assert final.startswith("main -f ") and "--audio-ctx" not in final
+    assert client.get("/api/memory/voice/status").json()["live"] == "fast"
+    # accurate: the main model while speaking too, still with the window cut
+    client.put("/api/settings", json={"changes": {"voice.live": "accurate"}})
+    live = client.post("/api/memory/voice/transcribe", json={"audio": audio, "audio_type": "wav", "live": True}).json()["text"]
+    assert live.startswith("main --audio-ctx 164 ")
+    client.put("/api/settings", json={"reset": ["voice.live"]})
+
+
+def test_answers_are_read_aloud_by_a_model_that_talks(client, monkeypatch):  # noqa: F811
+    """openai/gpt-audio-mini through the model key: the text read word for word, at most about as long as it takes
+    to say, and without the silence a talking model can go on with."""
+    import array
+    import base64
+    import json as _json
+
+    import httpx
+
+    from aurora.memory import voice
+    rate = 24000
+    pcm = array.array("h", [0] * rate + [8000, -8000] * (rate // 2) + [0] * rate * 3).tobytes()   # 1 s quiet, 1 s said, 3 s quiet
+    seen = {}
+
+    def handler(request):
+        seen["body"] = _json.loads(request.content)
+        chunks = [pcm[i:i + 9600] for i in range(0, len(pcm), 9600)]
+        events = "".join(f"data: {_json.dumps({'choices': [{'delta': {'audio': {'data': base64.b64encode(c).decode()}}}]})}\n\n"
+                         for c in chunks) + "data: [DONE]\n\n"
+        return httpx.Response(200, content=events.encode(), headers={"content-type": "text/event-stream"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-" + "a" * 40)
+    monkeypatch.delenv("AURORA_TTS_BASE_URL", raising=False)
+    assert client.get("/api/memory/voice/status").json()["cloud_voice"] is True
+    r = client.post("/api/memory/voice/speak", json={"text": "你提到想让 agent 记住用户每天的生活。Which part matters most?"})
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"] == "audio/wav" and r.content[:4] == b"RIFF"
+    seconds = (len(r.content) - 44) / 2 / rate
+    assert 1.0 <= seconds <= 1.5                                    # the speech and a breath, not the silences
+    body = seen["body"]
+    assert body["model"] == "openai/gpt-audio-mini" and body["modalities"] == ["text", "audio"]
+    assert "<read>" in body["messages"][-1]["content"] and "word for word" in body["messages"][0]["content"]
+    assert 60 < body["max_tokens"] < 400                            # about as long as it takes to say
+    # the browser's voice instead, when chosen
+    client.put("/api/settings", json={"changes": {"voice.speech": "browser"}})
+    assert client.get("/api/memory/voice/status").json()["cloud_voice"] is False
+    client.put("/api/settings", json={"reset": ["voice.speech"]})
+    assert voice._trim_silence(b"\0\0" * 1000) == b""

@@ -7,6 +7,7 @@ questions, marks, the questions it asks the person, and the weekly report.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -789,6 +790,57 @@ async def voice_said(body: Said) -> dict[str, Any]:
     return await voice.hear(access, models, _uid(), text, screenshot=shot)
 
 
+class Recording(BaseModel):
+    audio: str                # base64
+    audio_type: str = "webm"
+    live: bool = False        # the words so far, while speaking (faster, less exact)
+
+
+@router.get("/voice/status")
+async def voice_status() -> dict[str, Any]:
+    """What voice this console has: speech recognised here (whisper), and a cloud voice to speak with."""
+    import os
+
+    from aurora.memory import voice
+    from aurora.api.routes.campaigns import base_config
+    v = base_config().get("voice") or {}
+    return {"hear": voice.can_hear(), "live": v.get("live") or "fast",
+            "cloud_voice": bool(os.environ.get("AURORA_TTS_BASE_URL") and os.environ.get("AURORA_TTS_API_KEY"))
+            or ((v.get("speech") or "model") == "model" and bool(_speech_key()))}
+
+
+def _speech_key() -> str:
+    from aurora.api.routes.campaigns import NO_KEY, base_config
+    import os
+    key = base_config().get("api_key") or ""
+    if not key or key == NO_KEY:
+        key = os.environ.get("OPENROUTER_API_KEY", "") if current_user().is_local else ""
+    return key
+
+
+@router.post("/voice/transcribe")
+async def voice_transcribe(body: Recording) -> dict[str, str]:
+    """Only the words of a recording (a message box spoken into); nothing is done with them here."""
+    import base64
+
+    from aurora.memory import voice
+    try:
+        data = base64.b64decode(body.audio, validate=True)
+    except ValueError:
+        raise HTTPException(400, "The recording is not base64") from None
+    if not data or len(data) > 25_000_000:
+        raise HTTPException(400, "Record something (at most a few minutes)")
+    try:
+        suffix = "." + (re.sub(r"[^a-z0-9]", "", body.audio_type.lower())[:5] or "webm")
+        if body.live:
+            from aurora.api.routes.campaigns import base_config
+            fast = ((base_config().get("voice") or {}).get("live") or "fast") == "fast"
+            return {"text": await voice.transcribe(data, suffix, live=True, fast=fast)}
+        return {"text": await voice.transcribe(data, suffix)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
 class Thought(BaseModel):
     text: str
 
@@ -836,9 +888,21 @@ async def voice_speak(body: SpeakBody) -> Any:
     """A long text in the cloud voice (when one is set up); otherwise the desktop app uses the system voice."""
     from fastapi.responses import Response
 
+    import os
+
+    from aurora.api.routes.campaigns import base_config
     from aurora.memory import voice
+    cfg = base_config()
+    v = cfg.get("voice") or {}
     try:
-        return Response(await voice.cloud_speech(body.text), media_type="audio/mpeg")
+        if os.environ.get("AURORA_TTS_BASE_URL") or (v.get("speech") or "model") != "model":
+            return Response(await voice.cloud_speech(body.text), media_type="audio/mpeg")
+        key = _speech_key()
+        if not key:
+            raise ValueError("No model key: read aloud with the browser's voice instead")
+        return Response(await voice.model_speech(body.text, api_key=key, base_url=cfg.get("api_base_url") or "https://openrouter.ai/api/v1",
+                                                 model=v.get("speech_model") or "openai/gpt-audio-mini",
+                                                 voice=v.get("speech_voice") or "alloy"), media_type="audio/wav")
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
 

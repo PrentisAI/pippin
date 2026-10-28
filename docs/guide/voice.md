@@ -2,6 +2,16 @@
 
 On the Mac, hold **⌥⇧Space**, speak, and let go. The desktop app listens only while the key is held.
 
+## In a brainstorm
+
+The microphone next to the message box records what you say and writes it into the box (click again to stop),
+so you can look it over before sending. **Hands-free** (above the box) makes it a spoken conversation: what you
+say is sent after a short pause, the agents' answers are read aloud, and it listens again; click it again to stop.
+Any answer can be read aloud with the speaker beside the agent's name. Answers are read in the console's cloud
+voice when one is set up (below), otherwise in the browser's voice; citation keys and links are left out.
+
+Speech is recognised by the console (see *Recognising speech* below: `AURORA_WHISPER`); the recording is not kept.
+
 ## What it understands
 
 What you say goes with what you are doing at that moment, so pointing words mean something:

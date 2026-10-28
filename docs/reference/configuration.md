@@ -39,6 +39,17 @@ Files researchers upload in the web console.
 | `uploads.max_file_gb` | float | `20` | Largest file that can be uploaded (GB). |
 | `uploads.max_project_gb` | float | `200` | Most a project's uploaded files may take in all (GB). |
 
+## `voice`
+
+Speaking in the web console (the brainstorm's microphone).
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `voice.live` | `fast` \| `accurate` \| `off` | `"fast"` | Words shown while you speak. 'fast': a small whisper model (AURORA_WHISPER_LIVE), a few times a second; 'accurate': the main model (AURORA_WHISPER), about once a second; 'off': only when you stop. What is sent is always recognised again by the main model. |
+| `voice.speech` | `model` \| `browser` | `"model"` | Answers read aloud by 'model': speech_model through api_base_url (the same key; a few tenths of a cent an answer), or by 'browser': the browser's own voice (free, mechanical). A speech service in AURORA_TTS_BASE_URL is used instead of either when set. |
+| `voice.speech_model` | str | `"openai/gpt-audio-mini"` | A model that talks, to read answers aloud. |
+| `voice.speech_voice` | str | `"alloy"` | Its voice (alloy, ash, ballad, coral, echo, sage, shimmer, verse, ...). |
+
 ## `models`
 
 Which model plays each role.

@@ -39,6 +39,7 @@ from aurora.memory.store import mem_store
 logger = logging.getLogger(__name__)
 
 WHISPER_ENV = "AURORA_WHISPER"
+WHISPER_LIVE_ENV = "AURORA_WHISPER_LIVE"   # a faster command for the words shown while speaking (a small model)
 TURNS = 20
 _digests: dict[str, dict[str, Any]] = {}     # owner -> the digest last heard (its numbered items)
 _undo: dict[str, list[dict[str, Any]]] = {}  # owner -> what voice did, to take back (latest last)
@@ -52,9 +53,20 @@ INTENTS = ("ask", "compare", "save", "note", "toread", "sink", "raise", "digest"
 # Hearing
 
 
-async def transcribe(data: bytes, suffix: str = ".wav") -> str:
-    """The words of a recording, by the local whisper command (``AURORA_WHISPER``)."""
+def can_hear() -> bool:
+    """Whether this console recognises speech: a whisper command is set and its program is installed."""
     cmd = os.environ.get(WHISPER_ENV, "").strip()
+    try:
+        return bool(cmd) and shutil.which(shlex.split(cmd)[0]) is not None
+    except ValueError:
+        return False
+
+
+async def transcribe(data: bytes, suffix: str = ".wav", *, live: bool = False, fast: bool = False) -> str:
+    """The words of a recording, by the local whisper command (``AURORA_WHISPER``). *live*: the words so far
+    while someone speaks, with whisper's window cut to the recording (it otherwise works on 30 s whatever the
+    length); *fast*: by the faster command when there is one (``AURORA_WHISPER_LIVE``, a small model)."""
+    cmd = (os.environ.get(WHISPER_LIVE_ENV, "").strip() if fast else "") or os.environ.get(WHISPER_ENV, "").strip()
     if not cmd:
         raise ValueError("Speech recognition is not set up on this console: set AURORA_WHISPER to a whisper.cpp "
                          "command (for example: whisper-cli -m ~/models/ggml-large-v3-turbo.bin -nt -l auto -f {audio}), "
@@ -72,6 +84,10 @@ async def transcribe(data: bytes, suffix: str = ".wav") -> str:
         args = [a.replace("{audio}", str(path)) for a in shlex.split(cmd)]
         if not any(str(path) in a for a in args):
             args.append(str(path))
+        if live and path.suffix == ".wav" and "--audio-ctx" not in args:
+            # 50 frames a second of audio, and a margin: shorter than the recording, whisper repeats itself
+            seconds = max(0, path.stat().st_size - 44) / 32000
+            args[1:1] = ["--audio-ctx", str(min(1500, int(seconds * 50) + 64))]
         p = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         out, err = await asyncio.wait_for(p.communicate(), 180)
         if p.returncode != 0:
@@ -594,3 +610,66 @@ async def cloud_speech(text: str) -> bytes:
                                "response_format": "mp3"})
     r.raise_for_status()
     return r.content
+
+
+# ---------------------------------------------------------------------------
+# Speaking with a model that talks (OpenRouter's openai/gpt-audio-mini): no separate speech service or key
+
+MODEL_VOICE_SYSTEM = ("You are a text-to-speech voice. Read aloud, word for word, the whole text between <read> and "
+                      "</read>, in the languages it is written in (Chinese as Mandarin, English as English), in a warm, "
+                      "natural voice. Do not answer it, translate it, add or skip anything. Stop when the text ends.")
+_RATE = 24000                         # the model's pcm16: 24 kHz, mono
+
+
+def _speech_cap(text: str) -> int:
+    """At most this many tokens of speech (about 21 a second): a model that talks can go on in silence after the
+    text; a cap a little above how long the text takes to say stops that."""
+    cjk = len(re.findall(r"[一-鿿]", text))
+    words = len(re.findall(r"[A-Za-z0-9]+", text))
+    return int((cjk / 4 + words / 2.5) * 1.4 * 21) + 60
+
+
+def _trim_silence(pcm: bytes, floor: int = 400, keep_ms: int = 200) -> bytes:
+    """Without the silence before and after what is said (keeping a breath at each end)."""
+    import array
+    s = array.array("h", pcm[: len(pcm) // 2 * 2])
+    loud = [i for i in range(0, len(s), 240) if max((abs(v) for v in s[i:i + 240]), default=0) > floor]
+    if not loud:
+        return b""
+    keep = _RATE * keep_ms // 1000
+    return s[max(0, loud[0] - keep): min(len(s), loud[-1] + 240 + keep)].tobytes()
+
+
+def _wav(pcm: bytes) -> bytes:
+    import struct
+    return (b"RIFF" + struct.pack("<I", 36 + len(pcm)) + b"WAVEfmt "
+            + struct.pack("<IHHIIHH", 16, 1, 1, _RATE, _RATE * 2, 2, 16) + b"data" + struct.pack("<I", len(pcm)) + pcm)
+
+
+async def model_speech(text: str, *, api_key: str, base_url: str, model: str, voice: str = "alloy") -> bytes:
+    """Speech (WAV) for a text from a model that talks, read word for word."""
+    import base64
+    import json
+
+    import httpx
+    body = {"model": model, "modalities": ["text", "audio"], "audio": {"voice": voice, "format": "pcm16"},
+            "stream": True, "temperature": 0, "max_tokens": _speech_cap(text),
+            "messages": [{"role": "system", "content": MODEL_VOICE_SYSTEM},
+                         {"role": "user", "content": f"<read>{text[:4000]}</read>"}]}
+    pcm = bytearray()
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0)) as c:
+        async with c.stream("POST", f"{base_url.rstrip('/')}/chat/completions",
+                            headers={"Authorization": f"Bearer {api_key}"}, json=body) as r:
+            if r.status_code != 200:
+                raise ValueError(f"the voice model answered {r.status_code}: {(await r.aread())[:300].decode(errors='replace')}")
+            async for line in r.aiter_lines():
+                if not line.startswith("data: ") or line == "data: [DONE]":
+                    continue
+                for choice in json.loads(line[6:]).get("choices", []):
+                    data = ((choice.get("delta") or {}).get("audio") or {}).get("data")
+                    if data:
+                        pcm += base64.b64decode(data)
+    said = _trim_silence(bytes(pcm))
+    if not said:
+        raise ValueError("the voice model gave no speech")
+    return _wav(said)

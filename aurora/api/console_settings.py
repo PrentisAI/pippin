@@ -78,6 +78,12 @@ EDITABLE: list[tuple] = [
     ("compute.ssh.max_gpu_hours", "GPU machine (SSH)", "GPU hours per experiment (empty: no limit)", "optional-number"),
     ("uploads.max_file_gb", "Uploads", "Largest file (GB)", "number"),
     ("uploads.max_project_gb", "Uploads", "Uploaded files per project (GB)", "number"),
+    ("voice.live", "Voice", "Words while you speak (fast: small model, live; accurate: main model, slower; off)",
+     "choice", ["fast", "accurate", "off"]),
+    ("voice.speech", "Voice", "Read answers aloud with (model: natural, a few tenths of a cent an answer; browser: free)",
+     "choice", ["model", "browser"]),
+    ("voice.speech_voice", "Voice", "The model's voice", "choice",
+     ["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"]),
 ]
 KEYS = {e[0] for e in EDITABLE}
 
