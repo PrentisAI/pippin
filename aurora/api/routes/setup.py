@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -30,6 +31,76 @@ def _run(cmd: list[str], timeout: float = 15) -> tuple[int, str]:
         return p.returncode, (p.stdout or p.stderr).strip()
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 1, str(exc)
+
+
+DOCKER_APP = "/Applications/Docker.app"
+DOCKER_BIN = DOCKER_APP + "/Contents/Resources/bin"
+# what a run needs of Docker Desktop's commands: the CLI, and the helpers it calls to pull images
+DOCKER_COMMANDS = ("docker", "docker-credential-desktop", "docker-credential-osxkeychain")
+
+
+def _link_dir() -> str:
+    """Where to link Docker Desktop's commands: Homebrew's bin (writable without a password), else
+    /usr/local/bin (which needs sudo)."""
+    brew = shutil.which("brew")
+    return os.path.dirname(brew) if brew else "/usr/local/bin"
+
+
+def _docker_action() -> str:
+    """What the console can do about a Docker that does not answer. The person installs Docker
+    Desktop: its installer and first start ask for their password, which differs from Mac to Mac.
+    Once it is there, the console links its command where it looks, or starts it."""
+    if sys.platform != "darwin":
+        return ""
+    if os.path.exists(DOCKER_APP):
+        return "start" if shutil.which("docker") else "link"
+    return "download"
+
+
+# Installs run in the background: they take minutes, the person may leave the page meanwhile, and the
+# console may restart. The process is detached and writes to a log, so it finishes either way; one
+# started before a restart is recognised by its command line, so a second is never started beside it.
+_installs: dict[str, dict[str, Any]] = {}
+INSTALL_MARKS = {"claude": "install -g @anthropic-ai/claude-code"}
+
+
+def _install_log(name: str) -> str:
+    from aurora.paths import aurora_home
+    d = aurora_home() / "logs"
+    d.mkdir(parents=True, exist_ok=True)
+    return str(d / f"install-{name}.log")
+
+
+def _running_elsewhere(name: str) -> bool:
+    return _run(["pgrep", "-f", INSTALL_MARKS[name]])[0] == 0
+
+
+def _install_state(name: str) -> tuple[str, str]:
+    """("running" | "failed" | "", what went wrong)."""
+    job = _installs.get(name)
+    if job is None:
+        return ("running", "") if _running_elsewhere(name) else ("", "")
+    code = job["proc"].poll()
+    if code is None:
+        return "running", ""
+    if code != 0:
+        try:
+            with open(job["log"], encoding="utf-8", errors="replace") as f:
+                tail = f.read()[-400:].strip()
+        except OSError:
+            tail = ""
+        return "failed", tail or f"exited with {code}"
+    return "", ""
+
+
+def _start_install(name: str, cmd: list[str], env: dict[str, str] | None = None) -> None:
+    if _install_state(name)[0] == "running":
+        return
+    log = _install_log(name)
+    with open(log, "w") as out:
+        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                                env={**os.environ, **(env or {})}, start_new_session=True)
+    _installs[name] = {"proc": proc, "log": log}
 
 
 def checks() -> list[dict[str, Any]]:
@@ -50,11 +121,14 @@ def checks() -> list[dict[str, Any]]:
                 if key else "none yet",
                 "fix": fix, "action": "key" if user.is_local and not key else ("account" if not key else "")})
 
+    state, error = _install_state("claude")
     claude = shutil.which("claude")
     version = _run([claude, "--version"])[1] if claude else ""
     out.append({"key": "claude", "label": "Claude Code (the agents run in it)", "required": True, "ok": bool(claude),
                 "detail": version or "not found",
-                "fix": "" if claude else "Install it on the server: npm install -g @anthropic-ai/claude-code (Node.js 18+), then restart the console."})
+                "fix": "" if claude else "Install it on the server: npm install -g @anthropic-ai/claude-code (Node.js 18+), then restart the console.",
+                "action": "" if claude or not user.is_local else ("installing" if state == "running" else "install"),
+                "error": error})
 
     sandbox = cfg.get("sandbox") or {}
     if sandbox.get("docker", True):
@@ -62,7 +136,8 @@ def checks() -> list[dict[str, Any]]:
         out.append({"key": "docker", "label": "Docker (each run gets its own container)", "required": True, "ok": ok,
                     "detail": "the daemon answers" if ok else why,
                     "fix": "" if ok else "Install Docker and let this user run `docker info`; or set sandbox.docker: false "
-                                         "in the server’s config (the agents can then only edit files)."})
+                                         "in the server’s config (the agents can then only edit files).",
+                    "action": "" if ok or not user.is_local else _docker_action(), "link_dir": _link_dir()})
         image = sandbox.get("image") or "python:3.11-slim"
         if ok:
             have = _run(["docker", "image", "inspect", image], 20)[0] == 0
@@ -149,6 +224,81 @@ async def pull_image() -> dict[str, Any]:
     _, err = await proc.communicate()
     if proc.returncode != 0:
         raise HTTPException(400, f"docker pull {image} failed: {err.decode()[-300:]}")
+    return await get_setup()
+
+
+@router.post("/setup/claude")
+async def install_claude() -> dict[str, Any]:
+    """Install Claude Code with npm on this machine, in the background (a console without accounts only)."""
+    if not current_user().is_local:
+        raise HTTPException(403, "Claude Code is installed on the server by whoever runs it")
+    npm = shutil.which("npm")
+    if npm is None:
+        raise HTTPException(400, "npm is not on this machine: install Node.js 18 or newer (nodejs.org), then try again")
+    _start_install("claude", [npm, "install", "-g", "@anthropic-ai/claude-code"])
+    return await get_setup()
+
+
+@router.post("/setup/docker")
+async def start_docker() -> dict[str, Any]:
+    """Open Docker Desktop on a Mac where it is installed but not running; the daemon takes a little
+    while to answer, so the page checks again."""
+    if not current_user().is_local:
+        raise HTTPException(403, "Docker runs on the server, started by whoever runs it")
+    if sys.platform != "darwin":
+        raise HTTPException(400, "Start the Docker daemon on this machine (e.g. sudo systemctl start docker)")
+    code, text = await asyncio.to_thread(_run, ["open", "-a", "Docker"])
+    if code != 0:
+        raise HTTPException(400, "Docker Desktop is not installed: download it from docker.com/products/docker-desktop, "
+                                 "open it once, then check again")
+    return {"ok": True}
+
+
+@router.post("/setup/docker/link")
+async def link_docker() -> dict[str, Any]:
+    """Link the commands of a Docker Desktop installed by hand into Homebrew's bin, where this
+    console (and a terminal) finds them, and start Docker."""
+    if not current_user().is_local:
+        raise HTTPException(403, "Docker is set up on the server by whoever runs it")
+    target = _link_dir()
+    command = f"ln -s {DOCKER_BIN}/docker {target}/docker"
+    if not os.path.isdir(DOCKER_BIN):
+        raise HTTPException(400, "Docker Desktop is not in /Applications: install it there, open it once, then check again")
+    if not shutil.which("brew"):
+        raise HTTPException(400, f"Linking into {target} needs your password: in a terminal, run sudo {command}")
+    for name in DOCKER_COMMANDS:
+        src, dst = os.path.join(DOCKER_BIN, name), os.path.join(target, name)
+        if os.path.exists(src) and not os.path.lexists(dst):
+            try:
+                os.symlink(src, dst)
+            except OSError as exc:
+                raise HTTPException(400, f"Could not link {name} ({exc}); in a terminal, run {command}") from None
+    await asyncio.to_thread(_run, ["open", "-a", "Docker"])
+    return await get_setup()
+
+
+class DockerPathBody(BaseModel):
+    path: str
+
+
+@router.put("/setup/docker/path")
+async def set_docker_path(body: DockerPathBody) -> dict[str, Any]:
+    """Where the person says Docker's command is (what `which docker` prints in their terminal), for a
+    console that does not find it on its own PATH: kept in ``.env`` and put on PATH from now on."""
+    from aurora.env import add_to_path, save_env_value
+    if not current_user().is_local:
+        raise HTTPException(403, "Docker is set up on the server by whoever runs it")
+    path = os.path.expanduser(body.path.strip().strip("'\""))
+    if os.path.isdir(path):
+        path = os.path.join(path, "docker")
+    if not (os.path.isfile(path) and os.access(path, os.X_OK)):
+        raise HTTPException(400, f"There is no docker command at {path}. In a terminal, run `which docker` and paste what it prints")
+    code, version = await asyncio.to_thread(_run, [path, "--version"])
+    if code != 0 or "docker" not in version.lower():
+        raise HTTPException(400, f"{path} does not answer as Docker ({version[:120] or 'no output'})")
+    directory = os.path.dirname(path)
+    save_env_value("AURORA_DOCKER_DIR", directory)
+    add_to_path(directory)
     return await get_setup()
 
 

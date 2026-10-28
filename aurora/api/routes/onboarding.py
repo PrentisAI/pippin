@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from aurora import examples, help
+from aurora import examples, help, home
 from aurora.auth.guard import accounts_on, current_user
 from aurora.auth.store import auth_store
 
@@ -247,6 +247,32 @@ async def help_asset(name: str) -> FileResponse:
 
 class AskBody(BaseModel):
     question: str
+
+
+class HomeBody(BaseModel):
+    text: str
+    history: list[dict[str, Any]] = []
+
+
+@router.post("/home/reply")
+async def home_reply(body: HomeBody) -> dict[str, Any]:
+    """What the person means by what they typed on the start page, and a sentence back
+    (``{"intent": None}`` without a key or when the model cannot be asked)."""
+    from aurora.api.routes.campaigns import NO_KEY, base_config
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(400, "Say something")
+    cfg = base_config()
+    key = cfg.get("api_key") or ""
+    if not key or key == NO_KEY:
+        import os
+        key = os.environ.get("OPENROUTER_API_KEY", "") if current_user().is_local else ""
+    if not key:
+        return {"intent": None, "reply": ""}
+    model = (cfg.get("models") or {}).get("frontdesk") or "anthropic/claude-haiku-5.5"
+    r = await home.reply(text, body.history, api_key=key, base_url=cfg.get("api_base_url") or "https://openrouter.ai/api/v1",
+                         model=model)
+    return r or {"intent": None, "reply": ""}
 
 
 @router.post("/help/ask")

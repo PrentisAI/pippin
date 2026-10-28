@@ -275,6 +275,10 @@ RULES: dict[tuple[str, str], str] = {
     ("POST", "/api/setup/dismiss"): "any",
     ("PUT", "/api/setup/key"): "admin",
     ("POST", "/api/setup/pull"): "admin",
+    ("POST", "/api/setup/claude"): "admin",
+    ("POST", "/api/setup/docker"): "admin",
+    ("POST", "/api/setup/docker/link"): "admin",
+    ("PUT", "/api/setup/docker/path"): "admin",
     ("POST", "/api/demo"): "member",
     # the welcome wizard, the checklist, tours and tips (each person's own), the examples, help
     ("GET", "/api/onboarding"): "any",
@@ -325,6 +329,7 @@ RULES: dict[tuple[str, str], str] = {
     ("GET", "/api/help/docs/{path:path}"): "any",
     ("GET", "/api/help/assets/{name}"): "any",
     ("POST", "/api/help/ask"): "any",
+    ("POST", "/api/home/reply"): "any",
     # the signed-in user
     ("GET", "/api/me"): "any",
     ("PUT", "/api/me"): "any",

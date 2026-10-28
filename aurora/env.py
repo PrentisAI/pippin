@@ -36,8 +36,16 @@ def load_dotenv(path: str | Path | None = None) -> Path | None:
                 if line and not line.startswith("#") and "=" in line:
                     key, _, val = line.partition("=")
                     os.environ.setdefault(key.strip(), val.strip().strip("'\""))
+        add_to_path(os.environ.get("AURORA_DOCKER_DIR", ""))
         return env_file
     return None
+
+
+def add_to_path(directory: str) -> None:
+    """Put *directory* first on this process's PATH (a command the person told the console where to find)."""
+    parts = os.environ.get("PATH", "").split(os.pathsep)
+    if directory and directory not in parts:
+        os.environ["PATH"] = os.pathsep.join([directory, *parts])
 
 
 KEY_PATTERN = r"sk-or-[A-Za-z0-9_\-]{20,}"
@@ -53,15 +61,20 @@ def check_openrouter_key(key: str, timeout: float = 15) -> bool | None:
     return r.status_code not in (401, 403)
 
 
-def save_openrouter_key(key: str) -> Path:
-    """Write the key into ``AURORA_HOME/.env`` (readable only by this user) and set it for this process."""
+def save_env_value(name: str, value: str) -> Path:
+    """Write ``name=value`` into ``AURORA_HOME/.env`` (readable only by this user) and set it for this process."""
     from aurora.paths import aurora_home
     path = aurora_home() / ".env"
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [ln for ln in (path.read_text().splitlines() if path.exists() else [])
-             if not ln.startswith("OPENROUTER_API_KEY=")]
-    lines.append(f"OPENROUTER_API_KEY={key}")
+             if not ln.startswith(f"{name}=")]
+    lines.append(f"{name}={value}")
     path.write_text("\n".join(lines) + "\n")
     os.chmod(path, 0o600)
-    os.environ["OPENROUTER_API_KEY"] = key
+    os.environ[name] = value
     return path
+
+
+def save_openrouter_key(key: str) -> Path:
+    """Write the key into ``AURORA_HOME/.env`` (readable only by this user) and set it for this process."""
+    return save_env_value("OPENROUTER_API_KEY", key)
