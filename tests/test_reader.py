@@ -447,3 +447,22 @@ async def test_an_agent_reads_a_paper_it_has_no_pdf_of_from_its_open_copy(model,
     text = await tools.call("read_paper", {"paper_key": key})
     assert "--- page 1 of 1 ---" in text and "stability" in text
     assert fetched == [pid] and any("Fetching the PDF" in s for s in tools.turn.steps)
+
+
+def test_papers_cited_in_your_own_brainstorm_are_in_your_library(tmp_path):
+    """A personal space's literature is the person's own library: what agents cite there shows on the Library page and
+    in the space's Papers, and papers kept under the space before are found there too."""
+    from aurora.literature.library import LibraryStore
+    from aurora.literature.service import ProjectLiterature
+    lib = LibraryStore(tmp_path)
+    stored = lib.upsert_paper(BEHRENS)
+    # kept under the space only (as before): put in the owner's library when the library opens
+    lib.add_item("user:local", stored["paper_id"], source="agent", added_by="Mentor")
+    lib.close()
+    lib = LibraryStore(tmp_path)
+    assert [i["paper_id"] for i in lib.items("", owner="local")] == [stored["paper_id"]]
+    lib.close()
+    # cited from now on: in both
+    other = library.upsert_paper(BEHRENS)
+    ProjectLiterature("user:alice")._keep(other["paper_id"], source="agent", added_by="Mentor")
+    assert library.has_item("user:alice", other["paper_id"]) and library.has_item("", other["paper_id"], owner="alice")

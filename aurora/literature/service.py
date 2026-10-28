@@ -89,6 +89,13 @@ class ProjectLiterature:
         self._idx = idx
         self.last_search_id = ""
 
+    def _keep(self, paper_id: str, **kw: Any) -> None:
+        """Into this literature; for a person's own brainstorm space (user:<id>), into their own library too, which
+        is where the Library page and the space's Papers show it."""
+        library.add_item(self.campaign_id, paper_id, **kw)
+        if self.campaign_id.startswith("user:"):
+            library.add_item("", paper_id, owner=self.campaign_id[len("user:"):], **{k: v for k, v in kw.items() if k != "owner"})
+
     @property
     def idx(self) -> Indexes:
         return self._idx or indexes()
@@ -112,7 +119,7 @@ class ProjectLiterature:
                                     context=context, run_id=self.run_id, reached=found.reached, failed=found.failed)
         if self.rule == "all":
             for e in entries:
-                library.add_item(self.campaign_id, e["paper_id"], source="search", added_by=by, search_id=sid)
+                self._keep(e["paper_id"], source="search", added_by=by, search_id=sid)
         await self._emit("literature_search", search_id=sid, by=by, query=query, context=context,
                          found=len(entries), reached=found.reached, failed=found.failed)
         notes = library.notes(self.campaign_id, [e["paper_id"] for e in entries])
@@ -128,7 +135,7 @@ class ProjectLiterature:
         library.record_use(self.campaign_id, place, paper_id=paper_id, run_id=self.run_id, by=by)
         library.mark_cited(self.campaign_id, paper_id, run_id=self.run_id)
         if self.rule in ("all", "cited"):
-            library.add_item(self.campaign_id, paper_id, source="agent", added_by=by)
+            self._keep(paper_id, source="agent", added_by=by)
 
     async def check_reference(self, ref: Reference) -> Check:
         """Check one reference; a person's earlier decision about it counts, and so does a paper this

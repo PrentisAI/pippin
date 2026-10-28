@@ -140,6 +140,13 @@ class LibraryStore:
             self._conn.execute("ALTER TABLE lit_items ADD COLUMN cited_version INTEGER NOT NULL DEFAULT 0")
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.commit()
+        # a person's own brainstorm space (user:<id>) has its literature in their own library: papers kept
+        # under the space before it did are put there too (only added, never moved or removed)
+        self._conn.execute("INSERT OR IGNORE INTO lit_items (campaign_id, owner, paper_id, source, added_by, search_id, "
+                           "starred, added_at, cited_version) SELECT '', substr(campaign_id, 6), paper_id, source, "
+                           "added_by, search_id, starred, added_at, cited_version FROM lit_items "
+                           "WHERE campaign_id LIKE 'user:%'")
+        self._conn.commit()
         self._lock = threading.RLock()
 
     def close(self) -> None:
