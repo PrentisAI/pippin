@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, describeError } from '../api/client'
 import type { ZoteroCollection, ZoteroOptions, ZoteroStatus } from '../types'
 
@@ -30,12 +30,18 @@ export function ZoteroDialog({ onClose, onChanged }: { onClose: () => void; onCh
     onChanged?.(s)
   }, [onChanged])
 
+  // once, when it opens: where the connection stands. (Not again when the page behind re-renders and hands a new
+  // onClose: that took the dialog back to its first step, out of the list of collections being chosen.)
   useEffect(() => {
     api.zotero.get().then((s) => { update(s); setStep(s.connected ? 0 : 1) }).catch((e) => setError(describeError(e)))
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const closeNow = useRef(onClose)
+  useEffect(() => { closeNow.current = onClose })
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') closeNow.current() }
     document.addEventListener('keydown', esc)
     return () => document.removeEventListener('keydown', esc)
-  }, [onClose, update])
+  }, [])
 
   // while a sync runs, follow it
   useEffect(() => {
@@ -96,7 +102,7 @@ export function ZoteroDialog({ onClose, onChanged }: { onClose: () => void; onCh
         </div>
         <div className="modal-actions">
           <button className="btn-sm" disabled={busy} onClick={() => run(async () => { await api.zotero.disconnect(); update({ connected: false }); setStep(1) })}>Disconnect</button>
-          <button className="btn-sm" disabled={busy} onClick={loadCollections}>Change collections</button>
+          <button className="btn-sm" disabled={busy} onClick={loadCollections}>{busy ? 'Loading collections…' : 'Change collections'}</button>
           <button className="btn-sm btn-approve" disabled={busy || status.syncing} onClick={() => run(async () => update(await api.zotero.sync()))}>Sync now</button>
         </div>
       </>
