@@ -854,6 +854,7 @@ async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any,
 
     async def runner() -> None:
         run.status = "running"
+        result = None
         try:
             result = await engine.run_campaign(resume=resume)
             run.status = result.status
@@ -881,6 +882,13 @@ async def _launch(campaign: CampaignState, run: ExperimentRunState, config: Any,
             store.update_experiment(run.run_id, status=run.status, finished_at=run.finished_at,
                                     error=run.error or "", cost_usd=run.cost_usd, turn=run.turn)
             campaign.note(f"{run.task_name}: {run.status}")
+            if config.ideation.source_card:       # started from a brainstorm idea: what it found goes back to it
+                try:
+                    from aurora.brainstorm import ideas
+                    found = result.summary if result is not None else (run.error or "")
+                    ideas.report_back(config.ideation.source_card, run.run_id, run.task_name, run.status, found)
+                except Exception:
+                    logger.warning("the result of %s could not go back to its idea", run.run_id, exc_info=True)
             _touch(campaign)
 
     run.task = asyncio.create_task(runner())

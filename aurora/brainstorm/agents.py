@@ -346,7 +346,7 @@ class BoardTools:
             self.turn.effect("Started an idea", idea["card_id"])
             return {"ok": True, "card_id": idea["card_id"]}
         if name in ("read_paper", "annotate"):
-            return self._paper_tool(name, args)
+            return await self._paper_tool(name, args)
         if name in ("map_field", "deep_read", "revise_map"):
             return await self._review_tool(name, args)
         if name == "draft_versions":
@@ -447,9 +447,9 @@ class BoardTools:
         self.turn.step("Working out what the challenge would change")
         return {"ok": True, "note": "Working out what it would change; the options come in this conversation."}
 
-    def _pdf_pages(self, key: str) -> tuple[dict[str, Any], list[str]]:
+    async def _pdf_pages(self, key: str) -> tuple[dict[str, Any], list[str]]:
         from aurora.literature.library import library
-        from aurora.literature.reading import find_pdf, page_texts
+        from aurora.literature.reading import fetch_open_pdf, find_pdf, page_texts
         b = self.board
         entry = library.paper(key.strip("[] "))
         if entry is None:
@@ -460,11 +460,15 @@ class BoardTools:
         campaign_id = "" if b.space.startswith("user:") else b.space
         pdf = find_pdf(entry["paper_id"], b.viewer, campaign_id)
         if pdf is None:
+            # not here yet: its open copy (arXiv, or the PDF an index links), fetched once for everyone
+            self.turn.step(f"Fetching the PDF of [{entry['key']}]")
+            pdf = await fetch_open_pdf(entry["paper_id"])
+        if pdf is None:
             raise ValueError(f"there is no PDF of [{entry['key']}] here; work from its abstract")
         return entry, page_texts(pdf)
 
-    def _paper_tool(self, name: str, args: dict[str, Any]) -> Any:
-        entry, pages = self._pdf_pages(str(args.get("paper_key", "")))
+    async def _paper_tool(self, name: str, args: dict[str, Any]) -> Any:
+        entry, pages = await self._pdf_pages(str(args.get("paper_key", "")))
         if name == "read_paper":
             start = max(1, int(args.get("from_page") or 1))
             self.turn.step(f"Reading [{entry['key']}], from page {start}")
@@ -500,8 +504,9 @@ ROLE_TOOLS = {
                 "draft_versions"},
     "Librarian": {"search_papers", "add_evidence", "add_question", "add_idea", "read_paper", "annotate", "map_field",
                   "deep_read", "revise_map", "draft_versions", "search_memory"},
-    # a counterpoint, a piece of knowledge or an analogy from the literature; drafts only when asked, visibly
-    "Mentor": {"search_papers", "draft_versions"},
+    # a counterpoint, a piece of knowledge or an analogy from the literature, checked in the paper itself when the
+    # abstract does not say; drafts only when asked, visibly
+    "Mentor": {"search_papers", "read_paper", "draft_versions"},
 }
 
 

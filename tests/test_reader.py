@@ -54,7 +54,7 @@ class ReadingModel:
         if "mark up to" in text:
             quote = {"the Librarian": LINES[1], "the Skeptic": LINES[2]}.get(
                 re.search(r"You are (the \w+)", text).group(1), "A sentence the paper does not have at all, made up.")
-            idea = re.search(r"- (c_\w+):", text).group(1)
+            idea = re.search(r"- (c_\w+|chat:\w+):", text).group(1)
             return _reply(json.dumps({"marks": [{"quote": quote, "comment": "It bears on the idea.", "rel": "supports",
                                                  "idea": idea}]}))
         who = re.search(r"You are the (\w+)", text).group(1)
@@ -75,11 +75,11 @@ def client(model):
     return TestClient(create_app())
 
 
-def _settle(c, key, space="global", card_id="", timeout=20.0):
+def _settle(c, key, space="global", card_id="", timeout=20.0, chat_id=""):
     """Agents answer and read in the background: wait until none is still at it."""
     end = time.time() + timeout
     while time.time() < end:
-        r = c.get(f"/api/reader/papers/{key}", params={"space": space, "card_id": card_id}).json()
+        r = c.get(f"/api/reader/papers/{key}", params={"space": space, "card_id": card_id, "chat_id": chat_id}).json()
         busy = any(x["pending"] for n in r["notes"] for x in n["replies"]) or \
             any(v["state"] == "reading" for v in r["reads"].values())
         if not busy:
@@ -346,3 +346,104 @@ async def test_notes_stay_here_when_zotero_cannot_take_them(zclient):
     assert r["zotero"]["state"] == "read_only" and r["notes"][0]["why"] == "Your Zotero key can only read"
     await z.sync_notes("local")
     assert not any(it.get("itemType") == "annotation" for it in fake.created)
+
+
+def test_an_open_pdf_is_fetched_once_with_its_progress(client, tmp_path, monkeypatch):  # noqa: F811
+    """Shown a paper, the console starts fetching its PDF; opening it then waits for that download."""
+    import asyncio
+
+    import httpx
+
+    from aurora.literature import reading
+    from aurora.literature.library import library
+    body = b"%PDF-1.4\n" + b"x" * 5000
+    calls = []
+    gate = asyncio.Event()
+
+    async def handler(request):
+        calls.append(str(request.url))
+        await gate.wait()
+        return httpx.Response(200, headers={"content-length": str(len(body))}, content=body)
+
+    monkeypatch.setattr(reading, "http_client", httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(reading, "cached_pdf", lambda pid: tmp_path / f"{pid}.pdf")
+    entry = {"paper": type("P", (), {"arxiv_id": "2510.23981", "pdf_url": ""})()}
+    monkeypatch.setattr(library, "paper", lambda pid: entry)
+
+    async def run():
+        job = reading.start_fetch("p1")
+        assert reading.start_fetch("p1") is job                     # under way: not started again
+        assert reading.fetch_progress("p1")["state"] == "fetching"
+        waiting = asyncio.create_task(reading.fetch_open_pdf("p1"))
+        await asyncio.sleep(0)
+        gate.set()
+        path = await waiting
+        assert path is not None and path.read_bytes() == body
+        assert reading.fetch_progress("p1")["state"] == "ready"
+
+    asyncio.run(run())
+    assert calls == ["https://arxiv.org/pdf/2510.23981"]
+
+
+def test_a_page_that_is_not_a_pdf_is_not_kept(tmp_path, monkeypatch):
+    import asyncio
+
+    import httpx
+
+    from aurora.literature import reading
+    from aurora.literature.library import library
+    monkeypatch.setattr(reading, "http_client", httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, content=b"<html>captcha</html>"))))
+    monkeypatch.setattr(reading, "cached_pdf", lambda pid: tmp_path / f"{pid}.pdf")
+    monkeypatch.setattr(library, "paper", lambda pid: {"paper": type("P", (), {"arxiv_id": "1", "pdf_url": ""})()})
+    assert asyncio.run(reading.fetch_open_pdf("p2")) is None
+    assert not (tmp_path / "p2.pdf").exists() and not (tmp_path / "p2.part").exists()
+    assert reading.fetch_progress("p2")["state"] == "none"
+
+
+def test_with_no_idea_yet_the_agents_read_for_the_conversation(client, model):
+    """A Mentor's conversation writes its idea down only at the end: until then the agents read for what
+    the researcher said in it."""
+    key = _paper_with_pdf()
+    chat = bs_store.new_chat("user:local", "local", "Memory")
+    bs_store.add_message(chat["chat_id"], "local", "@Mentor I don't know yet what to research.")
+    bs_store.add_message(chat["chat_id"], "Mentor", "What made you stop and wonder lately?")
+    bs_store.add_message(chat["chat_id"], "local", "How stable simulations of water are with learned force fields")
+    view = client.get(f"/api/reader/papers/{key}", params={"space": "global", "chat_id": chat["chat_id"]}).json()
+    assert view["idea"]["kind"] == "conversation" and "@Mentor" not in view["idea"]["text"]
+    assert "learned force fields" in view["idea"]["text"] and "What made you stop" not in view["idea"]["text"]
+    started = client.post(f"/api/reader/papers/{key}/read-along", json={"space": "global", "chat_id": chat["chat_id"]})
+    assert started.json() == {"started": True}
+    r = _settle(client, key, chat_id=chat["chat_id"])
+    assert {a: v["state"] for a, v in r["reads"].items()} == {"Librarian": "done", "Skeptic": "done", "Methods": "done"}
+    got = {n["author"]: n for n in r["notes"]}
+    assert set(got) == {"Librarian", "Skeptic"} and all(n["card_id"] == "" for n in got.values())
+    assert any("learned force fields" in p[0]["content"] for p in model.prompts if "mark up to" in p[0]["content"])
+    # read once for the conversation
+    assert client.post(f"/api/reader/papers/{key}/read-along",
+                       json={"space": "global", "chat_id": chat["chat_id"]}).json()["started"] is False
+
+
+async def test_an_agent_reads_a_paper_it_has_no_pdf_of_from_its_open_copy(model, monkeypatch, tmp_path):
+    """Not on this machine: the agent fetches the open copy (arXiv) once, then reads it. The Mentor may read too."""
+    from aurora.literature import reading
+    key = library.upsert_paper(BEHRENS)["key"]
+    pid = library.paper(key)["paper_id"]
+    fetched = []
+
+    async def fetch(paper_id):
+        fetched.append(paper_id)
+        path = tmp_path / f"{paper_id}.pdf"
+        path.write_bytes(_pdf(LINES))
+        return path
+
+    monkeypatch.setattr(reading, "fetch_open_pdf", fetch)
+    chat = bs_store.new_chat("user:local", "local", "Ground truth")
+    board = ag.Board(space="user:local", viewer="local", viewer_name="The researcher", chat=chat, cards=[])
+    assert "read_paper" in {t["function"]["name"] for t in ag.tool_specs("Mentor", board)}
+    msg = bs_store.add_message(chat["chat_id"], "Mentor", "", pending=True)
+    tools = ag.BoardTools(board, "Mentor", ag.Turn(msg["msg_id"]))
+    tools.known_papers[key] = pid
+    text = await tools.call("read_paper", {"paper_key": key})
+    assert "--- page 1 of 1 ---" in text and "stability" in text
+    assert fetched == [pid] and any("Fetching the PDF" in s for s in tools.turn.steps)

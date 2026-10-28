@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from typing import Any
 
@@ -202,9 +203,10 @@ def _attached(attachments: list[dict[str, Any]], campaign_id: str) -> str:
 
 
 def _run_agents(ch: dict[str, Any], campaign_id: str, names: list[str], question: str, focus: str, *,
-                deep: bool = False, attachments: list[dict[str, Any]] | None = None) -> None:
-    """Answer in the background, one agent after the other (each sees the previous answers)."""
-    if not names:
+                deep: bool = False, attachments: list[dict[str, Any]] | None = None, conduct: bool = False) -> None:
+    """Answer in the background, one agent after the other (each sees the previous answers); ``conduct``: then
+    whether another should join unasked (the researcher's own messages)."""
+    if not names and not conduct:
         return
     access = _access()
     if campaign_id:
@@ -223,6 +225,11 @@ def _run_agents(ch: dict[str, Any], campaign_id: str, names: list[str], question
             await ag.answer(name, board, history, question, access, focus=focus, deep=deep, context=context)
             if name == "Mentor":
                 await _after_mentor(ch["chat_id"], campaign_id, access)
+        if conduct:
+            try:
+                await _conduct(ch["chat_id"], campaign_id, access, names)
+            except Exception:
+                logger.warning("the conductor failed in %s", ch["chat_id"], exc_info=True)
 
     task = asyncio.create_task(go())
     _tasks.add(task)
@@ -232,6 +239,35 @@ def _run_agents(ch: dict[str, Any], campaign_id: str, names: list[str], question
 def _llm_access(access: ag.ModelAccess) -> Any:
     from aurora.review import llm
     return llm.Access(api_key=access.api_key, base_url=access.base_url, model=access.model, missing=access.missing)
+
+
+async def _conduct(chat_id: str, campaign_id: str, access: ag.ModelAccess, answered: list[str]) -> None:
+    """After the researcher spoke and was answered: another agent joins unasked when the conversation calls for it
+    (saying why), a map or the round table is proposed, and the idea in focus is worked on quietly."""
+    from aurora.brainstorm import background, conductor
+    chat = bs_store.chat(chat_id)
+    if chat is None or chat["run_id"] or not conductor.ENABLED:
+        return
+    activity = _activity()
+    board = _board(chat, campaign_id)
+    d = await conductor.decide(bs_store.messages(chat_id), board, _uid(), activity, access, answered)
+    logger.info("conductor in %s (%s): %s", chat_id, activity, d or "nobody joins")
+    if d and d["move"] in conductor.JOINERS:
+        bs_store.add_message(chat_id, d["move"], f"{d['move']} joins in: {d['why']}", kind="system")
+        await ag.answer(d["move"], _board(bs_store.chat(chat_id) or chat, campaign_id), bs_store.messages(chat_id),
+                        conductor.JOIN_ASK.format(**d), access, focus=chat["focus"])
+    elif d and d["move"] == "map":
+        _propose_map(chat_id, d["about"] or chat["title"], why=d["why"])
+    elif d and d["move"] == "roundtable":
+        bs_store.add_message(chat_id, "Mentor", f"{d['why']} The round table can develop your idea now: several models "
+                             "work it into its strongest version, or meet live with you (Round table, above the "
+                             "message box).", kind="system")
+    # the idea in focus, worked on in its own thread (not in this conversation), within the day's allowance
+    idea = bs_store.card(chat["focus"]) if chat["focus"] else None
+    if idea is not None and idea["type"] == "idea" and activity in conductor.COOLDOWN \
+            and background._budget(_uid(), activity):
+        if await background.work_on(idea, _uid(), lambda th: _board(th, campaign_id), access, only="Librarian"):
+            background._budget(_uid(), activity, spend=1)
 
 
 async def _after_mentor(chat_id: str, campaign_id: str, access: ag.ModelAccess) -> None:
@@ -268,6 +304,22 @@ async def _write_question(chat_id: str, access: ag.ModelAccess, *, candidates: b
     bs_store.add_message(chat_id, "Mentor", mentor.rq_text(rq), kind="action",
                          widget={"type": "question", "kind": rq["kind"], "state": "waiting", "version": rq["version"],
                                  "rq": rq})
+
+
+def _propose_map(chat_id: str, topic: str, *, why: str = "") -> None:
+    """The Librarian proposes to map the field around a topic (one click starts it), unless a map is there."""
+    ch = bs_store.chat(chat_id)
+    if ch is None:
+        return
+    from aurora.api.routes.review import latest_map
+    if latest_map(ch["space"], _uid()) is not None:
+        return
+    from aurora.review.converse import estimate_calls
+    calls = estimate_calls(30)
+    bs_store.add_message(chat_id, "Librarian", f"{why + ' ' if why else ''}I can map the field around it: why it is "
+                         f"needed, what has been done, what is not solved yet. About {calls} model calls.",
+                         kind="action", widget={"type": "proposal", "action": "map_field", "topic": " ".join(topic.split())[:200],
+                                                "brief": "", "size": 30, "calls": calls, "state": "pending"})
 
 
 def _handoff(chat_id: str) -> None:
@@ -570,7 +622,7 @@ async def say(chat_id: str, body: Say) -> dict[str, Any]:
         names = ["Librarian"]
     if not names:
         _say_why_quiet(chat_id, activity)
-    _run_agents(ch, cid, names, text, body.focus or ch["focus"], attachments=body.attachments)
+    _run_agents(ch, cid, names, text, body.focus or ch["focus"], attachments=body.attachments, conduct=True)
     return {"message": _message_view(msg), "agents": names}
 
 
@@ -744,11 +796,35 @@ async def deep_search(chat_id: str, body: Deep) -> dict[str, Any]:
     card = bs_store.card(focus) if focus else None
     topic = body.text.strip() or (card["text"] if card else "")
     if not topic:
+        # nothing typed and no idea picked: what the researcher has been talking about
+        said = [m["text"] for m in bs_store.messages(chat_id) if m["who"] == _uid() and m["kind"] == "text" and m["text"]]
+        topic = " / ".join(re.sub(r"@\w+\s*", "", t).strip() for t in said[-3:])
+    if not topic:
         raise HTTPException(400, "Say what to search for, or pick an idea")
     text = f"@Librarian deep search: {topic[:300]}"
     msg = bs_store.add_message(chat_id, _uid(), text)
     _run_agents(ch, cid, ["Librarian"], f"Do a deep search on: {topic}", focus, deep=True)
     return {"message": _message_view(msg), "agents": ["Librarian"]}
+
+
+class Guide(BaseModel):
+    on: bool
+
+
+@router.post("/chats/{chat_id}/guide")
+async def set_guide(chat_id: str, body: Guide) -> dict[str, Any]:
+    """Pause the Mentor's guiding (messages go to whoever fits them) or resume it; what it learned is kept."""
+    ch, cid = _chat(chat_id)
+    _may_write(cid)
+    if ch["owner"] != _uid():
+        raise HTTPException(403, "Only the one whose conversation it is sets whether the Mentor guides it")
+    if body.on:
+        mentor.start(chat_id)
+    else:
+        g = mentor.guide_of(ch)
+        g["on"] = False
+        bs_store.set_guide(chat_id, g)
+    return {"guided": mentor.active(bs_store.chat(chat_id) or ch)}
 
 
 class Ask(BaseModel):
@@ -1075,9 +1151,11 @@ async def promote(card_id: str, body: Promote) -> dict[str, Any]:
         params["add_found"] = body.add_found
     if body.ideation == "brainstorm":        # the round table, live in this space, with you
         params.update({"ideation_mode": "roundtable", "ideation_live": True})
+    # the idea it comes from: a live round table hears its new versions, and what the run finds comes back to it
+    params["source_card"] = card_id
     if body.ideation in ("roundtable", "brainstorm"):
         # the seats start from your idea (its current version) and develop it, rather than proposing their own
-        params.update({"ideation_develop": True, "source_card": card_id})
+        params["ideation_develop"] = True
     proposal = ExperimentProposal(params, skip, f"From the brainstorm: {c['text'][:90]}")
     for p in camp.proposals.values():
         if not p.confirmed:

@@ -87,7 +87,7 @@ Multi-agent ideation: several models propose directions and a chair decides.
 | `ideation.web_search` | bool | `true` | Let seats search the literature and the web while preparing and answering (OpenRouter web plugin, a small extra cost per call; seat models must be OpenRouter models). Turn it off when evaluating ideation on known problems, so ideas cannot simply be looked up. |
 | `ideation.live` | bool | `false` | Brainstorm with the researcher: the round table runs live in the project's brainstorm space, its seats' ideas and questions become cards there, and the researcher can speak in the meeting (the chair gives them the floor before the next turn). Web console only. |
 | `ideation.develop_objective` | bool | `false` | The objective is the researcher's own idea: the seats develop it into its strongest version instead of proposing other directions (a round table started from a brainstorm idea). |
-| `ideation.source_card` | str | `""` | The brainstorm idea the round table starts from: in a live meeting, each new version the researcher writes of it is heard before the next turn. |
+| `ideation.source_card` | str | `""` | The brainstorm idea the experiment starts from: in a live meeting, each new version the researcher writes of it is heard before the next turn; when the run ends, what it found goes back onto the idea. |
 | `ideation.chair_prompt` | str | `""` | System prompt of the chair. Empty: built-in. |
 | `ideation.seat_prompt` | str | `""` | System prompt of the seats. Empty: built-in. '{seat_id}' is replaced by the seat ID. |
 

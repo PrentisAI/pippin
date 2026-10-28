@@ -59,3 +59,10 @@ def isolated_home(tmp_path, monkeypatch):
     mem_store.reset()
     campaigns.store.reset()
     skills._store = None
+
+
+@pytest.fixture(autouse=True)
+def no_conductor(monkeypatch):
+    """No agent joins a brainstorm unasked, unless a test turns the conductor on (its own tests do)."""
+    from aurora.brainstorm import conductor
+    monkeypatch.setattr(conductor, "ENABLED", False)

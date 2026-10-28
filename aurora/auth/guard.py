@@ -222,6 +222,7 @@ RULES: dict[tuple[str, str], str] = {
     ("DELETE", "/api/brainstorm/cards/{card_id}/links/{to_card}"): "any",
     ("POST", "/api/brainstorm/cards/{card_id}/move"): "any",
     ("POST", "/api/brainstorm/chats/{chat_id}/deep"): "any",
+    ("POST", "/api/brainstorm/chats/{chat_id}/guide"): "any",
     ("POST", "/api/brainstorm/suggestions/{sug_id}/do"): "any",
     ("POST", "/api/brainstorm/suggestions/{sug_id}/dismiss"): "any",
     # each person's feed and the people and sources they follow (saving to a project, bringing an
@@ -294,6 +295,8 @@ RULES: dict[tuple[str, str], str] = {
     # the paper reader: notes are their owner's; a project's papers and shared notes are checked inside
     ("GET", "/api/reader/papers/{ident}"): "any",
     ("GET", "/api/reader/papers/{ident}/pdf"): "any",
+    ("POST", "/api/reader/papers/{ident}/prefetch"): "any",
+    ("GET", "/api/reader/papers/{ident}/pdf/progress"): "any",
     ("POST", "/api/reader/papers/{ident}/notes"): "any",
     ("POST", "/api/reader/papers/{ident}/read-along"): "any",
     ("POST", "/api/reader/papers/{ident}/zotero"): "any",

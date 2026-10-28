@@ -244,3 +244,80 @@ def test_label_prefixes_are_taken_off_plain_fields():
     assert llm.unlabel("spec: 尚未指明数据来源") == "尚未指明数据来源"
     assert llm.unlabel("[inf] fits") == "fits" and llm.unlabel("a || b") == "a b"
     assert llm.unlabel("special cases stay") == "special cases stay"
+
+
+def test_the_scope_they_set_binds_and_a_direction_goes_on_the_board(client, model):
+    """What the researcher decided about the frame stays in front of the Mentor every turn; a direction they formed
+    becomes a draft idea of theirs (the conversation's focus), and a later one is its next version."""
+    from aurora.brainstorm.store import bs_store
+    chat = client.post("/api/brainstorm/spaces/global/chats", json={}).json()
+    cid = chat["chat_id"]
+    bs_store.add_message(cid, "local", "The evaluation is about the agent; nobody takes part in it")
+    mentor.start(cid)
+    text, effects = mentor.after_turn(cid, "local", "Then the agent's choices are what is scored.\n"
+                                                    "[SCOPE: evaluates the agent; no human participants]\n"
+                                                    "[DIRECTION: A testbed that scores what an agent chooses to remember "
+                                                    "from egocentric video]")
+    assert "[" not in text
+    note = mentor.state_note(bs_store.chat(cid), "")
+    assert "no human participants" in note and "A testbed that scores" in note
+    (said, card_id) = effects[0]
+    card = bs_store.card(card_id)
+    assert said == "Wrote your direction on the board" and card["type"] == "idea" and card["by"] == "local"
+    assert bs_store.chat(cid)["focus"] == card_id
+    _, effects = mentor.after_turn(cid, "local", "[DIRECTION: A testbed that scores memory first, selection next]")
+    assert effects[0][0] == "Updated your direction on the board"
+    assert bs_store.card(card_id)["text"] == "A testbed that scores memory first, selection next"
+    assert len(bs_store.versions(card_id)) == 2
+    # the same direction again changes nothing
+    _, effects = mentor.after_turn(cid, "local", "[DIRECTION: A testbed that scores memory first, selection next]")
+    assert effects == []
+
+
+def test_short_answers_stop_the_probing_and_predictions_are_spaced(client, model):
+    from aurora.brainstorm.store import bs_store
+    chat = client.post("/api/brainstorm/spaces/global/chats", json={}).json()
+    cid = chat["chat_id"]
+    mentor.start(cid)
+    bs_store.add_message(cid, "local", "I want an assistant that learns me from what it sees every day")
+    mentor.after_turn(cid, "local", "Before we look, predict: which will be harder, routines or preferences?")
+    note = mentor.state_note(bs_store.chat(cid), "")
+    assert "last asked for a prediction 0 of your replies ago" in note and "stop probing" not in note
+    bs_store.add_message(cid, "local", "i have no idea")
+    bs_store.add_message(cid, "local", "both")
+    assert "stop probing" in mentor.state_note(bs_store.chat(cid), "")
+    bs_store.add_message(cid, "local", "我觉得评测的应该是 agent 自己的选择，而不是记忆本身，因为选择才是难点")
+    assert "stop probing" not in mentor.state_note(bs_store.chat(cid), "")
+    for _ in range(8):
+        mentor.after_turn(cid, "local", "What would that look like?")
+    assert "recap and offer to write their question down" in mentor.state_note(bs_store.chat(cid), "")
+
+
+def test_the_mentor_can_be_paused_and_resumed_keeping_what_it_learned(client, model):
+    from aurora.brainstorm.store import bs_store
+    chat = client.post("/api/brainstorm/spaces/global/chats", json={}).json()
+    cid = chat["chat_id"]
+    mentor.start(cid)
+    mentor.after_turn(cid, "local", "Go on.\n[SCOPE: only the wearer]")
+    assert client.post(f"/api/brainstorm/chats/{cid}/guide", json={"on": False}).json() == {"guided": False}
+    assert not mentor.active(bs_store.chat(cid))
+    assert client.post(f"/api/brainstorm/chats/{cid}/guide", json={"on": True}).json() == {"guided": True}
+    assert mentor.guide_of(bs_store.chat(cid))["scope"] == ["only the wearer"]
+
+
+def test_what_an_experiment_found_goes_back_to_its_idea(client, model):
+    """The brainstorm is not a sequence that ends at the run: the result comes back onto the idea and into its
+    conversation, to revise it or test it next."""
+    from aurora.brainstorm import ideas
+    from aurora.brainstorm.store import bs_store
+    chat = client.post("/api/brainstorm/spaces/global/chats", json={}).json()
+    idea = bs_store.add_card("user:local", "local", "idea", "Score what the agent chooses to remember", by="local",
+                             chat_id=chat["chat_id"])
+    result = ideas.report_back(idea["card_id"], "run-1", "memory testbed", "completed",
+                               "Recall fell from 81% to 52% after the first hour of footage.")
+    assert result["type"] == "material" and result["run_id"] == "run-1" and "52%" in result["text"]
+    space = client.get("/api/brainstorm/spaces/global").json()
+    assert any(l["from_card"] == result["card_id"] and l["to_card"] == idea["card_id"] for l in space["links"])
+    last = bs_store.messages(chat["chat_id"])[-1]
+    assert last["kind"] == "system" and "memory testbed" in last["text"] and "revise" in last["text"]
+    assert ideas.report_back("nope", "run-2", "x", "failed", "") is None

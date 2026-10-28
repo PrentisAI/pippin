@@ -315,8 +315,9 @@ class IdeationConfig(_Section):
     )
     source_card: str = Field(
         default="",
-        description="The brainstorm idea the round table starts from: in a live meeting, each new version the "
-                    "researcher writes of it is heard before the next turn.",
+        description="The brainstorm idea the experiment starts from: in a live meeting, each new version the "
+                    "researcher writes of it is heard before the next turn; when the run ends, what it found goes "
+                    "back onto the idea.",
     )
     chair_prompt: str = Field(default="", description="System prompt of the chair. Empty: built-in.")
     seat_prompt: str = Field(

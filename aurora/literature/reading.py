@@ -11,6 +11,7 @@ Where a paper's PDF is looked for, first found first:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from pathlib import Path
@@ -84,35 +85,81 @@ def open_url(paper: Any) -> str:
     return getattr(paper, "pdf_url", "") or ""
 
 
+# downloads under way, by paper: the bytes so far and the total, for the reader to show while it waits
+_fetching: dict[str, dict[str, Any]] = {}
+
+
+def fetch_progress(paper_id: str) -> dict[str, Any]:
+    """{"state": "ready" | "fetching" | "none", "loaded", "total"} of the paper's open PDF."""
+    if cached_pdf(paper_id).is_file():
+        return {"state": "ready", "loaded": 0, "total": 0}
+    job = _fetching.get(paper_id)
+    if job is None:
+        return {"state": "none", "loaded": 0, "total": 0}
+    return {"state": "fetching", "loaded": job["loaded"], "total": job["total"]}
+
+
 async def fetch_open_pdf(paper_id: str) -> Path | None:
-    """Fetch the paper's open PDF into the shared cache (once); None when there is none or it failed."""
-    from aurora.literature.library import library
-    entry = library.paper(paper_id)
-    if entry is None:
-        return None
-    url = open_url(entry["paper"])
-    if not url:
-        return None
+    """Fetch the paper's open PDF into the shared cache (once); None when there is none or it failed.
+    A download already under way (started when the paper was shown) is waited for, not repeated."""
     target = cached_pdf(paper_id)
     if target.is_file():
         return target
+    job = start_fetch(paper_id)
+    if job is None:
+        return None
+    # shielded: a reader who leaves does not stop the download for the next one
+    return await asyncio.shield(job["task"])
+
+
+def start_fetch(paper_id: str) -> dict[str, Any] | None:
+    """The download of the paper's open PDF, started now unless it is under way; None without an open copy."""
+    from aurora.literature.library import library
+    job = _fetching.get(paper_id)
+    if job is not None:
+        return job
+    entry = library.paper(paper_id)
+    url = open_url(entry["paper"]) if entry else ""
+    if not url:
+        return None
+    job = {"loaded": 0, "total": 0}
+    job["task"] = asyncio.create_task(_download(paper_id, url, cached_pdf(paper_id), job))
+    _fetching[paper_id] = job
+    return job
+
+
+async def _download(paper_id: str, url: str, target: Path, job: dict[str, Any]) -> Path | None:
+    tmp = target.with_suffix(".part")
     try:
-        if http_client is not None:
-            r = await http_client.get(url, follow_redirects=True)
-        else:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0), follow_redirects=True,
-                                         headers={"User-Agent": "AURORA (research reader)"}) as c:
-                r = await c.get(url)
+        client = http_client or httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0), follow_redirects=True,
+                                                  headers={"User-Agent": "AURORA (research reader)"})
+        try:
+            async with client.stream("GET", url, follow_redirects=True) as r:
+                if r.status_code != 200:
+                    return None
+                job["total"] = int(r.headers.get("content-length") or 0)
+                if job["total"] > MAX_PDF_BYTES:
+                    return None
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with open(tmp, "wb") as out:
+                    async for chunk in r.aiter_bytes():
+                        if job["loaded"] == 0 and not chunk.startswith(b"%PDF"):
+                            return None
+                        job["loaded"] += len(chunk)
+                        if job["loaded"] > MAX_PDF_BYTES:
+                            return None
+                        out.write(chunk)
+        finally:
+            if client is not http_client:
+                await client.aclose()
+        tmp.replace(target)
+        return target
     except httpx.HTTPError as exc:
         logger.info("fetching the PDF of %s from %s failed: %s", paper_id, url, exc)
         return None
-    if r.status_code != 200 or not r.content.startswith(b"%PDF") or len(r.content) > MAX_PDF_BYTES:
-        return None
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(".part")
-    tmp.write_bytes(r.content)
-    tmp.replace(target)
-    return target
+    finally:
+        tmp.unlink(missing_ok=True)
+        _fetching.pop(paper_id, None)
 
 
 def page_texts(path: Path) -> list[str]:

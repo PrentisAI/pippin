@@ -138,24 +138,35 @@ async def keep_working(space: str, owner: str, board_for: Any, access: ag.ModelA
     for idea in [c for c in cards if c["type"] == "idea"]:
         if done >= limit:
             break
-        into = [lk for lk in links if lk["to_card"] == idea["card_id"]]
-        has_evidence = any(lk["rel"] in ("supports", "challenges") for lk in into)
-        has_question = any(lk["rel"] == "asks about" for lk in into)
-        agent, ask = (("Librarian", "Look for evidence on this idea, for and against.") if not has_evidence else
-                      ("Skeptic", "Take a first look at this idea: what is its weakest point?") if not has_question else
-                      (None, ""))
-        if agent is None or bs_store.recent_suggestion(space, owner, "worked", idea["card_id"] + agent):
-            continue
-        thread = {"chat_id": f"card:{idea['card_id']}", "space": space, "owner": idea["owner"],
-                  "title": idea["text"][:60], "vis": idea["vis"], "run_id": "", "focus": idea["card_id"]}
-        board = board_for(thread)
-        await ag.answer(agent, board, bs_store.messages(thread["chat_id"]), ask, access, focus=idea["card_id"])
-        bs_store.add_suggestion(space, owner, agent, "worked",
-                                f"{agent} {'looked for evidence on' if agent == 'Librarian' else 'questioned'} "
-                                f"“{idea['text'][:100]}” on its own.", "Show it", cards=[idea["card_id"]],
-                                paper_id=idea["card_id"] + agent)
-        done += 1
+        if await work_on(idea, owner, board_for, access, links=links):
+            done += 1
     return done
+
+
+async def work_on(idea: dict[str, Any], owner: str, board_for: Any, access: ag.ModelAccess, *,
+                  links: list[dict[str, Any]] | None = None, only: str = "") -> str:
+    """One idea, worked on quietly in its own thread: the Librarian looks for evidence when it has none, else the
+    Skeptic questions it when nobody has (*only*: just that agent). The agent that worked, or ""."""
+    space = idea["space"]
+    # the links between cards of the space: bs_store.links keeps only those with both ends in the set given
+    links = links if links is not None else bs_store.links({c["card_id"] for c in bs_store.cards(space)})
+    into = [lk for lk in links if lk["to_card"] == idea["card_id"]]
+    has_evidence = any(lk["rel"] in ("supports", "challenges") for lk in into)
+    has_question = any(lk["rel"] == "asks about" for lk in into)
+    agent, ask = (("Librarian", "Look for evidence on this idea, for and against.") if not has_evidence else
+                  ("Skeptic", "Take a first look at this idea: what is its weakest point?") if not has_question else
+                  (None, ""))
+    if agent is None or (only and agent != only) or bs_store.recent_suggestion(space, owner, "worked", idea["card_id"] + agent):
+        return ""
+    thread = {"chat_id": f"card:{idea['card_id']}", "space": space, "owner": idea["owner"],
+              "title": idea["text"][:60], "vis": idea["vis"], "run_id": "", "focus": idea["card_id"]}
+    board = board_for(thread)
+    await ag.answer(agent, board, bs_store.messages(thread["chat_id"]), ask, access, focus=idea["card_id"])
+    bs_store.add_suggestion(space, owner, agent, "worked",
+                            f"{agent} {'looked for evidence on' if agent == 'Librarian' else 'questioned'} "
+                            f"“{idea['text'][:100]}” on its own.", "Show it", cards=[idea["card_id"]],
+                            paper_id=idea["card_id"] + agent)
+    return agent
 
 
 async def run_once(user_id: str, activity: str) -> None:

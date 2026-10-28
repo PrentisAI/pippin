@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -104,8 +105,44 @@ def _idea(space: str, card_id: str = "", chat_id: str = "") -> dict[str, Any] | 
     return None
 
 
+# what the agents read for while a conversation has no idea written down yet (a Mentor's conversation
+# settles one only at its end): the researcher's own words in it
+CONVERSATION = "chat:"
+
+
+def _conversation(space: str, chat_id: str) -> dict[str, Any] | None:
+    """The conversation as what the paper is read for, when it has no idea yet: what the researcher said."""
+    uid = _uid()
+    ch = bs_store.chat(chat_id) if chat_id else None
+    if ch is None or ch["space"] != space or not (ch["owner"] == uid or ch["vis"] == "project"):
+        return None
+    said = [re.sub(r"@\w+\s*", "", m["text"]).strip() for m in bs_store.messages(chat_id, viewer=uid)
+            if m["who"] == uid and m["kind"] == "text"]
+    said = [t for t in said if t]
+    if not said:
+        return None
+    # the first thing said with substance (usually the topic), then as much of the latest as fits
+    at = next((i for i, t in enumerate(said[:3]) if len(t) >= 40), 0)
+    first, rest, kept, room = said[at][:300], said[at + 1:], [], 1200
+    for t in reversed(rest):
+        if len(t) > room:
+            break
+        kept.insert(0, t)
+        room -= len(t) + 3
+    words = " / ".join([first, *(["…"] if len(kept) < len(rest) else []), *kept])
+    text = "Not written down as an idea yet. What the researcher is working out in a brainstorm, in their own words: " + words
+    return {"card_id": CONVERSATION + chat_id, "text": text, "space": space, "chat_id": chat_id, "kind": "conversation"}
+
+
+def _read_for(space: str, card_id: str = "", chat_id: str = "") -> dict[str, Any] | None:
+    """What the agents read the paper for: the idea, else (no idea named) the conversation."""
+    return _idea(space, card_id, chat_id) or (None if card_id else _conversation(space, chat_id))
+
+
 def _ideas_for(idea: dict[str, Any]) -> list[dict[str, Any]]:
     """The idea, and up to two more from its conversation."""
+    if idea.get("kind") == "conversation":
+        return [idea]
     uid = _uid()
     more = [c for c in bs_store.cards(idea["space"]) if c["type"] == "idea" and c["card_id"] != idea["card_id"]
             and idea["chat_id"] and c["chat_id"] == idea["chat_id"] and (c["owner"] == uid or c["vis"] == "project")]
@@ -161,7 +198,7 @@ def _view(entry: dict[str, Any], space: str, campaign_id: str, idea: dict[str, A
         "paper": paper_view(entry), "space": space, "campaign_id": campaign_id,
         "pdf": {"available": pdf is not None, "openable": bool(reading.open_url(entry["paper"]))},
         "notes": notes,
-        "idea": {"card_id": idea["card_id"], "text": idea["text"]} if idea else None,
+        "idea": {"card_id": idea["card_id"], "text": idea["text"], "kind": idea.get("kind", "idea")} if idea else None,
         "reads": {a: {"state": r["state"], "detail": r["detail"]} for a, r in reads.items()},
         "agents_mark": bool(auth_store.get_pref(uid, "reader_agents_mark", True)),
         "can_share": bool(campaign_id) and "comment" in rights(current_user(), campaign_id),
@@ -177,7 +214,28 @@ def _view(entry: dict[str, Any], space: str, campaign_id: str, idea: dict[str, A
 async def get_paper(ident: str, space: str = "", card_id: str = "", chat_id: str = "") -> dict[str, Any]:
     entry = _paper(ident)
     key, cid = _space(space)
-    return _view(entry, key, cid, _idea(key, card_id, chat_id))
+    return _view(entry, key, cid, _read_for(key, card_id, chat_id))
+
+
+@router.post("/papers/{ident}/prefetch")
+async def prefetch_pdf(ident: str, space: str = "") -> dict[str, Any]:
+    """Start fetching the paper's open PDF while the person looks at the paper, so it is there (or
+    on its way) when they open it."""
+    entry = _paper(ident)
+    _, cid = _space(space)
+    if _pdf(entry["paper_id"], cid) is None and not reading.cached_pdf(entry["paper_id"]).is_file():
+        reading.start_fetch(entry["paper_id"])
+    return await pdf_progress(ident, space)
+
+
+@router.get("/papers/{ident}/pdf/progress")
+async def pdf_progress(ident: str, space: str = "") -> dict[str, Any]:
+    """How far the paper's PDF is: ready, being fetched (bytes so far, of how many), or none."""
+    entry = _paper(ident)
+    _, cid = _space(space)
+    if _pdf(entry["paper_id"], cid) is not None:
+        return {"state": "ready", "loaded": 0, "total": 0}
+    return reading.fetch_progress(entry["paper_id"])
 
 
 @router.get("/papers/{ident}/pdf")
@@ -264,10 +322,10 @@ async def read_along(ident: str, body: ReadAlong) -> dict[str, Any]:
     from aurora.auth.store import auth_store
     entry = _paper(ident)
     key, cid = _space(body.space)
-    idea = _idea(key, body.card_id, body.chat_id)
+    idea = _read_for(key, body.card_id, body.chat_id)
     uid, pid = _uid(), entry["paper_id"]
     if idea is None:
-        return {"started": False, "why": "Open the paper from a brainstorm idea for the agents to read along"}
+        return {"started": False, "why": "Open the paper from a brainstorm, with an idea or a conversation, for the agents to read along"}
     if not auth_store.get_pref(uid, "reader_agents_mark", True):
         return {"started": False, "why": "The agents mark passages only when you ask"}
     if annotations.reads(uid, pid, key, idea["card_id"]):
@@ -300,7 +358,8 @@ async def read_along(ident: str, body: ReadAlong) -> dict[str, Any]:
             for m in marks:
                 annotations.add(uid, pid, author=agent, state="suggested", text=m["quote"], comment=m["comment"],
                                 page_index=m["page_index"], page_label=str(m["page_index"] + 1), space=key,
-                                card_id=m["card_id"], rel=m["rel"], chat_id=idea["chat_id"])
+                                card_id="" if m["card_id"].startswith(CONVERSATION) else m["card_id"], rel=m["rel"],
+                                chat_id=idea["chat_id"])
             annotations.set_read(uid, pid, key, idea["card_id"], agent, "done",
                                  f"{len(marks)} passage{'s' if len(marks) != 1 else ''}")
 

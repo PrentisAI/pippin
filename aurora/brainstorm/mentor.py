@@ -36,6 +36,9 @@ SECTION_NAMES = {"question": "Research question", "method": "Methodology directi
 LAYER_SECTION = dict(enumerate(SECTIONS, start=1))
 CERTAIN = re.compile(r"\b(obviously|clearly|definitely|certainly|undeniably|without (a )?doubt|of course|surely)\b"
                      r"|显然|肯定|一定是|毫无疑问|毋庸置疑|明显|当然", re.I)
+# an answer that says little: the researcher may be tired of being asked, or out of their depth
+UNSURE = re.compile(r"\b(no idea|not sure|don'?t know|dunno|both|either|multiple reasons|whatever|i guess)\b"
+                    r"|不知道|不确定|没想法|都可以|都行|随便|不清楚|说不好", re.I)
 MENTOR_FILE = "socratic_mentor_agent.md"
 RQ_FILE = "research_question_agent.md"
 
@@ -43,7 +46,8 @@ RQ_FILE = "research_question_agent.md"
 def default_guide() -> dict[str, Any]:
     return {"on": False, "layer": 1, "turns": 0, "layer_turns": 0, "intent": "", "predictions": True,
             "suggesting": False, "signals": [], "questions": [], "commitments": [], "probes": [], "counterpoints": {},
-            "health": "", "ended": "", "rq": None, "skeptic": [], "pending": []}
+            "health": "", "ended": "", "rq": None, "skeptic": [], "pending": [],
+            "scope": [], "predicted_at": -99, "recapped_at": 0, "direction_card": ""}
 
 
 def guide_of(chat: dict[str, Any]) -> dict[str, Any]:
@@ -88,6 +92,9 @@ the internal names (SCR, layer, probe, commitment gate, INSIGHT, convergence sig
 search first (search_papers) and name the one paper it comes from by its key in square brackets, e.g. [Behrens12]. \
 Never cite from memory; if the search finds nothing fitting, give the counterpoint as a perspective without a \
 citation. Otherwise do not list references.
+- When what matters is in a paper's body, not its abstract (how its ground truth was made, what exactly it \
+measured), read it (read_paper, a few pages at a time) instead of guessing or asking the researcher to paste it; \
+say what you read in a sentence and go on asking. Never say you cannot open papers.
 - The researcher may have a map of the field in this space (below). Its unsolved problems are good material for \
 Layer 1: ask which of them bothers them most and why, never which is most promising.
 - The tags the protocol asks for ([INSIGHT: ...], [COMMITMENT: ...], [Q:CLARIFY] and the other question types, \
@@ -99,9 +106,9 @@ takes them out before the researcher sees it. An insight may name its section fi
   [INTENT: exploratory] or [INTENT: goal] once you can tell;
   [SIGNALS: S1, S4] the convergence signals active now (empty if none);
   [COUNTERPOINT] when this reply carries a certainty-triggered contradiction.
-- [RQ-READY] when the researcher asks to pin their question down, or, in goal-oriented intent, when they can state \
-it in one sentence (S1) and it has been stable (in exploratory intent, only when they ask: they decide when it is \
-settled). The console then writes it down from the conversation (an RQ Summary) for them to confirm, so do not \
+- [RQ-READY] when the researcher asks to pin their question down or agrees to your offer to write it down, or, in \
+goal-oriented intent, when they can state it in one sentence (S1) and it has been stable (they decide when it is \
+settled; you may offer, see CONVERSATION CRAFT). The console then writes it down from the conversation (an RQ Summary) for them to confirm, so do not \
 write it out yourself. Once per question; again only if the question changed.
 - [END: converged | user | stagnation | max] when the dialogue ends by the protocol's auto-end conditions, or the \
 researcher asks to stop being guided. Your reply is then the closing summary, in prose. Their plan is kept beside \
@@ -111,6 +118,39 @@ predictions first.
 - After the exit marker you give AI-generated starting points (three to five research questions, labeled as \
 yours, in prose), then [RQ-CANDIDATES] so the console writes them down with their FINER scores for the \
 researcher to take one or not. [GUIDED: resume] when they ask you to go back to guiding them by questions.
+
+CONVERSATION CRAFT (AURORA's own rules; they override the protocol where they differ, learned from long sessions in \
+which researchers tired of being questioned)
+- One question per reply. A second only as a short either/or of the same question. Never stack two or three \
+questions: the researcher answers one and the rest are lost.
+- Their predictions: ask for one at most every four of your replies (the state below says how long ago you last \
+did), and mark the reply [PREDICT]. Never right after they made a decision or narrowed their scope, never when \
+they asked you something factual, never after a short or unsure answer. A prediction is a tool, not a ritual.
+- Questions of fact or orientation (which fields work on this, what a paper did, how a benchmark made its ground \
+truth, whether something exists) are not their research question: answer them directly first, concretely, from a \
+search or from reading the paper, naming the papers. Then ask your one question. Non-generation is about their \
+research question and their ideas, never about withholding what is known.
+- Their scope is binding. When they decide something about the frame (who or what is studied, what is in or out, \
+whether people take part, what to do first), mark it [SCOPE: the decision, in a few words]. The decisions so far \
+are listed below: every question, analogy and counterpoint stays inside them. Before an analogy from another \
+setting, check it does not quietly change the frame (an analogy about people's memory is not a question about the \
+agent's memory). When they say you drifted, take their frame and go back to it.
+- When their last two answers were short or unsure (the state below says so), stop probing. In two or three \
+sentences say where they have got to, in their own words, then offer two or three concrete ways on, phrased as \
+choices (go deeper on X, look at what is known about Y, write the question down, or hear your view), and let them \
+pick. Do not ask a new probing question in that reply. When they then pick ("the first", "both", "ok", in any \
+words), do it: with "both", start with the first and say the other comes next. Never offer the same choices again.
+- Converge. About every eight of your replies, or as soon as they narrow to a direction ("the part we can do now is \
+X"), recap in two sentences and offer to write their question down as a first version they can change. When they \
+agree, or ask for it, give [RQ-READY] (in any intent). A first version is a draft, not an end: the conversation goes \
+on from it.
+- When a direction of theirs has formed, mark it in that same reply: as soon as they describe a study they could \
+actually do (what data, what is measured, even roughly), [DIRECTION: the direction, one or two sentences, close to \
+their words]. Do not wait for it to be polished; it is a draft. It is put on their board as a draft idea \
+of theirs, which the other agents can then work on; a later [DIRECTION] revises it.
+- The researcher may at any time ask another agent, map the field, or have the round table work on their idea; \
+the conversation is not a sequence of stages. Take up what those brought in (it is in the conversation) and go on \
+from where they are now.
 
 AURORA EXTENSIONS (beyond the ARS protocol; from Maier, Schneider and Feuerriegel, CHI 2026, where a question mode \
 with these moves gave better ideas that stayed diverse and that people felt were their own)
@@ -166,6 +206,24 @@ def state_note(chat: dict[str, Any], text: str) -> str:
              + (". Latest: " + "; ".join(i["text"] for i in ins[-4:]) if ins else ""),
              f"Convergence signals active: {', '.join(g['signals']) or 'none'}.",
              "Recent question types: " + (", ".join(g["questions"][-6:]) or "none") + "."]
+    if g["scope"]:
+        lines.append("The scope they set (binding: stay inside it): " + "; ".join(g["scope"]))
+    since = g["turns"] - g["predicted_at"]
+    lines.append(f"You last asked for a prediction {since} of your replies ago" if since < 50 else
+                 "You have not asked for a prediction yet")
+    said = [m["text"].strip() for m in bs_store.messages(chat["chat_id"])
+            if m["kind"] == "text" and m["who"] == chat["owner"] and m["text"]][-2:]
+    def thin(t: str) -> bool:
+        cjk = len(re.findall(r"[\u4e00-\u9fff]", t))
+        return bool(UNSURE.search(t)) or (len(t) < 15 if cjk > len(t) / 3 else len(t.split()) < 7)
+    if len(said) == 2 and all(thin(t) for t in said):
+        lines.append("Their last two answers were short or unsure: stop probing now (see the rules: recap, then offer "
+                     "ways on as choices).")
+    if g["turns"] - g["recapped_at"] >= 8 and not (g.get("rq") or {}).get("state") == "settled":
+        lines.append(f"{g['turns'] - g['recapped_at']} of your replies since the last recap: recap and offer to write "
+                     "their question down as a first version.")
+    if g.get("direction_card") and (c := bs_store.card(g["direction_card"])):
+        lines.append(f"Their direction on the board (a draft idea of theirs): {c['text']}")
     if g["commitments"]:
         lines.append("Their predictions so far: " + "; ".join(c["text"] for c in g["commitments"][-5:]))
     if g["probes"]:
@@ -190,7 +248,7 @@ def state_note(chat: dict[str, Any], text: str) -> str:
 
 _TAGS = ("INSIGHT", "COMMITMENT", "Q", "ADJACENT-PROBE", "HEALTH-CHECK", "SOCRATIC-NON-GENERATION-EXIT",
          "WORDING_PATTERN_ADVISORY", "READING-PROBE", "LAYER", "INTENT", "SIGNALS", "COUNTERPOINT", "RQ-READY",
-         "RQ-CANDIDATES", "END", "PREDICTIONS", "GUIDED", "STIMULUS", "VERSIONS")
+         "RQ-CANDIDATES", "END", "PREDICTIONS", "GUIDED", "STIMULUS", "VERSIONS", "SCOPE", "PREDICT", "DIRECTION")
 _TAG = re.compile(r"\[(" + "|".join(re.escape(t) for t in sorted(_TAGS, key=len, reverse=True)) + r")\b:?\s*([^\]\n]*)\]")
 EXIT = "Leaving guided questioning at your request: what follows are AI-generated starting points"
 
@@ -266,11 +324,23 @@ def after_turn(chat_id: str, viewer: str, text: str, *, console: bool = False) -
         elif name == "STIMULUS":
             bs_store.add_move(chat_id, chat["space"], "stimulus", {"kind": "analogy" if "analog" in body.lower() else "knowledge",
                                                                    "layer": g["layer"]})
+        elif name == "SCOPE" and body and not console:
+            g["scope"] = [*[x for x in g["scope"] if x.lower() != body.lower()], body[:200]][-8:]
+        elif name == "PREDICT":
+            g["predicted_at"] = g["turns"]
+        elif name == "DIRECTION" and body and not console:
+            said = _direction(chat, g, viewer, body)
+            if said:
+                effects.append(said)
         elif name == "VERSIONS" and not console:
             g["pending"].append("versions")
         elif name == "END":
             g["ended"] = (body or "user").split()[0].lower()
             g["pending"].append("handoff")
+    if g["predicted_at"] != g["turns"] and re.search(r"\bpredict|预测|你猜|你觉得会", clean, re.I):
+        g["predicted_at"] = g["turns"]
+    if any(name == "RQ-READY" for name, _ in tags) or re.search(r"\bso far\b|where (we|you) (are|have got)|到目前为止|目前我们", clean, re.I):
+        g["recapped_at"] = g["turns"]
     if g["layer"] != before:
         g["layer_turns"] = 0
         # leaving Layer 1 means they can state their question in a sentence: it is written down, if it is not yet
@@ -286,6 +356,27 @@ def after_turn(chat_id: str, viewer: str, text: str, *, console: bool = False) -
         effects.append([f"Noted {noted} point{'s' if noted > 1 else ''} of yours in your research plan", ""])
     bs_store.set_guide(chat_id, g)
     return clean, effects
+
+
+def _direction(chat: dict[str, Any], g: dict[str, Any], viewer: str, text: str) -> list[str] | None:
+    """A direction the researcher has formed: on their board as a draft idea of theirs (a later one revises it), and
+    the conversation's focus, so the other agents can work on it."""
+    from aurora.brainstorm import ideas
+    text = text.strip()[:600]
+    card = bs_store.card(g["direction_card"]) if g.get("direction_card") else None
+    if card is not None and card["type"] == "idea":
+        if " ".join(card["text"].split()) == " ".join(text.split()):
+            return None
+        ideas.keep(card, text, viewer=viewer, chat_id=chat["chat_id"])
+        said = "Updated your direction on the board"
+    else:
+        card = bs_store.add_card(chat["space"], viewer, "idea", text, by=viewer, chat_id=chat["chat_id"],
+                                 stand="A first version, from the conversation: change it as it changes")
+        g["direction_card"] = card["card_id"]
+        said = "Wrote your direction on the board"
+    if not chat.get("focus"):
+        bs_store.update_chat(chat["chat_id"], focus=card["card_id"])
+    return [said, card["card_id"]]
 
 
 def take_pending(chat_id: str) -> list[str]:

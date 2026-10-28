@@ -65,6 +65,23 @@ def keep(card: dict[str, Any], text: str, *, viewer: str, base: str = "", agent:
     return v
 
 
+def report_back(card_id: str, run_id: str, run_name: str, status: str, summary: str) -> dict[str, Any] | None:
+    """An experiment started from an idea has ended: what it found goes back onto the idea (as material linked to
+    it) and into its conversation, so the brainstorm goes on from the result rather than stopping at the run."""
+    idea = bs_store.card(card_id)
+    if idea is None or idea["type"] != "idea":
+        return None
+    said = {"completed": "finished", "failed": "failed", "stopped": "was stopped"}.get(status, status)
+    text = f"Experiment “{run_name[:80]}” {said}" + (f": {' '.join(summary.split())[:700]}" if summary else ".")
+    result = bs_store.add_card(idea["space"], idea["owner"], "material", text, by=idea["owner"], vis=idea["vis"],
+                               run_id=run_id, chat_id=idea["chat_id"])
+    bs_store.link(result["card_id"], card_id, "related")
+    if idea["chat_id"] and bs_store.chat(idea["chat_id"]) is not None:
+        bs_store.add_message(idea["chat_id"], "Mentor", f"{text} It is on your idea now. What does it change about the "
+                             "idea: is there something to revise, test next, or set aside?", kind="system")
+    return result
+
+
 def researcher_edit(card: dict[str, Any], text: str, viewer: str) -> dict[str, Any]:
     """The researcher rewrote an idea themselves: its next version, measured against the one before."""
     last = (bs_store.versions(card["card_id"]) or [None])[-1]
