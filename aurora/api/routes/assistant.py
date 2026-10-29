@@ -19,6 +19,7 @@ class Said(BaseModel):
     audio_type: str = "wav"
     screenshot: str = ""         # the window in front when they spoke ("this figure")
     via: str = "typed"           # typed | voice
+    context: str = ""            # what they are looking at in the console (⌘K): the project, the run, a selection
 
 
 def _access() -> tuple[Any, Any, dict[str, str]]:
@@ -50,7 +51,7 @@ async def say(body: Said) -> dict[str, Any]:
     access, mem, models = _access()
     shot = body.screenshot if body.screenshot.startswith("data:image/") and len(body.screenshot) < 8_000_000 else ""
     return await assistant.ask(current_user().user_id, text[:4000], access=access, mem_access=mem, models=models,
-                               screenshot=shot, via="voice" if body.via == "voice" else "typed")
+                               screenshot=shot, via="voice" if body.via == "voice" else "typed", context=body.context[:2000])
 
 
 @router.get("/history")

@@ -176,7 +176,7 @@ function Ask() {
     const t = text.trim()
     if (!t || busy) return
     setBusy(true); setError(null)
-    try { setAnswer({ ...(await api.assistant.say(t)), said: t }); setText('') } catch (err) { setError(describeError(err)) } finally { setBusy(false) }
+    try { setAnswer(await api.assistant.say(t)); setText('') } catch (err) { setError(describeError(err)) } finally { setBusy(false) }
   }
   return (
     <section className="td-ask" aria-label="Ask Pippin">

@@ -198,14 +198,15 @@ def _agent(owner: str, access: Any, mem_access: Any, models: dict[str, str]) -> 
 
 
 async def ask(owner: str, text: str, *, access: Any, mem_access: Any, models: dict[str, str], screenshot: str = "",
-              via: str = "typed") -> dict[str, Any]:
-    """One turn: what they said, answered with the tools. Returns the reply as the orb and the panel show it."""
+              via: str = "typed", context: str = "") -> dict[str, Any]:
+    """One turn: what they said, answered with the tools. Returns the reply as the orb and the panel show it.
+    *context* is what they are looking at in the console when they asked (given to the model, not kept as their words)."""
     text = text.strip()
     lock = _locks.setdefault(owner, asyncio.Lock())
     async with lock:
         agent, now = _agent(owner, access, mem_access, models)
         now["turn"] = turn = _Turn(screenshot)
-        out = await agent.handle_user_message(text)
+        out = await agent.handle_user_message(f"[They are looking at: {context.strip()}]\n{text}" if context.strip() else text)
         reply = out.get("text") or ""
         at = time.time()
         mine = {"turn_id": uuid.uuid4().hex[:10], "role": "user", "text": text, "at": at, "via": via}

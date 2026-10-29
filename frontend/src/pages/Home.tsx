@@ -16,6 +16,7 @@ import { TeamView } from '../components/TeamView'
 import { LiteratureView, RULE_HINTS, RULE_LABELS, RuleSelect } from '../components/LiteratureView'
 import { LibraryView } from '../components/LibraryView'
 import { TodayView } from '../components/TodayView'
+import { CommandPalette, type PaletteGo } from '../components/CommandPalette'
 import { MemoryView } from '../components/memory/MemoryView'
 import { CiteProvider, CiteText } from '../components/Cite'
 import { CompareView } from '../components/results/CompareView'
@@ -244,6 +245,8 @@ interface NavProps {
   atHome: boolean
   /** Things of the getting-started checklist not tried yet. */
   helpBadge: number
+  /** ⌘K: ask Pippin, or go somewhere. */
+  onSearch: () => void
 }
 
 function NavItem({ icon, label, active, onClick, badge, title }: {
@@ -256,11 +259,11 @@ function NavItem({ icon, label, active, onClick, badge, title }: {
   )
 }
 
-function SidebarNav({ activePanel, page, onTogglePanel, onOpenPage, onHome, atHome }: NavProps) {
+function SidebarNav({ activePanel, page, onTogglePanel, onOpenPage, onHome, atHome, onSearch }: NavProps) {
   return (
     <nav className="sidebar-nav" aria-label="Main">
-      <NavItem icon={<SearchIcon />} label="Search" active={activePanel === 'search'} onClick={() => onTogglePanel('search')}
-        badge={<span className="nav-key">⌘K</span>} />
+      <NavItem icon={<SearchIcon />} label="Search" active={activePanel === 'search'} onClick={onSearch}
+        title="Ask Pippin, or go to a page, project or run" badge={<span className="nav-key">⌘K</span>} />
       <NavItem icon={<HomeIcon />} label="Home" active={atHome} onClick={onHome} title="Home, where a new question begins" />
       <NavItem icon={<BulbIcon />} label="Brainstorm" active={page === 'brainstorm'} onClick={() => onOpenPage(page === 'brainstorm' ? null : 'brainstorm')} />
       <NavItem icon={<BooksIcon />} label="Library" active={page === 'library'} onClick={() => onOpenPage(page === 'library' ? null : 'library')} />
@@ -2598,6 +2601,18 @@ export default function Home() {
   const analyticsPanelRef = useRef<HTMLDivElement>(null)
   const settingsPanelRef = useRef<HTMLDivElement>(null)
   const [skillQuery, setSkillQuery] = useState('')
+  // ⌘K: ask Pippin about what is in front, or go somewhere
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen((open) => !open)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const streamRef = useRef<HTMLDivElement>(null)
 
   const helpPanelRef = useRef<HTMLDivElement>(null)
@@ -2871,6 +2886,19 @@ export default function Home() {
   const navProps: NavProps = {
     activePanel, explorerActive: rightPanel === 'files', onTogglePanel: handleTogglePanel, page, onOpenPage: setPage,
     onHome: goHome, atHome: !page && !activeCampaignId, helpBadge: ob ? ob.checklist.filter((c) => !c.done).length : 0,
+    onSearch: () => setPaletteOpen(true),
+  }
+  const runName = activeExperimentId ? experimentName(experiments.find((e) => e.run_id === activeExperimentId)) || activeExperimentId : ''
+  const where = page === 'library' ? 'the Library' : page === 'memory' ? 'their memory' : page === 'brainstorm' ? 'a brainstorm'
+    : page === 'team' ? 'the team page' : activeCampaign ? `the project “${activeCampaign.name}”${runName ? `, its run “${runName}”` : ''}` : ''
+  const paletteGo: PaletteGo = {
+    page: (p) => { setStartingNew(false); setPage(p) },
+    panel: (p) => setActivePanel(p),
+    home: goHome,
+    newQuestion: () => { goHome(); setStartingNew(true) },
+    project: (cid) => { setPage(null); openProject(cid) },
+    run: (cid, rid) => { setPage(null); openRun(cid, rid) },
+    skill: (name) => { setSkillQuery(name); setActivePanel('skills') },
   }
 
   // Determine view
@@ -3003,6 +3031,8 @@ export default function Home() {
           </>
         )}
       </div>
+      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} go={paletteGo} where={where}
+        campaigns={campaigns} experiments={experiments} activeCampaignId={activeCampaignId} />}
       <Tour actions={tourActions} />
       <DocViewer />
     </div>

@@ -123,7 +123,8 @@ export const api = {
   today: { get: () => request<TodayView>('/today') },
   /** Pippin at your side: the conversation of the orb and the side panel. */
   assistant: {
-    say: (text: string) => request<AssistantTurn & { reply: string }>('/assistant', post({ text, via: 'typed' })),
+    /** One turn; *context* is what they are looking at in the console (⌘K), given to Pippin with the question. */
+    say: (text: string, context = '') => request<AssistantTurn & { reply: string; said: string }>('/assistant', post({ text, via: 'typed', context })),
     history: (limit = 60) => request<AssistantTurn[]>(`/assistant/history?limit=${limit}`),
     clear: () => request<void>('/assistant/history', del),
   },

@@ -110,3 +110,13 @@ def test_the_api_keeps_the_conversation(tmp_path, monkeypatch, model):
         assert [t["text"] for t in client.get("/api/assistant/history").json()] == ["hi", "Hello! What are you working on?"]
         assert client.delete("/api/assistant/history").status_code == 204
         assert client.get("/api/assistant/history").json() == []
+
+
+async def test_what_they_look_at_reaches_the_model_not_their_words(model):
+    model["m"] = Scripted(["Run 3 is waiting on the CO point."])
+    await assistant.ask("local", "how is it going?", access=ACCESS, mem_access=None, models={},
+                        context="the project “Cu-Zn”, its run “run 3”")
+    sent = model["m"].sent[0][-1]["content"]
+    assert "[They are looking at: the project “Cu-Zn”, its run “run 3”]" in sent and sent.endswith("how is it going?")
+    assert assistant.history("local")[0]["text"] == "how is it going?"
+    assistant.clear("local")
