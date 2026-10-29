@@ -208,7 +208,7 @@ questions, next steps), and turn one into an experiment proposal. See
 
 ## Search, Analytics and Settings
 
-The bar on the left also opens:
+The sidebar on the left also opens:
 
 - **Search** — projects, runs (names and instructions), reports, the project and
   experiment chats, and skills, with the matching passage; a click opens it.

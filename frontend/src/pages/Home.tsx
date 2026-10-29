@@ -229,19 +229,10 @@ function sharedMark(c: CampaignSummary) {
 }
 
 // ---------------------------------------------------------------------------
-// Activity Bar
+// Navigation: one labelled sidebar (where to go above the projects; tools and you below them)
 // ---------------------------------------------------------------------------
 
-function ActivityBar({
-  activePanel,
-  explorerActive,
-  page,
-  onTogglePanel,
-  onOpenPage,
-  onHome,
-  atHome,
-  helpBadge,
-}: {
+interface NavProps {
   activePanel: string
   explorerActive: boolean
   page: MainPage
@@ -252,24 +243,43 @@ function ActivityBar({
   atHome: boolean
   /** Things of the getting-started checklist not tried yet. */
   helpBadge: number
+}
+
+function NavItem({ icon, label, active, onClick, badge, title }: {
+  icon: React.ReactNode; label: string; active: boolean; onClick: () => void; badge?: React.ReactNode; title?: string
 }) {
   return (
-    <div className="activity-bar">
-      <button className={`ab-btn${atHome ? ' active' : ''}`} title="Home" aria-label="Home, the start page" onClick={onHome}><HomeIcon /></button>
-      <button className={`ab-btn${activePanel === 'projects' ? ' active' : ''}`} title="Projects" onClick={() => onTogglePanel('projects')}><FolderIcon /></button>
-      <button className={`ab-btn${page === 'brainstorm' ? ' active' : ''}`} title="Brainstorm" onClick={() => onOpenPage(page === 'brainstorm' ? null : 'brainstorm')}><BulbIcon /></button>
-      <button className={`ab-btn${page === 'library' ? ' active' : ''}`} title="Library" onClick={() => onOpenPage(page === 'library' ? null : 'library')}><BooksIcon /></button>
-      <button className={`ab-btn${page === 'memory' ? ' active' : ''}`} title="Memory" onClick={() => onOpenPage(page === 'memory' ? null : 'memory')}><WaveIcon /></button>
-      <button className={`ab-btn${activePanel === 'search' ? ' active' : ''}`} title="Search" onClick={() => onTogglePanel('search')}><SearchIcon /></button>
-      <button className={`ab-btn${activePanel === 'analytics' ? ' active' : ''}`} title="Analytics" onClick={() => onTogglePanel('analytics')}><ChartIcon /></button>
-      <button className={`ab-btn${explorerActive ? ' active' : ''}`} title="Explorer" onClick={() => onTogglePanel('explorer')}><ExplorerIcon /></button>
-      <button className={`ab-btn${activePanel === 'skills' ? ' active' : ''}`} title="Skills" onClick={() => onTogglePanel('skills')}><SkillsIcon /></button>
-      <button className={`ab-btn${activePanel === 'settings' ? ' active' : ''}`} title="Settings" onClick={() => onTogglePanel('settings')}><SettingsIcon /></button>
-      <div className="ab-spacer" />
-      <button className={`ab-btn ab-help${activePanel === 'help' ? ' active' : ''}`} title="Help" aria-label="Help, the getting-started checklist and the tours"
-        onClick={() => onTogglePanel('help')}>?{helpBadge > 0 && <span className="ab-badge" aria-label={`${helpBadge} things to try`}>{helpBadge}</span>}</button>
-      <button className={`ab-btn${page === 'team' ? ' active' : ''}`} title="Team" onClick={() => onOpenPage(page === 'team' ? null : 'team')}><TeamIcon /></button>
-      <AccountButton onOpenTeam={() => onOpenPage('team')} />
+    <button className={`nav-item${active ? ' active' : ''}`} title={title} data-nav={label} aria-current={active ? 'page' : undefined} onClick={onClick}>
+      {icon}<span className="nav-label">{label}</span>{badge}
+    </button>
+  )
+}
+
+function SidebarNav({ activePanel, page, onTogglePanel, onOpenPage, onHome, atHome }: NavProps) {
+  return (
+    <nav className="sidebar-nav" aria-label="Main">
+      <NavItem icon={<SearchIcon />} label="Search" active={activePanel === 'search'} onClick={() => onTogglePanel('search')}
+        badge={<span className="nav-key">⌘K</span>} />
+      <NavItem icon={<HomeIcon />} label="Home" active={atHome} onClick={onHome} title="Home, where a new question begins" />
+      <NavItem icon={<BulbIcon />} label="Brainstorm" active={page === 'brainstorm'} onClick={() => onOpenPage(page === 'brainstorm' ? null : 'brainstorm')} />
+      <NavItem icon={<BooksIcon />} label="Library" active={page === 'library'} onClick={() => onOpenPage(page === 'library' ? null : 'library')} />
+      <NavItem icon={<WaveIcon />} label="Memory" active={page === 'memory'} onClick={() => onOpenPage(page === 'memory' ? null : 'memory')} />
+      <NavItem icon={<ChartIcon />} label="Analytics" active={activePanel === 'analytics'} onClick={() => onTogglePanel('analytics')} />
+    </nav>
+  )
+}
+
+function SidebarFoot({ activePanel, explorerActive, page, onTogglePanel, onOpenPage, helpBadge }: NavProps) {
+  return (
+    <div className="sidebar-foot">
+      <NavItem icon={<SkillsIcon />} label="Skills" active={activePanel === 'skills'} onClick={() => onTogglePanel('skills')} />
+      <NavItem icon={<ExplorerIcon />} label="Files" active={explorerActive} onClick={() => onTogglePanel('explorer')} title="The run’s files, beside it" />
+      <NavItem icon={<TeamIcon />} label="Team" active={page === 'team'} onClick={() => onOpenPage(page === 'team' ? null : 'team')} />
+      <NavItem icon={<SettingsIcon />} label="Settings" active={activePanel === 'settings'} onClick={() => onTogglePanel('settings')} />
+      <NavItem icon={<span className="nav-q" aria-hidden="true">?</span>} label="Help" active={activePanel === 'help'} onClick={() => onTogglePanel('help')}
+        title="Help, the getting-started checklist and the tours"
+        badge={helpBadge > 0 ? <span className="nav-count" aria-label={`${helpBadge} things to try`}>{helpBadge}</span> : undefined} />
+      <div className="sidebar-account"><AccountButton onOpenTeam={() => onOpenPage('team')} /></div>
     </div>
   )
 }
@@ -342,6 +352,8 @@ function SidebarPanel({
   onDeleteExperiment,
   onOpenFiles,
   onShare,
+  nav,
+  foot,
 }: {
   campaigns: CampaignSummary[]
   activeCampaignId: string | null
@@ -360,6 +372,9 @@ function SidebarPanel({
   onDeleteExperiment: (campaignId: string, exp: ExperimentSummary) => void
   onOpenFiles: (campaignId: string) => void
   onShare: (campaign: CampaignSummary) => void
+  /** Where to go, above the projects; tools and the account, below them. */
+  nav?: React.ReactNode
+  foot?: React.ReactNode
 }) {
   const auth = useAuth()
   const accounts = auth.accounts
@@ -378,11 +393,12 @@ function SidebarPanel({
     <div className={`sidebar${collapsed ? ' collapsed' : ''}`} ref={sidebarRef} data-tour="sidebar">
       <div className="sidebar-brand">
         <button className="home-link" title="Home" onClick={onNewProject}>
-          <div className="logo">A</div>
+          <div className="logo" aria-hidden="true" />
           <div className="name">Pippin</div>
         </button>
-        <button className="new-btn" title="New project" onClick={onNewProject}>+</button>
+        <button className="new-btn" title="New project" aria-label="New project" onClick={onNewProject}>+</button>
       </div>
+      {nav}
       <div className="sidebar-list">
         <div className="sidebar-section">Projects</div>
         {campaigns.length === 0 && (
@@ -476,6 +492,7 @@ function SidebarPanel({
           </>
         )}
       </div>
+      {foot}
     </div>
   )
 }
@@ -2581,9 +2598,8 @@ export default function Home() {
   const streamRef = useRef<HTMLDivElement>(null)
 
   const helpPanelRef = useRef<HTMLDivElement>(null)
-  const sidePanels = ['skills', 'search', 'analytics', 'settings', 'help']
   // the brainstorm page has its own list of spaces and conversations
-  const sidebarCollapsed = activePanel === '' || sidePanels.includes(activePanel) || page === 'brainstorm' || page === 'memory'
+  const sidebarCollapsed = false        // the sidebar is the navigation now: always there
   const showSkills = activePanel === 'skills'
 
   // Sync URL → state on URL change
@@ -2846,16 +2862,16 @@ export default function Home() {
   }
 
   const activeCampaign = campaigns.find((c) => c.campaign_id === activeCampaignId) || null
+  const navProps: NavProps = {
+    activePanel, explorerActive: rightPanel === 'files', onTogglePanel: handleTogglePanel, page, onOpenPage: setPage,
+    onHome: goHome, atHome: !page && !activeCampaignId, helpBadge: ob ? ob.checklist.filter((c) => !c.done).length : 0,
+  }
 
   // Determine view
   const view = page ?? (!activeCampaignId ? 'welcome' : activeExperimentId ? 'experiment' : 'campaign')
 
   return (
     <div className="shell">
-      <ActivityBar activePanel={activePanel} explorerActive={rightPanel === 'files'} onTogglePanel={handleTogglePanel}
-        page={page} onOpenPage={setPage} onHome={goHome} atHome={!page && !activeCampaignId}
-        helpBadge={ob ? ob.checklist.filter((c) => !c.done).length : 0} />
-
       <SidebarPanel
         campaigns={campaigns}
         activeCampaignId={activeCampaignId}
@@ -2879,6 +2895,8 @@ export default function Home() {
         onDeleteExperiment={(campaignId, exp) => setDeleting({ kind: 'run', campaignId, exp })}
         onOpenFiles={setFilesFor}
         onShare={setSharing}
+        nav={<SidebarNav {...navProps} />}
+        foot={<SidebarFoot {...navProps} />}
       />
       {sharing && <ShareDialog campaignId={sharing.campaign_id} projectName={sharing.name}
         onClose={() => { setSharing(null); fetchCampaigns() }} />}

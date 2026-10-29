@@ -10,7 +10,7 @@ an experiment:
 | **Librarian** | searches the literature (the real indexes, see [Literature](literature.md)) and the project's runs | papers and results as evidence for or against the idea |
 | **Mentor** | helps you think a direction through by asking, so your research question stays yours | nothing on the board; your research plan, beside the conversation |
 
-Open it with the lightbulb in the activity bar, or with **Brainstorm** in a
+Open it with **Brainstorm** in the sidebar, or with **Brainstorm** in a
 project's tab bar.
 
 ## Spaces and conversations

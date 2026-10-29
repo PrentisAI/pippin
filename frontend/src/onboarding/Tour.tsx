@@ -26,7 +26,7 @@ interface Step {
   accountsOnly?: boolean
 }
 
-const ab = (title: string) => [`.activity-bar [title="${title}"]`]
+const ab = (label: string) => [`[data-nav="${label}"]`]
 
 const CHAPTERS: Record<TourChapter, { title: string; steps: Step[] }> = {
   run: {
@@ -61,7 +61,7 @@ const CHAPTERS: Record<TourChapter, { title: string; steps: Step[] }> = {
   app: {
     title: 'Around Pippin',
     steps: [
-      { target: ab('Projects'), title: 'Projects', body: 'Your projects and their runs. + starts a new project; the menu next to one renames, shares or deletes it.',
+      { target: ['.sidebar-list'], title: 'Projects', body: 'Your projects and their runs. + starts a new project; the menu next to one renames, shares or deletes it.',
         before: (a) => a.openPanel('projects') },
       { target: ab('Brainstorm'), title: 'Brainstorm', before: (a) => a.openPage('brainstorm'),
         body: 'Think out loud before you run anything: a Skeptic, Methods and a Librarian answer, ideas are kept as arguments (for, against, open questions, next steps), and a good one becomes a proposal.' },
@@ -71,7 +71,7 @@ const CHAPTERS: Record<TourChapter, { title: string; steps: Step[] }> = {
         body: 'Projects, runs, reports, chats and skills, with the passage that matches.' },
       { target: ab('Analytics'), title: 'Analytics', before: (a) => a.openPanel('analytics'),
         body: 'What your runs cost and how they went over a week, a month or a year: cost per day and per project, the share completed, the most expensive runs.' },
-      { target: ab('Explorer'), title: 'Files', before: (a) => a.openPanel('projects'),
+      { target: ab('Files'), title: 'Files', before: (a) => a.openPanel('projects'),
         body: 'In a run, switches the right side to its files. A project’s own files (data you upload with + in a chat) are in its menu.' },
       { target: ab('Skills'), title: 'Skills', before: (a) => a.openPanel('skills'),
         body: 'Procedures every agent can use: the ones you write, and ones learned from earlier runs and from your corrections. A correction you make once becomes a skill, so you do not make it again.' },
@@ -79,7 +79,7 @@ const CHAPTERS: Record<TourChapter, { title: string; steps: Step[] }> = {
         body: 'The defaults of new runs (the model of every role, the budget, how hands-on, the container), notifications with quiet hours, and GPU jobs on a SLURM cluster or a GPU machine over SSH.' },
       { target: ab('Team'), title: 'Team', accountsOnly: true, before: (a) => a.openPanel('projects'),
         body: 'Who is in the team, groups, and the team’s rules. Projects are private until shared, with rights from viewing to deciding; each person uses their own model key.' },
-      { target: ['.activity-bar [title="Help"]'], title: 'Help', before: (a) => a.openPanel('projects'),
+      { target: ab('Help'), title: 'Help', before: (a) => a.openPanel('projects'),
         body: 'Ask how to do something, the getting-started checklist, these tours, the examples and the guides.' },
     ],
   },

@@ -169,7 +169,7 @@ highlights and notes, and to send the project's papers back to it. See
 
 ## Your Library
 
-The **Library** (the book icon in the activity bar) holds:
+The **Library** (in the sidebar) holds:
 
 - the papers you saved yourself;
 - the literature of every project you can see.

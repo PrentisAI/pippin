@@ -7,7 +7,7 @@ function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).map((x) => x[0]).join('').slice(0, 2).toUpperCase() || 'Y'
 }
 
-/** The account button at the bottom of the activity bar: who you are, your keys, sign out. */
+/** The account button at the bottom of the sidebar: who you are, your keys, sign out. */
 export function AccountButton({ onOpenTeam }: { onOpenTeam: () => void }) {
   const auth = useAuth()
   const [open, setOpen] = useState(false)
