@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import type { AssistantTurn } from '../../types'
+import { ProposedActions } from './ProposedActions'
 
 const STARTERS = [
   'What is running in my projects?',
@@ -73,6 +74,7 @@ export function AssistantChat({ refreshKey = 0, onPick }: { refreshKey?: number;
                 ))}
               </div>
             )}
+            <ProposedActions actions={t.actions ?? []} />
             {(t.links ?? []).length > 0 && (
               <div className="as-links">{t.links!.map((l) => (
                 <a key={l.path} className="btn-sm" href={l.path} target="_blank" rel="noreferrer">{l.label} ↗</a>

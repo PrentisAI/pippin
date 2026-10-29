@@ -1525,9 +1525,38 @@ export interface AssistantTurn {
   /** Buttons that open a page of the console (a path on it). */
   links?: { label: string; path: string }[]
   undo_id?: string
+  /** What Pippin proposed to do, done only when they confirm. */
+  actions?: AssistantAction[]
+}
+
+/** A proposal of Pippin's: answer a run's decision, tell a run or a project something, stop a run. */
+export interface AssistantAction {
+  action_id: string
+  kind: 'decide' | 'message' | 'stop'
+  project_id: string
+  project: string
+  run_id: string
+  run: string
+  /** What it will do, in a sentence. */
+  label: string
+  state: 'pending' | 'done' | 'declined' | 'failed' | 'expired'
+  /** What came of it. */
+  result: string
+  at: number
 }
 
 export interface MemVoiceTurn {
   turn_id: string; at: number; said: string; intent: string; speech: string; text: string; undo_id: string; waiting: boolean
   items: { n?: number; kind?: string; text?: string; unit_id?: string; claim?: string; sources?: { title: string; url: string; quote: string }[] }[]
+}
+
+/** A chat app Pippin can be talked to from. */
+export type ChatApp = 'feishu' | 'wecom'
+/** A chat app's settings as the console shows them: secrets only as whether they are set. */
+export interface ChatAppSettings {
+  app: ChatApp
+  enabled: boolean
+  ready: boolean
+  set: Record<string, boolean>
+  [field: string]: string | boolean | Record<string, boolean>
 }

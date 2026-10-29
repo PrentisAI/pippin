@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, describeError } from '../api/client'
 import type { AssistantTurn, CampaignSummary, ExperimentSummary, SearchHit } from '../types'
+import { ProposedActions } from './memory/ProposedActions'
 
 export interface PaletteGo {
   page: (p: 'brainstorm' | 'library' | 'memory' | 'team') => void
@@ -145,6 +146,7 @@ export function CommandPalette({ onClose, go, where, campaigns, experiments, act
             <p className="cp-answer-q">{asking ?? answer?.said}</p>
             {asking && <p className="cp-answer-a muted">Looking…</p>}
             {answer && <p className="cp-answer-a">{answer.reply}</p>}
+            {answer && <ProposedActions actions={answer.actions ?? []} />}
             {answer && (answer.links ?? []).length > 0 && (
               <div className="cp-answer-links">{answer.links!.map((l) => <button key={l.path} className="cp-btn" onClick={() => openPath(l.path)}>{l.label}</button>)}</div>
             )}

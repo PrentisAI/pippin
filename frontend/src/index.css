@@ -4134,6 +4134,31 @@ a.home-chip { text-decoration: none; display: inline-block; }
 .td-error { margin: 0; color: var(--red); font-size: 13.5px; }
 @media (max-width: 720px) { .td { padding: 40px 16px; } .td-since { grid-template-columns: 60px minmax(0, 1fr); } }
 
+/* ── Settings › Chat apps ── */
+.im-code { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 9px; background: var(--bg-surface); font-size: 13.5px; }
+.im-code b { font-size: 18px; letter-spacing: .04em; color: var(--fg-bright); user-select: all; }
+.im-team { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+
+/* ── Pippin's proposals: done only when confirmed ── */
+.pa { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; align-self: stretch; }
+.pa-card { display: flex; flex-direction: column; gap: 6px; padding: 11px 13px; border-radius: 10px; background: var(--bg-raised);
+  box-shadow: 0 0 0 1px var(--border); text-align: left; }
+.pa-card.pending { box-shadow: 0 0 0 1px var(--amber-border, var(--border)); }
+.pa-meta { margin: 0; display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--fg-dim); }
+.pa-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-dim); }
+.pa-card.pending .pa-dot { background: var(--amber); }
+.pa-card.pending .pa-meta { color: var(--amber); }
+.pa-card.done .pa-dot { background: var(--green); }
+.pa-card.failed .pa-dot { background: var(--red); }
+.pa-label { margin: 0; font-size: 14px; line-height: 1.5; color: var(--fg-bright); }
+.pa-result { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--fg-muted); white-space: pre-wrap; }
+.pa-result.bad { color: var(--red); }
+.pa-row { display: flex; gap: 6px; }
+.pa-btn { border: 1px solid var(--border); background: var(--bg-raised); color: var(--fg); border-radius: 8px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.pa-btn:hover:not(:disabled) { border-color: var(--fg-dim); }
+.pa-btn.primary { background: var(--fg-bright); border-color: var(--fg-bright); color: var(--bg); font-weight: 500; }
+.pa-btn:disabled { opacity: .55; cursor: default; }
+
 /* ── The reader: notes in the margin ── */
 .rd-scroll.with-margin .rd-page { margin-right: 280px; }
 .rd-margin { position: absolute; top: 0; bottom: 0; width: 260px; }

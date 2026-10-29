@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, describeError } from '../api/client'
 import type { AssistantTurn, GateAction, TodayNeed, TodayView as TodayData } from '../types'
+import { ProposedActions } from './memory/ProposedActions'
 
 const SOURCE: Record<string, string> = {
   milestone_audit: 'The auditor', supervisor: 'The supervisor', screening: 'Screening', direction: 'Choosing a direction', termination: 'Ending',
@@ -184,6 +185,7 @@ function Ask() {
         <div className="td-answer">
           <p className="td-answer-q">{answer.said}</p>
           <p className="td-answer-a">{answer.reply}</p>
+          <ProposedActions actions={answer.actions ?? []} />
           {(answer.links ?? []).map((l) => <a key={l.path} className="td-btn" href={l.path}>{l.label}</a>)}
         </div>
       )}

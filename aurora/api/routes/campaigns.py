@@ -760,10 +760,16 @@ def _notifier(campaign: CampaignState, run: ExperimentRunState) -> Any:
         held = auth_store.get_pref(uid, "notify_held") or []
         held.append(item)
         auth_store.set_pref(uid, "notify_held", held[-200:])
+    async def direct(kind: str, title: str, text: str) -> None:
+        """To the person in the chat apps they linked, where a reply goes to Pippin."""
+        from aurora import im
+        link = f"{base}/campaigns/{campaign.campaign_id}/experiments/{run.run_id}" if base else ""
+        await im.push(run.started_by or "local", f"{title} · {campaign.name}", text, link)
+
     return Notifier(lambda: live_notifications(run.started_by), run_name=run.task_name,
                     link=f"{base}/campaigns/{campaign.campaign_id}/experiments/{run.run_id}" if base else "",
                     extra={"project_id": campaign.campaign_id, "project": campaign.name,
-                           "experiment_id": run.run_id}, actions=actions, hold=hold)
+                           "experiment_id": run.run_id}, actions=actions, hold=hold, direct=direct)
 
 
 async def send_held_notifications() -> int:

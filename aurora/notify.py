@@ -12,7 +12,7 @@ import asyncio
 import logging
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 
@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = 15.0
 # the same message again within this many seconds is dropped (a burst of identical events)
 _DEDUPE_SECONDS = 60.0
+# what goes to a person's linked chat app (aurora.im) too: what they may want to answer there
+DIRECT = ("decision_needed", "run_finished", "run_failed", "agent_reply")
 
 
 def _clip(text: str, n: int) -> str:
@@ -178,7 +180,8 @@ class Notifier:
     def __init__(self, config_fn: Callable[[], NotificationsConfig], *, run_name: str = "",
                  link: str = "", extra: dict[str, Any] | None = None,
                  actions: Callable[[Event], list[tuple[str, str]]] | None = None,
-                 hold: Callable[[dict[str, Any]], None] | None = None) -> None:
+                 hold: Callable[[dict[str, Any]], None] | None = None,
+                 direct: Callable[[str, str, str], Awaitable[Any]] | None = None) -> None:
         self.config_fn = config_fn
         self.run_name = run_name
         self.link = link
@@ -188,6 +191,8 @@ class Notifier:
         # keeps a message held in quiet hours (the console sends them together afterwards); without it
         # they are kept here and sent when the quiet hours end, if the run is still going
         self.hold = hold
+        # to the person in the chat apps they linked, where they can answer (aurora.im), besides the channels
+        self.direct = direct
         self._held: list[dict[str, Any]] = []
         self._flusher: asyncio.Task | None = None
         self._recent: dict[tuple[str, str], float] = {}
@@ -213,13 +218,19 @@ class Notifier:
             logger.debug("notification settings unreadable", exc_info=True)
             return
         channels = [c for c in config.channels if c.enabled and kind in c.events]
-        if not channels:
+        if not channels and (self.direct is None or kind not in DIRECT):
             return
         now = time.time()
         key = (kind, title)
         if now - self._recent.get(key, 0.0) < _DEDUPE_SECONDS:
             return
         self._recent[key] = now
+        if self.direct is not None and kind in DIRECT and (not in_quiet_hours(config) or kind in config.quiet_except):
+            task = asyncio.create_task(self._direct(kind, title, text))
+            self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
+        if not channels:
+            return
         if in_quiet_hours(config) and kind not in config.quiet_except:
             item = {"kind": kind, "title": title, "text": text, "url": self.link, "at": now}
             if self.hold is not None:
@@ -232,6 +243,12 @@ class Notifier:
         task = asyncio.create_task(self._send_all(channels, kind, title, text, actions or []))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+    async def _direct(self, kind: str, title: str, text: str) -> None:
+        try:
+            await self.direct(kind, title, text)  # type: ignore[misc]
+        except Exception:
+            logger.debug("a chat-app message failed", exc_info=True)
 
     async def _flush_after_quiet(self) -> None:
         while self._held:

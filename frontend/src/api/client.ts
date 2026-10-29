@@ -1,4 +1,4 @@
-import type { PdfProgress, DeepRead, IdeaVersion, MemAlert, MemVault, MemVoiceTurn, MemAudit, MemCite, MemDissent, MemDigest, MemFollow, MemAsk, MemQuestion, MemReport, MemSource, MemSurface, MemUnit, WriteLevel, WriteSettings, PlanInsight, ResearchPlan, FieldMap, FieldMapSummary, LitPaper, NotePlace, ReaderAgent, ReaderNote, ReaderView, Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { AssistantAction, ChatApp, ChatAppSettings, PdfProgress, DeepRead, IdeaVersion, MemAlert, MemVault, MemVoiceTurn, MemAudit, MemCite, MemDissent, MemDigest, MemFollow, MemAsk, MemQuestion, MemReport, MemSource, MemSurface, MemUnit, WriteLevel, WriteSettings, PlanInsight, ResearchPlan, FieldMap, FieldMapSummary, LitPaper, NotePlace, ReaderAgent, ReaderNote, ReaderView, Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -122,11 +122,20 @@ export const api = {
   /** Today: what waits for you, what changed, what is worth reading. */
   today: { get: () => request<TodayView>('/today') },
   /** Pippin at your side: the conversation of the orb and the side panel. */
+  im: {
+    me: () => request<{ links: { app: ChatApp; name: string; at: number }[]; ready: ChatApp[] }>('/im/me'),
+    code: () => request<{ code: string; expires_in: number }>('/im/code', post()),
+    unlink: (app: ChatApp) => request<void>(`/im/links/${app}`, del),
+    settings: () => request<{ apps: Record<ChatApp, ChatAppSettings>; callbacks: Record<ChatApp, string> }>('/im/settings'),
+    save: (app: ChatApp, body: Record<string, string | boolean>) => request<ChatAppSettings>(`/im/settings/${app}`, put(body)),
+  },
   assistant: {
     /** One turn; *context* is what they are looking at in the console (⌘K), given to Pippin with the question. */
     say: (text: string, context = '') => request<AssistantTurn & { reply: string; said: string }>('/assistant', post({ text, via: 'typed', context })),
     history: (limit = 60) => request<AssistantTurn[]>(`/assistant/history?limit=${limit}`),
     clear: () => request<void>('/assistant/history', del),
+    /** Do what Pippin proposed (confirm), or drop it. */
+    act: (actionId: string, confirm: boolean) => request<AssistantAction>(`/assistant/actions/${actionId}`, post({ confirm })),
   },
   memory: {
     capture: (body: { url?: string; text?: string; title?: string; selection?: string; via?: string }) =>

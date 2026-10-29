@@ -54,6 +54,20 @@ async def say(body: Said) -> dict[str, Any]:
                                screenshot=shot, via="voice" if body.via == "voice" else "typed", context=body.context[:2000])
 
 
+class Answer(BaseModel):
+    confirm: bool
+
+
+@router.post("/actions/{action_id}")
+async def answer_action(action_id: str, body: Answer) -> dict[str, Any]:
+    """Do what Pippin proposed (they pressed its button), or drop it. Their own rights in the project apply."""
+    from aurora.memory import assistant
+    try:
+        return await assistant.act(current_user().user_id, action_id, body.confirm)
+    except KeyError:
+        raise HTTPException(404, "No such proposal") from None
+
+
 @router.get("/history")
 async def history(limit: int = 60) -> list[dict[str, Any]]:
     from aurora.memory import assistant

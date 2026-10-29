@@ -76,16 +76,20 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
     from aurora.auth.guard import guard
 
     # every route checks who is asking and whether they may (aurora.auth.guard.RULES);
-    # only signing in, invitations, read-only report links and decision links (checked by their
-    # signed token) are open
+    # only signing in, invitations, read-only report links, decision links (checked by their
+    # signed token) and the chat apps' callbacks (checked by their token or signature) are open
     app.include_router(auth_router)
     app.include_router(report_pages)            # /r/<token>: a report shared read-only, checked by its token
     from aurora.api.routes.actions import router as decision_links
     app.include_router(decision_links)          # /a/<token>: answering a decision from a notification
+    from aurora.api.routes.im import public_router as chat_apps
+    from aurora.api.routes.im import router as im_router
+    app.include_router(chat_apps)               # /im/feishu, /im/wecom: messages to Pippin from a chat app
     for router in (campaign_router, settings_router, skills_router, insights_router, files_router,
                    me_router, team_router, access_router, project_router, library_router,
                    zotero_router, brainstorm_router, feed_router, links_router, results_router, setup_router,
-                   onboarding_router, reader_router, review_router, memory_router, assistant_router, today_router):
+                   onboarding_router, reader_router, review_router, memory_router, assistant_router, today_router,
+                   im_router):
         app.include_router(router, dependencies=[Depends(guard)])
 
     @app.on_event("startup")

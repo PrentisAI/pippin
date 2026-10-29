@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, describeError } from '../api/client'
 import { formatCost } from '../format'
+import { ChatAppsSection } from './ChatApps'
 import type { Analytics, ChannelType, ConsoleSettings, EditableSetting, NotificationSettings, NotifyChannel, SearchHit } from '../types'
 
 type PanelProps = { collapsed: boolean; panelRef: React.RefObject<HTMLDivElement | null> }
@@ -277,6 +278,7 @@ export function SettingsPanel({ collapsed, panelRef }: PanelProps) {
           </div>
         )}
         {!collapsed && <NotificationsSection />}
+        {!collapsed && <ChatAppsSection />}
         <datalist id="settings-models">
           {settings?.model_suggestions.map((m) => <option key={m} value={m} />)}
         </datalist>
