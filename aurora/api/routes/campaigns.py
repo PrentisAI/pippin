@@ -604,7 +604,7 @@ async def campaign_disk_usage(campaign_id: str) -> dict[str, Any]:
 
 @campaign_router.delete("/{campaign_id}")
 async def delete_campaign(campaign_id: str, delete_files: bool = False) -> dict[str, Any]:
-    """Delete a project and its runs from AURORA; with *delete_files*, also their files on disk.
+    """Delete a project and its runs from Pippin; with *delete_files*, also their files on disk.
     Running experiments must be stopped first."""
     campaign = _ensure_campaign(campaign_id)
     running = [r.task_name or r.run_id for r in campaign.experiments.values() if _active(r)]
@@ -1041,7 +1041,7 @@ async def experiment_disk_usage(campaign_id: str, exp_id: str) -> dict[str, Any]
 
 @campaign_router.delete("/{campaign_id}/experiments/{exp_id}")
 async def delete_experiment(campaign_id: str, exp_id: str, delete_files: bool = False) -> dict[str, Any]:
-    """Delete a run from AURORA; with *delete_files*, also its files on disk. Stop it first."""
+    """Delete a run from Pippin; with *delete_files*, also its files on disk. Stop it first."""
     campaign = _ensure_campaign(campaign_id)
     run = _get_run(campaign_id, exp_id)
     if _active(run):
@@ -2277,7 +2277,7 @@ async def test_notification(req: ChannelBody) -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     base = console_url()
-    error = await deliver(channel, "test", "AURORA test notification",
+    error = await deliver(channel, "test", "Pippin test notification",
                           "Notifications reach you here: decisions waiting for you, finished and failed "
                           "experiments, budgets running out.", base)
     return {"ok": not error, "error": error}

@@ -1,6 +1,6 @@
 """The skill catalog: skills others have written and shared, to browse and add to the library.
 
-Like an editor's extensions: AURORA lists them by category, each with where it comes from (the repository, its
+Like an editor's extensions: Pippin lists them by category, each with where it comes from (the repository, its
 licence, the commit it is pinned to) and a few words on what it is for; the researcher chooses which to add.  An
 added skill is the whole folder of its source (SKILL.md with its references and scripts), downloaded at that
 commit with the licence beside it, and kept in the library like any other skill (``origin="catalog"``): it has a
@@ -85,7 +85,7 @@ ENTRIES = [
           "can be interpreted. Includes design generators.", recommended=True),
     Entry("scientific-brainstorming", _K, "skills/scientific-brainstorming", "thinking",
           "Ideation by one agent with independent ideas, stated assumptions, adversarial review and a decision "
-          "log. (AURORA's round table does this across several models.)"),
+          "log. (Pippin's round table does this across several models.)"),
     Entry("what-if-oracle", _K, "skills/what-if-oracle", "thinking",
           "Scenario analysis for a research plan: favourable, adverse, wild-card and second-order outcomes, and "
           "what to do in each."),
@@ -240,7 +240,7 @@ MAX_BYTES = 20_000_000            # one skill's folder; larger ones are not offe
 
 
 def client_factory() -> httpx.AsyncClient:
-    return httpx.AsyncClient(timeout=30, follow_redirects=True, headers={"User-Agent": "AURORA skill catalog"})
+    return httpx.AsyncClient(timeout=30, follow_redirects=True, headers={"User-Agent": "Pippin skill catalog"})
 
 
 class CatalogError(Exception):
@@ -340,7 +340,7 @@ async def install(name: str, store: SkillStore, *, scope: str = "global", projec
     (tmp / "SOURCE.md").write_text(
         f"# Where this skill comes from\n\n“{entry.name}” is from {src.name} ({src.url}), {entry.path} at commit "
         f"{src.commit}, under the {src.license} licence (LICENSE, beside this file).\n\n{where}\n\n"
-        "Added to AURORA from its skill catalog; it is the authors' work, unchanged.\n")
+        "Added to Pippin from its skill catalog; it is the authors' work, unchanged.\n")
     shutil.rmtree(dest, ignore_errors=True)
     tmp.rename(dest)
     text = (dest / "SKILL.md").read_text(errors="replace")

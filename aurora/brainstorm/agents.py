@@ -36,7 +36,7 @@ ACTIVITY = ("off", "moderate", "high")
 MAX_ROUNDS = 6
 
 _COMMON = """\
-You are the {name} in a research brainstorm in AURORA: a researcher thinks out loud with three agents, \
+You are the {name} in a research brainstorm in Pippin: a researcher thinks out loud with three agents, \
 the Skeptic (finds the weak points), Methods (turns ideas into designs) and the Librarian (brings evidence \
 from the literature and the project's runs). You are the {name}: you {role}.
 
@@ -417,7 +417,7 @@ class BoardTools:
             from aurora.literature.library import library
             entry = library.paper(str(args.get("paper_key", "")).strip("[] "))
             if entry is None:
-                return {"error": "not a paper AURORA knows; give its key"}
+                return {"error": "not a paper Pippin knows; give its key"}
             bs_store.add_message(chat, self.agent, f"Deep-read [{entry['key']}]: twelve questions, about fourteen model calls.",
                                  kind="action", widget={"type": "proposal", "action": "deep_read", "paper_id": entry["paper_id"],
                                                         "key": entry["key"], "title": entry["paper"].title, "state": "pending"})
@@ -453,7 +453,7 @@ class BoardTools:
         b = self.board
         entry = library.paper(key.strip("[] "))
         if entry is None:
-            raise ValueError(f"[{key}] is not a paper AURORA knows")
+            raise ValueError(f"[{key}] is not a paper Pippin knows")
         known = library.known_to(b.literature.campaign_id) if b.literature is not None else set()
         if entry["paper_id"] not in known and entry["key"] not in self.known_papers:
             raise ValueError(f"[{entry['key']}] is not a paper from the literature or your searches")

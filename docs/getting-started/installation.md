@@ -2,7 +2,7 @@
 
 ## 1. Install the package
 
-AURORA needs Python 3.11 or newer.
+Pippin needs Python 3.11 or newer.
 
 ```bash
 pip install -e .                     # from a clone (pip install aurora-research once it is on PyPI)
@@ -35,7 +35,7 @@ content is canned — it shows what a campaign produces and where.
 | **An OpenRouter API key** | one key covers all models (Claude, GPT, Gemini, Kimi, ...) | — |
 
 Install Claude Code with `npm install -g @anthropic-ai/claude-code` (Node.js 18
-or newer). You do not need an Anthropic account: AURORA points Claude Code at
+or newer). You do not need an Anthropic account: Pippin points Claude Code at
 OpenRouter, so it can drive any model OpenRouter serves.
 
 Install Docker from <https://docs.docker.com/engine/install/> and make sure your
@@ -45,7 +45,7 @@ the agents can only read and write files — see [Sandbox and security](../guide
 
 ## 3. Add your API key
 
-Create a `.env` file with your OpenRouter key, in the directory you run AURORA
+Create a `.env` file with your OpenRouter key, in the directory you run Pippin
 from or in `~/.aurora/`:
 
 ```bash
@@ -61,7 +61,7 @@ aurora doctor
 ```
 
 ```text
-AURORA 0.1.0, Python 3.12.4
+Pippin 0.1.0, Python 3.12.4
   [ok] Claude Code CLI — 2.1.300 (Claude Code)
   [ok] Docker — /usr/bin/docker
   [ok] .env file — /home/you/.aurora/.env
@@ -72,7 +72,7 @@ AURORA 0.1.0, Python 3.12.4
 Every campaign runs the same checks when it starts and stops right away, with
 instructions, if something is missing.
 
-## Where AURORA keeps data
+## Where Pippin keeps data
 
 | What | Where |
 |---|---|

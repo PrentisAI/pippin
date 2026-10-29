@@ -123,7 +123,7 @@ class SkillContext(BaseModel):
 # ------------------------------------------------------------------
 
 class Skill(ABC):
-    """Abstract base class for all AURORA skills.
+    """Abstract base class for all Pippin skills.
 
     Sub-classes must implement:
 

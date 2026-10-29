@@ -1,16 +1,16 @@
-/* AURORA in Zotero 7.
+/* Pippin in Zotero 7.
  *
- * - Every paper you add is sent to your AURORA console and read in the background: its methods, findings and
- *   limitations wait for you in the item pane's AURORA section, with what your memory makes of it (its claims,
+ * - Every paper you add is sent to your Pippin console and read in the background: its methods, findings and
+ *   limitations wait for you in the item pane's Pippin section, with what your memory makes of it (its claims,
  *   conflicts with what you saved, the research questions it bears on).
  * - "Sentences your saves argue with": the sentences of the paper that what you saved before challenges, each
  *   opening the PDF at its page.
- * - Selecting text in the reader: "Save to AURORA" in the selection popup, and the passage goes to AURORA as what
+ * - Selecting text in the reader: "Save to Pippin" in the selection popup, and the passage goes to Pippin as what
  *   you are reading (when you allow it); "What my saves say": what you saved elsewhere that supports or challenges
  *   the sentence.
- * - "Mark them in the PDF": the disputed sentences as orange highlights in the margin (only when you allowed AURORA
+ * - "Mark them in the PDF": the disputed sentences as orange highlights in the margin (only when you allowed Pippin
  *   to annotate in Zotero; tagged aurora-dissent, and "Remove the marks" takes them away).
- * - "Save the card as a note": only when you allowed AURORA to write notes on Zotero items; logged in AURORA.
+ * - "Save the card as a note": only when you allowed Pippin to write notes on Zotero items; logged in Pippin.
  */
 Aurora = {
   id: null,
@@ -27,7 +27,7 @@ Aurora = {
       pluginID: id,
       header: { l10nID: "aurora-header", icon: rootURI + "icons/16.png" },
       sidenav: { l10nID: "aurora-sidenav", icon: rootURI + "icons/20.png" },
-      onRender: ({ body }) => { body.textContent = "AURORA is reading…"; },
+      onRender: ({ body }) => { body.textContent = "Pippin is reading…"; },
       onAsyncRender: async ({ body, item }) => { await this.render(body, item); },
     });
     this.observerID = Zotero.Notifier.registerObserver({
@@ -65,7 +65,7 @@ Aurora = {
     });
     if (xhr.status < 200 || xhr.status >= 300) {
       const detail = xhr.response && xhr.response.detail;
-      throw new Error(detail || `AURORA answered ${xhr.status}`);
+      throw new Error(detail || `Pippin answered ${xhr.status}`);
     }
     return xhr.response;
   },
@@ -92,7 +92,7 @@ Aurora = {
       for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
       return btoa(bin);
     } catch (e) {
-      Zotero.debug("AURORA: reading the PDF failed: " + e);
+      Zotero.debug("Pippin: reading the PDF failed: " + e);
       return "";
     }
   },
@@ -105,7 +105,7 @@ Aurora = {
       const item = Zotero.Items.get(id);
       if (!item || !item.isRegularItem()) continue;
       // the PDF usually arrives a little after the item
-      setTimeout(() => this.read(item).catch((e) => Zotero.debug("AURORA: " + e)), 20000);
+      setTimeout(() => this.read(item).catch((e) => Zotero.debug("Pippin: " + e)), 20000);
     }
   },
 
@@ -176,7 +176,7 @@ Aurora = {
         const row = doc.createElement("div");
         row.setAttribute("style", "display:flex;gap:6px;flex-wrap:wrap");
         if (lv === "off") {
-          row.textContent = "To mark them in the PDF, allow “Send the notes you keep on a PDF as Zotero annotations” in AURORA.";
+          row.textContent = "To mark them in the PDF, allow “Send the notes you keep on a PDF as Zotero annotations” in Pippin.";
         } else {
           const mark = doc.createElement("button");
           mark.textContent = "Mark them in the PDF";
@@ -255,14 +255,14 @@ Aurora = {
         const claims = it.units.map((u) => `• ${u.claim}${u.sources > 1 ? ` (${u.sources} sources)` : ""}`).join("\n");
         await Zotero.Annotations.saveFromJSON(att, {
           key: Zotero.DataObjectUtilities.generateKey(), type: "highlight", color: "#f59e0b", text: it.quote,
-          comment: `AURORA: what you saved ${it.kind} this. ${it.why}\n${claims}`,
+          comment: `Pippin: what you saved ${it.kind} this. ${it.why}\n${claims}`,
           pageLabel: String(it.page + 1), sortIndex: `${String(it.page).padStart(5, "0")}|000000|00000`,
           position: { pageIndex: it.page, rects }, tags: [{ name: "aurora-dissent" }],
         });
         n++;
       }
       if (n) await this.api("/me/writes/log", { method: "POST", body: { write: "zotero.annotate", detail: { item: item.key, marks: n },
-        undo: { kind: "zotero_app", how: "Remove the marks from the AURORA section of the item, or delete the annotations tagged aurora-dissent." } } });
+        undo: { kind: "zotero_app", how: "Remove the marks from the Pippin section of the item, or delete the annotations tagged aurora-dissent." } } });
       button.textContent = n ? `Marked ${n} in the PDF` : "Could not place them on the page";
     } catch (e) {
       button.disabled = false;
@@ -284,14 +284,14 @@ Aurora = {
     try {
       const w = await this.api("/me/writes");
       if ((w.levels || {})["zotero.note"] === "off") {
-        button.textContent = "Writing notes is off: allow it in AURORA (account button → What AURORA may write)";
+        button.textContent = "Writing notes is off: allow it in Pippin (account button → What Pippin may write)";
         return;
       }
       const c = view.card || {};
       const list = (k) => (c[k] || []).map((p) => `<li>${Zotero.Utilities.htmlSpecialChars(p.text)}${p.label === "inf" ? " <i>(inferred)</i>" : ""}</li>`).join("");
-      const html = `<h2>AURORA: ${Zotero.Utilities.htmlSpecialChars(c.one_line || view.title)}</h2>`
+      const html = `<h2>Pippin: ${Zotero.Utilities.htmlSpecialChars(c.one_line || view.title)}</h2>`
         + `<h3>Methods</h3><ul>${list("methods")}</ul><h3>Findings</h3><ul>${list("findings")}</ul><h3>Limitations</h3><ul>${list("limitations")}</ul>`
-        + `<p><i>Written by AURORA from ${c.read_from === "pdf" ? "the PDF" : "the abstract"}.</i></p>`;
+        + `<p><i>Written by Pippin from ${c.read_from === "pdf" ? "the PDF" : "the abstract"}.</i></p>`;
       const n = new Zotero.Item("note");
       n.libraryID = item.libraryID;
       n.parentKey = item.key;
@@ -344,7 +344,7 @@ Aurora = {
       }
     });
     const button = doc.createElement("button");
-    button.textContent = "Save to AURORA";
+    button.textContent = "Save to Pippin";
     button.addEventListener("click", async () => {
       button.textContent = "Saving…";
       try {

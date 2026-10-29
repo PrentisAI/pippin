@@ -1,4 +1,4 @@
-"""Where AURORA keeps its state on disk.
+"""Where Pippin keeps its state on disk.
 
 Everything the web console stores (project database, event logs, experiment
 workspaces) lives under one directory, ``$AURORA_HOME`` (default ``~/.aurora``).

@@ -175,7 +175,7 @@ async def read_report(token: str) -> HTMLResponse:
     camp = _ensure_campaign(link["campaign_id"])
     found = _latest_report(link["campaign_id"])
     until = time.strftime("%d %b %Y", time.localtime(link["expires_at"]))
-    head = (f"<header><b>{html.escape(camp.name)}</b> · a report shared read-only through AURORA · "
+    head = (f"<header><b>{html.escape(camp.name)}</b> · a report shared read-only through Pippin · "
             f"the link works until {until}</header>")
     if found is None:
         return _page(camp.name, head + "<p>The project has no report yet. Come back later: the link shows the latest one.</p>")

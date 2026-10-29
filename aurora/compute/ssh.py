@@ -233,7 +233,7 @@ class SSHCompute(SlurmCompute):
                     + (f"export CUDA_VISIBLE_DEVICES={job.gpu_ids}\n" if job.gpus else "export CUDA_VISIBLE_DEVICES=\n")
                     + f"timeout -k 60 {seconds} bash {q(job.dir)}/run.sh")
         (self.workspace_dir / job.dir / "launch.sh").write_text(
-            "#!/bin/bash\n# started by AURORA; the job's command is in run.sh\n"
+            "#!/bin/bash\n# started by Pippin; the job's command is in run.sh\n"
             f'cd "$(dirname "$0")/{"/".join([".."] * len(Path(job.dir).parts))}"\n'
             f"{body}\ncode=$?\necho $code > {q(job.dir)}/exit_code\nexit $code\n")
 

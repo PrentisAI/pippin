@@ -1,6 +1,6 @@
-"""What AURORA may write outside itself, per person: each kind of write is a switch, off by default.
+"""What Pippin may write outside itself, per person: each kind of write is a switch, off by default.
 
-AURORA reads freely (pages, Zotero, notes, a manuscript) but writes into a person's own tools only as far as they
+Pippin reads freely (pages, Zotero, notes, a manuscript) but writes into a person's own tools only as far as they
 allow, kind by kind:
 
 * ``off`` (the default): never; the console offers what it would have written to copy instead;
@@ -69,7 +69,7 @@ def set_levels(user_id: str, changes: dict[str, str]) -> dict[str, str]:
 
 
 def allowed(user_id: str, key: str, *, background: bool = False) -> bool:
-    """May AURORA make this write now? ``background``: on its own, not as the person's own action."""
+    """May Pippin make this write now? ``background``: on its own, not as the person's own action."""
     lv = level(user_id, key)
     return lv == "auto" if background else lv in ("ask", "auto")
 
@@ -131,7 +131,7 @@ write_log = _Lazy()
 
 
 async def undo(owner: str, log_id: str) -> dict[str, Any]:
-    """Undo a write AURORA made. Writes made in the browser or in a note app (Overleaf, Obsidian) are undone there,
+    """Undo a write Pippin made. Writes made in the browser or in a note app (Overleaf, Obsidian) are undone there,
     by the entry point that made them: the answer says so."""
     entry = write_log.entry(log_id)
     if entry is None or entry["owner"] != owner:

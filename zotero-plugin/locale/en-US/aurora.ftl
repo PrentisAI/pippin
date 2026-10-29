@@ -1,3 +1,3 @@
-aurora-header = AURORA
+aurora-header = Pippin
 aurora-sidenav =
-    .tooltiptext = AURORA
+    .tooltiptext = Pippin

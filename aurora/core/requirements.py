@@ -110,7 +110,7 @@ def check_runtime_requirements(config: AuroraConfig) -> None:
         problems.append(
             "Claude Code CLI not found (every phase runs as a Claude Code session). Install it with "
             "`npm install -g @anthropic-ai/claude-code` (Node.js 18+) and check that "
-            "`claude --version` works in the shell that starts AURORA."
+            "`claude --version` works in the shell that starts Pippin."
         )
 
     if config.sandbox.docker:

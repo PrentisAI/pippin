@@ -36,7 +36,7 @@ from aurora.literature.records import Paper, clean_arxiv, clean_doi, title_simil
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = httpx.Timeout(20.0, connect=8.0)
-_UA = "AURORA research assistant (feed)"
+_UA = "Pippin research assistant (feed)"
 _ATOM = {"a": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
 BSKY = "https://api.bsky.app/xrpc"
 SOURCE_NAMES = {"arxiv": "arXiv", "openalex": "OpenAlex", "s2": "Semantic Scholar", "hf": "HF Daily",

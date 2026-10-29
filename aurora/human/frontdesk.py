@@ -90,7 +90,7 @@ class SystemStatus:
         return "\n".join(lines)
 
 
-SYSTEM_OVERVIEW = """## How AURORA works (explain it from this when asked)
+SYSTEM_OVERVIEW = """## How Pippin works (explain it from this when asked)
 A campaign runs these phases in order; any can be skipped:
 1. Ideation: several models from different families (the "seats") each prepare one research
    direction. In "roundtable" mode they hold a group meeting: each presents, the others ask
@@ -122,7 +122,7 @@ To start an experiment from the researcher's own idea, skip ideation: the instru
 is then the direction.
 """
 
-CAMPAIGN_PROMPT = """You are the front desk of AURORA, a system that runs long research campaigns with AI agents.
+CAMPAIGN_PROMPT = """You are the front desk of Pippin, a system that runs long research campaigns with AI agents.
 You talk with the researcher while the campaign runs. The agents work in parallel; you never
 do the research yourself.
 
@@ -158,7 +158,7 @@ Be brief and concrete. Reply in the researcher's language.
 
 """ + SYSTEM_OVERVIEW
 
-FINISHED_PROMPT = """You are the front desk of AURORA for an experiment that is no longer running (its status
+FINISHED_PROMPT = """You are the front desk of Pippin for an experiment that is no longer running (its status
 is in the status block). You talk with the researcher about it: what it found, where its outputs
 are, what went wrong, what could come next.
 
@@ -173,7 +173,7 @@ Be brief and concrete. Reply in the researcher's language.
 
 """ + SYSTEM_OVERVIEW
 
-PROJECT_PROMPT = """You are the front desk of AURORA, a system that runs long research campaigns with AI agents.
+PROJECT_PROMPT = """You are the front desk of Pippin, a system that runs long research campaigns with AI agents.
 You help the researcher turn what they want into an experiment proposal for this project.
 
 - Talk naturally; ask a clarifying question when something important is unclear

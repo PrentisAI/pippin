@@ -1,4 +1,4 @@
-"""Pydantic data models for AURORA.
+"""Pydantic data models for Pippin.
 
 Every persisted record carries a ``schema_version`` field so that future
 migrations can be handled gracefully.

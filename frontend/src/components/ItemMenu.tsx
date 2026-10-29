@@ -173,7 +173,7 @@ export function ConfirmDelete({ kind, name, detail, blocked, diskUsage, onConfir
       <div className="modal" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-title">Delete {kind} “{name}”?</div>
         <div className="modal-body">
-          <p>It is removed from AURORA{detail ? `. ${detail}` : '.'}</p>
+          <p>It is removed from Pippin{detail ? `. ${detail}` : '.'}</p>
           <label className="modal-check">
             <input type="checkbox" checked={deleteFiles} onChange={(e) => setDeleteFiles(e.target.checked)} />
             <span>

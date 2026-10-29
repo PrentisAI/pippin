@@ -1,5 +1,5 @@
-// AURORA in the browser: saving into the memory, saying what you are reading, reading what you follow.
-// Everything goes to your AURORA console (its address and, with accounts, a token are set in the options).
+// Pippin in the browser: saving into the memory, saying what you are reading, reading what you follow.
+// Everything goes to your Pippin console (its address and, with accounts, a token are set in the options).
 import { EXTRACT } from './extractors.js'
 
 const DEFAULTS = { server: 'http://localhost:8200', token: '', reportContext: true, excluded: '', followEnabled: true }
@@ -70,7 +70,7 @@ async function save(tab, { selection = '', link = '' } = {}) {
 }
 
 function tell(message) {
-  chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'AURORA', message: String(message).slice(0, 300) })
+  chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Pippin', message: String(message).slice(0, 300) })
 }
 
 function refreshPanel() {
@@ -78,10 +78,10 @@ function refreshPanel() {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({ id: 'save-page', title: 'Save this page to AURORA', contexts: ['page'] })
-  chrome.contextMenus.create({ id: 'save-selection', title: 'Save the selection to AURORA', contexts: ['selection'] })
-  chrome.contextMenus.create({ id: 'save-link', title: 'Save the link to AURORA', contexts: ['link'] })
-  chrome.contextMenus.create({ id: 'follow-page', title: 'Follow this page in AURORA', contexts: ['page'] })
+  chrome.contextMenus.create({ id: 'save-page', title: 'Save this page to Pippin', contexts: ['page'] })
+  chrome.contextMenus.create({ id: 'save-selection', title: 'Save the selection to Pippin', contexts: ['selection'] })
+  chrome.contextMenus.create({ id: 'save-link', title: 'Save the link to Pippin', contexts: ['link'] })
+  chrome.contextMenus.create({ id: 'follow-page', title: 'Follow this page in Pippin', contexts: ['page'] })
   chrome.alarms.create('follows', { periodInMinutes: 15 })
   chrome.alarms.create('alerts', { periodInMinutes: 5 })
   if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })

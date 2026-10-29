@@ -3,8 +3,8 @@
 A person connects either
 
 * their **Zotero account** (a private API key from zotero.org): their own library and their group
-  libraries, both ways, wherever AURORA runs; or
-* **Zotero 7 on the same computer** as AURORA (its local API): read-only, while Zotero is open.
+  libraries, both ways, wherever Pippin runs; or
+* **Zotero 7 on the same computer** as Pippin (its local API): read-only, while Zotero is open.
 
 They choose which collection goes with which project (or with their own Library). Then, every few
 minutes and when a project's Literature page is opened:
@@ -876,7 +876,7 @@ async def idea_notes(user_id: str, m: dict[str, Any], client: ZoteroClient, repo
         if not parent or zotero_store.noted(user_id, lib, idea["card_id"], ev["paper_id"]):
             continue
         how = "supports" if lk["rel"] == "supports" else "challenges"
-        body = (f"<h2>AURORA idea</h2><p><b>{html.escape(idea['text'])}</b></p>"
+        body = (f"<h2>Pippin idea</h2><p><b>{html.escape(idea['text'])}</b></p>"
                 f"<p>This paper {how} it: {html.escape(ev['text'])}</p>"
                 + (f"<p>Where it stands: {html.escape(idea['stand'])}</p>" if idea["stand"] else ""))
         notes.append((idea["card_id"], ev["paper_id"], {"itemType": "note", "parentItem": parent, "note": body,
@@ -897,9 +897,9 @@ async def idea_notes(user_id: str, m: dict[str, Any], client: ZoteroClient, repo
 # rectangles), the author's colour, tagged ``aurora`` (and ``aurora:<agent>`` for an agent's note). The
 # comment says who wrote it, the idea it bears on and the replies. Annotations made in Zotero come back
 # as the person's notes. Changed on both sides: the later edit wins. Deleted on one side: deleted on the
-# other (AURORA waits a few seconds first, for Undo).
+# other (Pippin waits a few seconds first, for Undo).
 
-AURORA_MARK = " (AURORA)"
+AURORA_MARK = " (Pippin)"
 _SORT_INDEX = re.compile(r"\d{5}\|\d{6}\|\d{5}")
 _note_tasks: dict[str, asyncio.Task] = {}
 _note_again: set[str] = set()
@@ -933,7 +933,7 @@ def compose_comment(a: dict[str, Any], replies: list[dict[str, Any]], names: dic
 
 
 def parse_comment(comment: str, author: str = "") -> str:
-    """A note's own words, from a Zotero comment AURORA wrote (without who, the idea and the replies)."""
+    """A note's own words, from a Zotero comment Pippin wrote (without who, the idea and the replies)."""
     head = (comment or "").split("\n\n— ", 1)[0]
     head = head.split("\n\nIdea: ", 1)[0]
     if author:
@@ -986,7 +986,7 @@ def take_annotation(user_id: str, lib: str, paper_id: str, space: str, ad: dict[
     if version <= existing["zotero_version"] or existing["deleted_at"]:
         return
     if existing["dirty"] and _iso_time(ad.get("dateModified", "")) < existing["updated_at"]:
-        # changed on both sides, here later: AURORA's version goes to Zotero over this one
+        # changed on both sides, here later: Pippin's version goes to Zotero over this one
         annotations.update(existing["ann_id"], touch=False, zotero_version=version)
         return
     annotations.update(existing["ann_id"], touch=False, zotero_version=version, dirty=False, sync_error="", **fields)
@@ -1001,7 +1001,7 @@ def _space_of(user_id: str, paper_id: str) -> str:
 
 
 async def pull_note_changes(user_id: str, lib: str, client: ZoteroClient) -> int:
-    """Annotations changed (or deleted) in Zotero since the last look, on PDFs of papers AURORA knows."""
+    """Annotations changed (or deleted) in Zotero since the last look, on PDFs of papers Pippin knows."""
     from aurora.literature.annotations import annotations
     since = zotero_store.ann_version(user_id, lib)
     items, version = await client.annotations_since(lib, since)
@@ -1046,7 +1046,7 @@ async def push_notes(user_id: str, client: ZoteroClient) -> int:
         target = zotero_store.attachment_of(user_id, a["paper_id"])
         if target is None or not a["rects"] or not _may_write(link["access"], target[0]) \
                 or not writes.allowed(user_id, "zotero.annotate"):
-            continue                 # it stays in AURORA; the reader says why
+            continue                 # it stays in Pippin; the reader says why
         lib, att = target
         card = bs_store.card(a["card_id"]) if a["card_id"] else None
         names = {a["owner"]: _name(a["owner"])}
@@ -1138,7 +1138,7 @@ def notes_soon(user_id: str, delay: float = 1.5) -> None:
 
 
 def notes_target(user_id: str, paper_id: str) -> dict[str, Any]:
-    """Where the person's notes on a paper go in Zotero, or why they stay in AURORA."""
+    """Where the person's notes on a paper go in Zotero, or why they stay in Pippin."""
     link = zotero_store.link(user_id)
     if link is None:
         return {"state": "off"}
@@ -1166,7 +1166,7 @@ async def add_paper(user_id: str, who: str, paper_id: str, campaign_id: str, pdf
         raise ZoteroError("Connect your Zotero account (with a key that can write) first")
     if not writes.allowed(user_id, "zotero.save"):
         raise ZoteroError("Writing to Zotero is off. Turn on “Save papers and their PDFs to Zotero” under the account "
-                          "button → What AURORA may write")
+                          "button → What Pippin may write")
     maps = [m for m in zotero_store.maps(user_id) if m["campaign_id"] == campaign_id and _may_write(link["access"], m["library"])]
     maps = maps or [m for m in zotero_store.maps(user_id) if m["campaign_id"] == "" and _may_write(link["access"], m["library"])]
     if not maps:

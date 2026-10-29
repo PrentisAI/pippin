@@ -1,6 +1,6 @@
 """Core engine — orchestrates the full ideation-to-paper pipeline.
 
-The :class:`ResearchEngine` drives the complete AURORA lifecycle:
+The :class:`ResearchEngine` drives the complete Pippin lifecycle:
 roundtable → screening → planning → research loop → analysis → writing.
 Analysis may loop back to research if more data is needed.
 """

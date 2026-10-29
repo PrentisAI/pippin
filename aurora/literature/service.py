@@ -44,7 +44,7 @@ class Citations:
         """A short note for the transcript: what is real and what is not."""
         if not self.verified and self.clean:
             return ""
-        lines = ["[Reference check by AURORA]"]
+        lines = ["[Reference check by Pippin]"]
         if self.verified:
             lines.append("Verified: " + ", ".join(self.verified) + ".")
         for f in self.flagged:

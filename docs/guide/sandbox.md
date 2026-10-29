@@ -1,6 +1,6 @@
 # Sandbox and security
 
-AURORA's agents write and run code. This page says what they can and cannot
+Pippin's agents write and run code. This page says what they can and cannot
 touch.
 
 ## With Docker (default)

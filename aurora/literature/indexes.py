@@ -224,7 +224,7 @@ class Indexes:
 
     async def _get(self, index: str, url: str, params: dict[str, Any] | None = None,
                    headers: dict[str, str] | None = None) -> httpx.Response:
-        ua = "AURORA research assistant" + (f" (mailto:{self.contact})" if self.contact else "")
+        ua = "Pippin research assistant" + (f" (mailto:{self.contact})" if self.contact else "")
         client = self._client
         try:
             if client is None:

@@ -25,7 +25,7 @@ table of results and does the same. Recording again under the same name
 *supersedes* the old result (when an agent recomputes something), and the old
 one stays in the record.
 
-With each result AURORA keeps:
+With each result Pippin keeps:
 
 | | |
 |---|---|
@@ -36,7 +36,7 @@ With each result AURORA keeps:
 | who and when | the phase or research job, the time |
 
 The ledger is `results.jsonl` in the run's directory; see
-[Campaign files](../reference/workspace.md). When the report is written, AURORA
+[Campaign files](../reference/workspace.md). When the report is written, Pippin
 checks its result IDs: which recorded results it cites, IDs that name no
 result, and results it cites that were superseded (the
 `report_results_checked` event).
@@ -68,7 +68,7 @@ From the report:
 | **Everything (zip)** | the run's whole directory (workspace, phases, audits, transcripts; up to 2 GB) with the report export in `export/` |
 | **reproduce.sh** | the script alone (below) |
 
-`report.tex` is made by AURORA (no pandoc): sections, lists, tables, figures,
+`report.tex` is made by Pippin (no pandoc): sections, lists, tables, figures,
 citations as `\citep{...}` against `references.bib`, and each result ID as a
 link to an appendix table of every result with its script and command.
 
@@ -78,7 +78,7 @@ link to an appendix table of every result with its script and command.
 produced the recorded results and the commands of its GPU jobs, in the order
 they first ran. Unpack the report zip next to the run's `workspace/` (the
 *Everything* zip has both) and run `bash reproduce.sh`. Before the run's
-workspace was taken out of the container, AURORA saved `pip freeze` as
+workspace was taken out of the container, Pippin saved `pip freeze` as
 `.aurora/environment.txt`; the script installs from it first. It needs Docker,
 and, for GPU jobs, the NVIDIA container toolkit. Data the agents downloaded
 during the run is downloaded again by the same commands.
@@ -117,7 +117,7 @@ Cells that differ between runs are marked; **Only what differs** hides the rest.
 
 ## Forking a run
 
-AURORA keeps a **fork point** after every phase and after every research job:
+Pippin keeps a **fork point** after every phase and after every research job:
 what the run knew (its checkpoint, artifacts, mental model and cost) and a
 snapshot of its workspace (files over 50 MB, or past 1 GB in all, are listed but
 not kept; a fork recomputes them).

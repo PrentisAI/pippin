@@ -17,7 +17,7 @@ export function avatar(who: string, name: string, small = false) {
 
 const REL: Record<string, string> = { supports: 'Supports', challenges: 'Challenges', 'asks about': 'Asks about', 'builds on': 'Builds on' }
 const STATUS: Record<ReaderNote['status'], string> = {
-  synced: '✓ In Zotero', saving: 'Saving to Zotero…', suggested: 'Suggestion · not in Zotero', local: 'In AURORA only',
+  synced: '✓ In Zotero', saving: 'Saving to Zotero…', suggested: 'Suggestion · not in Zotero', local: 'In Pippin only',
   error: 'Not in Zotero', draft: 'Not saved yet', shared: 'Shared',
 }
 

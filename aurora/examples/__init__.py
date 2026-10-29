@@ -1,4 +1,4 @@
-"""Example projects that come with AURORA: finished runs a new console shows from the start.
+"""Example projects that come with Pippin: finished runs a new console shows from the start.
 
 Each example is a folder here (made with ``scripts/build_example.py``): ``example.json`` (what it
 is, the project and its run), ``run/`` (the run's directory, slimmed) and ``events.jsonl`` (its

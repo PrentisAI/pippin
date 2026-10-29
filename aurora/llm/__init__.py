@@ -1,4 +1,4 @@
-"""Multi-provider LLM abstraction layer for AURORA.
+"""Multi-provider LLM abstraction layer for Pippin.
 
 Provides a unified async interface across Anthropic (Claude), OpenAI (GPT),
 Google (Gemini), and DeepSeek models.  The :class:`LLMRouter` maps each

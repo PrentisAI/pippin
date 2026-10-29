@@ -118,7 +118,7 @@ const put = (body: unknown): RequestInit => ({ method: 'PUT', body: JSON.stringi
 const del: RequestInit = { method: 'DELETE' }
 
 export const api = {
-  /** AURORA at your side: the conversation of the orb and the side panel. */
+  /** Pippin at your side: the conversation of the orb and the side panel. */
   assistant: {
     say: (text: string) => request<AssistantTurn & { reply: string }>('/assistant', post({ text, via: 'typed' })),
     history: (limit = 60) => request<AssistantTurn[]>(`/assistant/history?limit=${limit}`),

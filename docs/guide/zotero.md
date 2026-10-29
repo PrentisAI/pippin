@@ -8,12 +8,12 @@ and notes on the papers.
 ## Connecting
 
 Open a project's **Literature** tab, or the **Library**, and press **Zotero**.
-Choose how AURORA reaches your Zotero:
+Choose how Pippin reaches your Zotero:
 
 | Way | What it can do |
 |---|---|
-| **Your Zotero account** (recommended) | Your own library and your group libraries, both ways, wherever AURORA runs. Create a key at zotero.org → *Settings → Security → Create new private key*, with *Allow library access* and, to send papers back, *Allow write access*. Give it access to the groups you want. |
-| **Zotero 7 on this computer** | Only if AURORA runs on the computer where Zotero is installed. It is read-only, and works only while Zotero is open. In Zotero, turn on *Settings → Advanced → Allow other applications on this computer to communicate with Zotero*. |
+| **Your Zotero account** (recommended) | Your own library and your group libraries, both ways, wherever Pippin runs. Create a key at zotero.org → *Settings → Security → Create new private key*, with *Allow library access* and, to send papers back, *Allow write access*. Give it access to the groups you want. |
+| **Zotero 7 on this computer** | Only if Pippin runs on the computer where Zotero is installed. It is read-only, and works only while Zotero is open. In Zotero, turn on *Settings → Advanced → Allow other applications on this computer to communicate with Zotero*. |
 
 The key is stored encrypted on the server, in the same way as API keys. Nobody
 can read it back, admins included. Each person connects their own Zotero.
@@ -27,7 +27,7 @@ only to a project you can edit.
 
 ## What flows each way
 
-Writing into your Zotero is off until you allow it, kind by kind, under the account button → **What AURORA may
+Writing into your Zotero is off until you allow it, kind by kind, under the account button → **What Pippin may
 write** (see [Accounts](accounts.md#what-aurora-may-write)). Sending a project's papers during a sync needs *Save
 papers and their PDFs* set to *Also on its own*; **+ Zotero** on one paper needs it at *When I do it*; your notes on
 a PDF go to Zotero with *Send the notes you keep on a PDF as Zotero annotations*.
@@ -54,13 +54,13 @@ and annotations on the PDF in Zotero are kept in step, both ways:
 | | |
 |---|---|
 | **A note you make** | Becomes a highlight annotation on the paper's PDF in Zotero within seconds: the same words on the same page, in yellow, tagged `aurora`. |
-| **An agent's note** | Stays in AURORA while it is a suggestion. Once you keep it, it goes too, in the agent's colour, tagged `aurora` and `aurora:skeptic` (or the agent's name), its comment starting with *Skeptic (AURORA):*. |
+| **An agent's note** | Stays in Pippin while it is a suggestion. Once you keep it, it goes too, in the agent's colour, tagged `aurora` and `aurora:skeptic` (or the agent's name), its comment starting with *Skeptic (Pippin):*. |
 | **Replies and the idea** | Go into the annotation's comment: the idea the note bears on, then each reply with who wrote it. |
 | **An annotation you make in Zotero** | Comes into the reader as your note, at the next sync (every 5 minutes, or **Sync now** in the reader's Zotero menu). The agents read it too. |
 | **Edited on both sides** | The later edit wins. |
-| **Deleted** | On one side, deleted on the other. In AURORA, Zotero is told a few seconds later, so **Undo** can still bring the note back. |
+| **Deleted** | On one side, deleted on the other. In Pippin, Zotero is told a few seconds later, so **Undo** can still bring the note back. |
 
-The notes stay in AURORA (and the reader says why) when Zotero is not
+The notes stay in Pippin (and the reader says why) when Zotero is not
 connected, when the key can only read, or when your Zotero lacks the paper or
 its PDF. In the last case **Add it to Zotero** in the reader's Zotero menu puts
 the paper into the project's collection and uploads its PDF to Zotero's storage;
@@ -90,18 +90,18 @@ BibTeX.
 
 The sync above works through Zotero's Web API. The Zotero 7 plugin (`zotero-plugin/`) works inside Zotero itself:
 
-- **Every paper you add is read in the background.** Open it later and the item pane's **AURORA** section has its
+- **Every paper you add is read in the background.** Open it later and the item pane's **Pippin** section has its
   methods, findings and limitations, each marked as stated by the paper or inferred, and what your memory makes of
   it: the questions it bears on, conflicts with what you saved, claims you already had from elsewhere. Nothing is
   written into your library; **Save the card as a note** does that, only when *Write notes on Zotero items* is
-  allowed, and marks it as written by AURORA.
+  allowed, and marks it as written by Pippin.
 - **Sentences your saves argue with**: the sentences of the paper that something you saved challenges or qualifies.
   Click one to open the PDF at its page; **Mark them in the PDF** adds orange highlights (tagged `aurora-dissent`)
   when *Send the notes you keep on a PDF as Zotero annotations* is allowed, and **Remove the marks** takes them away.
 - **In the reader**, select a sentence: **What my saves say** lists what you saved that supports or challenges it;
-  **Save to AURORA** keeps the passage in your memory. The paper and passage you are on go to AURORA as context
+  **Save to Pippin** keeps the passage in your memory. The paper and passage you are on go to Pippin as context
   (kept a few hours, never stored; you can turn it off).
 
 Install: `zotero-plugin/build.sh` makes `dist/aurora-zotero.xpi`; in Zotero, Tools → Plugins → ⚙ → Install Plugin
-From File…. Then Settings → AURORA: the console's address and, with accounts, a token (Memory page → *Browser
+From File…. Then Settings → Pippin: the console's address and, with accounts, a token (Memory page → *Browser
 extension and desktop app* → **Make a token**).

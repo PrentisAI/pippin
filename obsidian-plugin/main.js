@@ -1,4 +1,4 @@
-/* AURORA in Obsidian.
+/* Pippin in Obsidian.
  *
  * - A side view with your memory panel: what surfaces for the note you are writing (the note and your selection
  *   are sent as what you are doing, kept a few hours, never stored; you can turn it off).
@@ -7,10 +7,10 @@
  *   again; deleted ones leave the memory.
  * - Commands: a literature note from a paper (its methods, findings, limitations and what your memory makes of it),
  *   append an idea unit (claim, sources with their words, conflicts) to the note you are in, save the selection to
- *   AURORA, send this note now.
+ *   Pippin, send this note now.
  *
- * Writing into the vault (creating a note, appending to one) happens only as far as you allowed it in AURORA
- * (account button → What AURORA may write): off gives you the text to copy, "ask" asks each time, "auto" writes.
+ * Writing into the vault (creating a note, appending to one) happens only as far as you allowed it in Pippin
+ * (account button → What Pippin may write): off gives you the text to copy, "ask" asks each time, "auto" writes.
  * Every write is logged there.
  *
  * Plain CommonJS so there is nothing to build: copy this folder into <vault>/.obsidian/plugins/aurora-memory/.
@@ -34,7 +34,7 @@ const safeName = (s) => String(s || "Untitled").replace(/[\\/:*?"<>|#^[\]]/g, " 
 class AuroraView extends ItemView {
   constructor(leaf, plugin) { super(leaf); this.plugin = plugin; }
   getViewType() { return VIEW; }
-  getDisplayText() { return "AURORA"; }
+  getDisplayText() { return "Pippin"; }
   getIcon() { return "sparkles"; }
   async onOpen() { this.draw(); }
   draw() {
@@ -43,7 +43,7 @@ class AuroraView extends ItemView {
     el.addClass("aurora-view");
     const s = this.plugin.settings;
     const url = `${s.server.replace(/\/$/, "")}/panel${s.token ? `?token=${encodeURIComponent(s.token)}` : ""}`;
-    el.createEl("iframe", { attr: { src: url, title: "AURORA memory" } });
+    el.createEl("iframe", { attr: { src: url, title: "Pippin memory" } });
   }
 }
 
@@ -89,17 +89,17 @@ class AuroraSettings extends PluginSettingTab {
     });
     const toggle = (name, desc, key) => new Setting(el).setName(name).setDesc(desc)
       .addToggle((t) => t.setValue(p.settings[key]).onChange(async (v) => { p.settings[key] = v; await p.saveSettings(); }));
-    text("Console address", "Where your AURORA console runs, e.g. http://localhost:8200", "server");
+    text("Console address", "Where your Pippin console runs, e.g. http://localhost:8200", "server");
     text("Token", "Only when the console has accounts: console → Memory → Browser extension and desktop app → Make a token", "token", true);
-    toggle("Tell AURORA what I am writing", "The open note and your selection, so the panel shows what bears on it (kept a few hours, never stored)", "reportContext");
-    toggle("Read my notes into my memory", "New and edited notes are sent to AURORA and read; deleted ones leave the memory. Off until you turn it on.", "sendNotes");
+    toggle("Tell Pippin what I am writing", "The open note and your selection, so the panel shows what bears on it (kept a few hours, never stored)", "reportContext");
+    toggle("Read my notes into my memory", "New and edited notes are sent to Pippin and read; deleted ones leave the memory. Off until you turn it on.", "sendNotes");
     text("Only these folders", "Comma-separated; empty: the whole vault", "folders");
     text("Never these folders", "Comma-separated, e.g. Journal, Private", "exclude");
     text("Literature notes go in", "The folder for literature notes", "literatureFolder");
     new Setting(el).setName("Read the whole vault now").setDesc("Sends every note in the folders above (once; afterwards only changes).")
-      .addButton((b) => b.setButtonText("Send all notes").onClick(async () => { const n = await p.sendAll(); new Notice(`Sent ${n} notes to AURORA`); }));
+      .addButton((b) => b.setButtonText("Send all notes").onClick(async () => { const n = await p.sendAll(); new Notice(`Sent ${n} notes to Pippin`); }));
     el.createEl("p", { cls: "setting-item-description",
-      text: "Creating or appending notes is set in AURORA (account button → What AURORA may write); it is off until you allow it." });
+      text: "Creating or appending notes is set in Pippin (account button → What Pippin may write); it is off until you allow it." });
   }
 }
 
@@ -108,14 +108,14 @@ module.exports = class AuroraPlugin extends Plugin {
     this.settings = Object.assign({}, DEFAULTS, await this.loadData());
     this.pending = new Map();
     this.registerView(VIEW, (leaf) => new AuroraView(leaf, this));
-    this.addRibbonIcon("sparkles", "AURORA memory", () => this.openView());
+    this.addRibbonIcon("sparkles", "Pippin memory", () => this.openView());
     this.addSettingTab(new AuroraSettings(this.app, this));
 
     this.addCommand({ id: "open-panel", name: "Open the memory panel", callback: () => this.openView() });
     this.addCommand({ id: "literature-note", name: "Literature note from a paper (DOI, arXiv id or title)", callback: () => this.literatureNote() });
     this.addCommand({ id: "append-unit", name: "Append an idea unit from my memory to this note",
       editorCallback: (editor, view) => this.appendUnit(view.file) });
-    this.addCommand({ id: "save-selection", name: "Save the selection to AURORA",
+    this.addCommand({ id: "save-selection", name: "Save the selection to Pippin",
       editorCallback: (editor, view) => this.saveSelection(editor.getSelection(), view.file) });
     this.addCommand({ id: "send-note", name: "Send this note to my memory now",
       editorCallback: (editor, view) => this.sendNote(view.file, true) });
@@ -153,7 +153,7 @@ module.exports = class AuroraPlugin extends Plugin {
     if (r.status < 200 || r.status >= 300) {
       let detail = "";
       try { detail = r.json.detail; } catch (e) { detail = ""; }
-      throw new Error(detail || `AURORA answered ${r.status}`);
+      throw new Error(detail || `Pippin answered ${r.status}`);
     }
     return r.json;
   }
@@ -210,9 +210,9 @@ module.exports = class AuroraPlugin extends Plugin {
     try {
       const text = await this.app.vault.cachedRead(f);
       const r = await this.api("/memory/notes", { method: "POST", body: { vault: this.app.vault.getName(), path: f.path, text, mtime: f.stat.mtime / 1000 } });
-      if (loud) new Notice(r.state === "too_short" ? "The note is too short to read" : r.state === "unchanged" ? "AURORA already has this version" : "Sent: AURORA is reading it");
+      if (loud) new Notice(r.state === "too_short" ? "The note is too short to read" : r.state === "unchanged" ? "Pippin already has this version" : "Sent: Pippin is reading it");
     } catch (e) {
-      if (loud) new Notice(`AURORA: ${e.message}`);
+      if (loud) new Notice(`Pippin: ${e.message}`);
     }
   }
 
@@ -241,12 +241,12 @@ module.exports = class AuroraPlugin extends Plugin {
     const lv = await this.level(write);
     if (lv === "auto") return doWrite();
     if (lv === "ask") return new TextModal(this.app, title, text, [["Write it", doWrite]]).open();
-    new TextModal(this.app, `${title} (writing is off in AURORA: copy it)`, text).open();
+    new TextModal(this.app, `${title} (writing is off in Pippin: copy it)`, text).open();
   }
 
   literatureNote() {
     new AskModal(this.app, "Literature note", "DOI, arXiv id or title", async (q, modal) => {
-      modal.results.setText("AURORA is reading the paper…");
+      modal.results.setText("Pippin is reading the paper…");
       const doi = /^10\.\d{4,9}\//.test(q) ? q : "";
       const arxiv = /^\d{4}\.\d{4,5}(v\d+)?$/.test(q) ? q.replace(/v\d+$/, "") : "";
       const qs = `doi=${encodeURIComponent(doi)}&arxiv=${encodeURIComponent(arxiv)}&title=${encodeURIComponent(doi || arxiv ? "" : q)}`;
@@ -257,7 +257,7 @@ module.exports = class AuroraPlugin extends Plugin {
           await new Promise((r) => setTimeout(r, 4000));
           v = await this.api(`/memory/zotero-card?${qs}`);
         }
-        if (v.state !== "done") throw new Error(v.error || "AURORA is still reading it; try again in a minute");
+        if (v.state !== "done") throw new Error(v.error || "Pippin is still reading it; try again in a minute");
         modal.close();
         const md = this.literatureMarkdown(v);
         const path = normalizePath(`${this.settings.literatureFolder}/${safeName(v.title)}.md`);
@@ -287,7 +287,7 @@ module.exports = class AuroraPlugin extends Plugin {
       for (const x of v.conflicts || []) out.push(`- Conflicts with what I saved: ${x.other}`);
       out.push("");
     }
-    out.push(`*Read by AURORA from ${c.read_from === "pdf" ? "the PDF" : "the abstract"}.*`, "", "## My notes", "");
+    out.push(`*Read by Pippin from ${c.read_from === "pdf" ? "the PDF" : "the abstract"}.*`, "", "## My notes", "");
     return out.join("\n");
   }
 
@@ -323,9 +323,9 @@ module.exports = class AuroraPlugin extends Plugin {
     if (!text.trim()) { new Notice("Select the passage to save first"); return; }
     try {
       await this.api("/memory/capture", { method: "POST", body: { text, selection: text, title: file ? file.basename : "", via: "obsidian" } });
-      new Notice("Saved: AURORA is reading it");
+      new Notice("Saved: Pippin is reading it");
     } catch (e) {
-      new Notice(`AURORA: ${e.message}`);
+      new Notice(`Pippin: ${e.message}`);
     }
   }
 };

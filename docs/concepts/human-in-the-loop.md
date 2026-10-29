@@ -1,6 +1,6 @@
 # Working with the human
 
-AURORA keeps you in charge without making you a bottleneck: it asks only when
+Pippin keeps you in charge without making you a bottleneck: it asks only when
 a decision is yours (human gates), and you can talk to a running campaign at
 any time without stopping it (duplex interaction).
 

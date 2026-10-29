@@ -118,7 +118,7 @@ async def read_here(follow: dict[str, Any]) -> list[dict[str, Any]]:
     import httpx
     url = _reddit_json(follow["url"]) if follow["platform"] == "reddit" else follow["url"]
     async with httpx.AsyncClient(timeout=20, follow_redirects=True,
-                                 headers={"User-Agent": "AURORA research memory (by the person who follows)"}) as c:
+                                 headers={"User-Agent": "Pippin research memory (by the person who follows)"}) as c:
         r = await c.get(url)
     r.raise_for_status()
     return reddit_items(r.json()) if follow["platform"] == "reddit" else feed_items(r.text)

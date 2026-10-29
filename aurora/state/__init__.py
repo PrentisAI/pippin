@@ -1,4 +1,4 @@
-"""State management for AURORA research campaigns.
+"""State management for Pippin research campaigns.
 
 This package provides the durable state layer that persists across
 context truncations, model restarts, and agent reconfigurations:

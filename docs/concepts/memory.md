@@ -88,7 +88,7 @@ too and record what they find as evidence, saying it is yours; in a shared brain
 A report of the week: what you saved and how much of it merged into what you had, new units and conflicts by
 question, what changed your view, what you answered, and what has been sunk long enough to archive.
 
-## When AURORA interrupts
+## When Pippin interrupts
 
 Only for what you would regret missing; everything else waits for the daily digest.
 
@@ -124,7 +124,7 @@ for a context is cached until your memory changes. A paper read for the Zotero c
 sentences your saves argue with, and a voice request are a model call or two each; checking a manuscript's
 references is about one call per eight citations, plus a few for the missing work.
 
-## What AURORA may write
+## What Pippin may write
 
-The memory is AURORA's own. Writing into your tools (Zotero, Overleaf, your notes) is set separately: see
-[What AURORA may write](../guide/accounts.md#what-aurora-may-write).
+The memory is Pippin's own. Writing into your tools (Zotero, Overleaf, your notes) is set separately: see
+[What Pippin may write](../guide/accounts.md#what-aurora-may-write).

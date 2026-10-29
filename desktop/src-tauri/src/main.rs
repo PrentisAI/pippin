@@ -1,12 +1,12 @@
-// AURORA on the macOS desktop.
+// Pippin on the macOS desktop.
 //
 // * The orb: a small ball at the edge of the screen. Drop a link, a selection or a file on it to save it into
 //   your memory; click it for the memory panel; it says in a bubble when something you saved bears on what you
 //   are doing.
 // * The panel: the console's memory panel (`/panel`), in a window of its own.
-// * What you are doing: the frontmost app and its window title (macOS Accessibility), sent to AURORA as context.
+// * What you are doing: the frontmost app and its window title (macOS Accessibility), sent to Pippin as context.
 //   Browsers are left to the browser extension, which knows the page and the selection.
-// * The server: the local AURORA console is started in the background when it is not running.
+// * The server: the local Pippin console is started in the background when it is not running.
 // * Voice: hold ⌥⇧Space and speak, let go to send. The words are recognised on this Mac (whisper.cpp, the command
 //   in the settings) or by the console; the window in front is captured at that moment only (for "this figure").
 //   The answer is spoken short with the system voice and shown in full on the panel. Speaking again stops it.
@@ -158,7 +158,7 @@ fn open_settings(app: AppHandle) -> Result<(), String> {
         return w.set_focus().map_err(|e| e.to_string());
     }
     WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
-        .title("AURORA settings").inner_size(500.0, 760.0).resizable(false).build().map_err(|e| e.to_string())?;
+        .title("Pippin settings").inner_size(500.0, 760.0).resizable(false).build().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -289,7 +289,7 @@ fn toggle_panel(app: &AppHandle, show: bool) -> Result<(), String> {
         url.push_str(&format!("&token={}", urlencoding::encode(&s.token)));
     }
     let w = WebviewWindowBuilder::new(app, "panel", WebviewUrl::External(url.parse().map_err(|e| format!("{e}"))?))
-        .title("AURORA").inner_size(460.0, 840.0)
+        .title("Pippin").inner_size(460.0, 840.0)
         // the panel stays the panel: a page of the console, or a source, opens in the browser
         .on_navigation(|u| {
             let panel = u.path() == "/panel";
@@ -380,7 +380,7 @@ fn start_server(app: &AppHandle) {
     // a login shell, so the PATH has where `aurora` was installed (pip, pipx, uv)
     match Command::new("/bin/zsh").args(["-lc", &s.server_command]).spawn() {
         Ok(child) => *state.server.lock().unwrap() = Some(child),
-        Err(e) => eprintln!("could not start AURORA: {e}"),
+        Err(e) => eprintln!("could not start Pippin: {e}"),
     }
 }
 
@@ -513,7 +513,7 @@ fn watch_context(app: AppHandle) {
                 continue;
             }
             let Some((name, title)) = frontmost() else { continue };
-            if name == "AURORA" || BROWSERS.contains(&name.as_str()) || title.is_empty() {
+            if name == "Pippin" || BROWSERS.contains(&name.as_str()) || title.is_empty() {
                 continue; // itself, and browsers (the extension knows the page better)
             }
             let key = format!("{name}|{title}");
@@ -528,7 +528,7 @@ fn watch_context(app: AppHandle) {
             };
             refresh_panel(&app);
             // a paper open in another PDF reader (told from its file name): what you saved that argues with it, in a
-            // sentence by the orb (AURORA cannot mark that reader's margin)
+            // sentence by the orb (Pippin cannot mark that reader's margin)
             let paper = reported["paper_id"].as_str().unwrap_or("").to_string();
             if !paper.is_empty() && paper != last_paper {
                 last_paper = paper.clone();
@@ -577,7 +577,7 @@ fn watch_alerts(app: AppHandle) {
                     continue;
                 }
                 told.push(id);
-                let title = a["title"].as_str().unwrap_or("AURORA").replace('"', "'");
+                let title = a["title"].as_str().unwrap_or("Pippin").replace('"', "'");
                 let body = a["body"].as_str().unwrap_or("").chars().take(200).collect::<String>().replace('"', "'").replace('\n', " ");
                 let _ = Command::new("osascript").args(["-e", &format!("display notification \"{body}\" with title \"{title}\"")]).spawn();
                 let app2 = app.clone();
@@ -630,7 +630,7 @@ fn main() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while starting AURORA")
+        .expect("error while starting Pippin")
         .run(|app, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 stop_server(app);

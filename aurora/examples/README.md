@@ -1,4 +1,4 @@
-# Examples that come with AURORA
+# Examples that come with Pippin
 
 Each folder is a finished run that a new console installs as a read-only project
 (`ex_<id>`), see `aurora/examples/__init__.py`:

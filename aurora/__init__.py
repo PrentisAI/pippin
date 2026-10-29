@@ -1,7 +1,7 @@
-"""AURORA: An agent harness for long-horizon open-ended AutoResearch
+"""Pippin: An agent harness for long-horizon open-ended AutoResearch
 in computational materials science.
 
-AURORA spans the complete research lifecycle from initial ideation to
+Pippin spans the complete research lifecycle from initial ideation to
 manuscript writing, coupling three mechanisms:
   1. Execution Robustness — pre-flight verification, expert-distilled skills,
      and just-in-time auditing.

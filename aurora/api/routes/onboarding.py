@@ -1,5 +1,5 @@
 """The first minutes and the help that stays: the welcome wizard's state and a person's defaults, the
-getting-started checklist, the examples that come with AURORA, the guided tour, first-time tips, and
+getting-started checklist, the examples that come with Pippin, the guided tour, first-time tips, and
 the documentation in the console.
 
 Everything is per person (``user_prefs``): every new account goes through the wizard once.
@@ -52,7 +52,7 @@ def _my_runs(user_id: str) -> list[dict[str, Any]]:
 
 
 def checklist() -> list[dict[str, Any]]:
-    """What a person has tried of AURORA, each with where to do it.  Done-ness comes from what they did."""
+    """What a person has tried of Pippin, each with where to do it.  Done-ness comes from what they did."""
     from aurora.api.routes.campaigns import live_notifications
     from aurora.auth.secrets import key_for
     me = current_user()

@@ -134,7 +134,7 @@ class Context(BaseModel):
 @router.post("/context")
 async def put_context(body: Context) -> dict[str, Any]:
     """An entry point says what the person is doing now (kept in memory for a few hours, never stored). In a PDF
-    reader other than AURORA's, the paper is told from the file name when it can be."""
+    reader other than Pippin's, the paper is told from the file name when it can be."""
     ctx = body.model_dump()
     if ctx["app"] in surface.PDF_READERS and not ctx["paper_id"] and ctx["title"]:
         try:
@@ -409,7 +409,7 @@ async def save_to_zotero(body: ZoteroSave) -> dict[str, Any]:
     copy = {"bibtex": relate.bibtex_of(e["paper_id"]), "doi": e["paper"].doi or ""}
     if not writes.allowed(uid, "zotero.save"):
         return {"saved": False, "reason": "Writing to Zotero is off. Turn on “Save papers and their PDFs to Zotero” "
-                                           "(account button → What AURORA may write), or import it yourself:", **copy}
+                                           "(account button → What Pippin may write), or import it yourself:", **copy}
     from aurora.literature import zotero
     from aurora.literature.reading import fetch_open_pdf
     try:
@@ -979,7 +979,7 @@ class PaperRef(BaseModel):
 
 @router.post("/to-read")
 async def to_read(body: PaperRef) -> dict[str, Any]:
-    """Put a paper on your reading list (your Library: AURORA's own, nothing is written elsewhere)."""
+    """Put a paper on your reading list (your Library: Pippin's own, nothing is written elsewhere)."""
     from aurora.literature.library import library
     if library.paper(body.paper_id) is None:
         raise HTTPException(404, "No such paper")

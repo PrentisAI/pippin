@@ -38,7 +38,7 @@ export function MemoryPanel({ refreshKey = 0, onReport }: { refreshKey?: number;
   if (!ctxs) return (
     <div className="mem-panel">
       {err ? <div className="cw-empty"><b>Cannot reach your memory here</b>
-        <span>{window.location.origin} answered: {err}. This console may be an older AURORA, or another program on this port. Point the
+        <span>{window.location.origin} answered: {err}. This console may be an older Pippin, or another program on this port. Point the
           extension (its options) or the desktop app (right click the orb) at the console you started.</span></div>
         : <div className="panel-empty">Loading…</div>}
     </div>
@@ -372,7 +372,7 @@ function ToBrainstorm({ unitId }: { unitId: string }) {
   )
 }
 
-/** What you said to AURORA a moment ago: the full answer, with its sources (the spoken one was short). */
+/** What you said to Pippin a moment ago: the full answer, with its sources (the spoken one was short). */
 function Heard({ onPick }: { onPick: (id: string) => void }) {
   const [t, setT] = useState<MemVoiceTurn | null>(null)
   const [hidden, setHidden] = useState('')

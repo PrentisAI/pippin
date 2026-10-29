@@ -129,7 +129,7 @@ function Settings() {
         <select value={lang} onChange={async (e) => { setLang(e.target.value); await api.memory.setSettings(e.target.value) }}>
           <option value="auto">the language of what you read</option><option value="zh">Chinese</option><option value="en">English</option>
         </select></label>
-      <span className="lit-sub">What AURORA may write into Zotero, Overleaf or your notes is set under the account button (all off until you allow it).</span>
+      <span className="lit-sub">What Pippin may write into Zotero, Overleaf or your notes is set under the account button (all off until you allow it).</span>
     </section>
   )
 }
@@ -159,7 +159,7 @@ function Report({ onClose }: { onClose: () => void }) {
   )
 }
 
-const VIA_LABEL = { extension: 'read in your browser', server: 'read by AURORA' }
+const VIA_LABEL = { extension: 'read in your browser', server: 'read by Pippin' }
 
 /** People, topics and threads followed: what they post comes into the memory on its own. */
 function Follows() {
@@ -235,7 +235,7 @@ function Notes() {
       <h4>Your notes</h4>
       <span className="lit-sub">Your own notes join your memory: what they claim is merged with what you saved, and a paper that disagrees
         with your note is shown as such. Point the console at your Obsidian vault (a folder on the machine it runs on), or install the
-        Obsidian plugin, which sends notes as you write them. AURORA never writes into the vault from here.</span>
+        Obsidian plugin, which sends notes as you write them. Pippin never writes into the vault from here.</span>
       <input className="rd-in" value={v.path} onChange={(e) => setV({ ...v, path: e.target.value })} placeholder="Vault folder, e.g. ~/Documents/Research" aria-label="Vault folder" />
       <input className="rd-in" value={v.folders} onChange={(e) => setV({ ...v, folders: e.target.value })} placeholder="Only these subfolders (comma-separated; empty: all)" aria-label="Subfolders" />
       <input className="rd-in" value={v.exclude} onChange={(e) => setV({ ...v, exclude: e.target.value })} placeholder="Never these (e.g. Journal, Private)" aria-label="Excluded folders" />

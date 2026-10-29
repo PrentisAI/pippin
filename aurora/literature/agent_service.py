@@ -269,7 +269,7 @@ class PaperService:
                                  + (f"https://doi.org/{p.doi}" if p.doi else p.url or "none"))
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0), follow_redirects=True) as c:
-                    r = await c.get(url, headers={"User-Agent": "AURORA research assistant"})
+                    r = await c.get(url, headers={"User-Agent": "Pippin research assistant"})
             except httpx.HTTPError as exc:
                 raise ValueError(f"the PDF could not be downloaded ({type(exc).__name__})") from exc
             if r.status_code >= 400 or not r.content.startswith(b"%PDF") or len(r.content) > _MAX_PDF:

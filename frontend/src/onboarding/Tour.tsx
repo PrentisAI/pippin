@@ -33,7 +33,7 @@ const CHAPTERS: Record<TourChapter, { title: string; steps: Step[] }> = {
     title: 'A finished run',
     steps: [
       { target: ['[data-tour="sidebar"]'], title: 'Projects and their runs',
-        body: 'A project holds the runs on one question, with its own chat with the front desk. This one is an example that comes with AURORA: everyone can look, nobody can change it. “Duplicate” makes a copy of its question that is yours.',
+        body: 'A project holds the runs on one question, with its own chat with the front desk. This one is an example that comes with Pippin: everyone can look, nobody can change it. “Duplicate” makes a copy of its question that is yours.',
         before: (a, ex) => { a.openPanel('projects'); if (ex) a.openRun(ex.cid, ex.run) } },
       { target: ['[data-tour="status"]'], title: 'Where the run is',
         body: 'Its status and phase, the tool calls it made, how long it took, its cost against its budget, the model, and how hands-on it is. In your own runs, a click on the cost changes the budget, on the mode switches between supervised and autonomous, on Container changes CPUs and memory.' },
@@ -55,11 +55,11 @@ const CHAPTERS: Record<TourChapter, { title: string; steps: Step[] }> = {
       { target: ['.rep-doc'], title: 'Every number has a source',
         body: 'In runs of this version every number the agents report is recorded with the script that computed it, and appears in the report as a chip: click it for the script as it was then, the command, its inputs and the job. References are checked against the scholarly indexes. (This example predates the chips.)' },
       { click: '.rep-bar .link-btn', title: 'That is a run',
-        body: 'Next: a walk around the rest of AURORA, or start your own research. Help (?) in the left bar has these tours, a checklist and the guides.' },
+        body: 'Next: a walk around the rest of Pippin, or start your own research. Help (?) in the left bar has these tours, a checklist and the guides.' },
     ],
   },
   app: {
-    title: 'Around AURORA',
+    title: 'Around Pippin',
     steps: [
       { target: ab('Projects'), title: 'Projects', body: 'Your projects and their runs. + starts a new project; the menu next to one renames, shares or deletes it.',
         before: (a) => a.openPanel('projects') },
@@ -236,7 +236,7 @@ export function Tour({ actions }: { actions: TourActions }) {
           {!last && <button className="tour-btn" onClick={() => setIndex(index + 1)} autoFocus>Next</button>}
           {last && nextChapter && <button className="tour-btn ghost" onClick={() => finish()}>Done</button>}
           {last && <button className="tour-btn" autoFocus onClick={() => (nextChapter ? finish(nextChapter) : finish())}>
-            {nextChapter ? (nextChapter === 'app' ? 'Walk around AURORA' : 'Start your own research') : 'Done'}
+            {nextChapter ? (nextChapter === 'app' ? 'Walk around Pippin' : 'Start your own research') : 'Done'}
           </button>}
         </div>
       </div>

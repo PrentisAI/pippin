@@ -1,5 +1,5 @@
 // On every page: what the page says (for saving it) and, when you allow it, what you are reading now
-// (the page, your selection), so AURORA can show what in your memory bears on it.
+// (the page, your selection), so Pippin can show what in your memory bears on it.
 (() => {
   if (window.__auroraContent) return
   window.__auroraContent = true

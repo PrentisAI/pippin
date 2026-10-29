@@ -238,7 +238,7 @@ def _push(url: str, token: str, folder: str, data: bytes, who: tuple[str, str]) 
         if not status.strip():
             return "Nothing changed in Overleaf: the report there is already this one."
         git("-c", f"user.name={who[0]}", "-c", f"user.email={who[1]}", "commit", "-q", "-m",
-            f"AURORA: report of {folder.rsplit('/', 1)[-1]}")
+            f"Pippin: report of {folder.rsplit('/', 1)[-1]}")
         git("push", "-q", "origin", "HEAD")
         return f"Put into the Overleaf project under {folder}/ (report.tex, figures/, references.bib, results)."
     finally:
@@ -269,7 +269,7 @@ async def push_overleaf(campaign_id: str, exp_id: str, body: OverleafBody) -> di
     folder = re.sub(r"[^A-Za-z0-9._/-]+", "-", body.folder.strip().strip("/") or
                     f"aurora/{(run.task_name or run.run_id)[:50]}").strip("-") or "aurora/report"
     data = await asyncio.to_thread(_zip, campaign_id, run, "report")
-    who = (me.name if not me.is_local else "AURORA", me.email or "aurora@localhost")
+    who = (me.name if not me.is_local else "Pippin", me.email or "aurora@localhost")
     message = await asyncio.to_thread(_push, url, token, folder, data, who)
     return {"ok": True, "message": message, **_overleaf_settings(campaign_id)}
 

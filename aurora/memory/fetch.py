@@ -131,7 +131,7 @@ async def get(owner: str, *, url: str = "", text: str = "", html: str = "", titl
         import httpx
         try:
             async with httpx.AsyncClient(timeout=20, follow_redirects=True,
-                                         headers={"User-Agent": "Mozilla/5.0 (AURORA research assistant)"}) as c:
+                                         headers={"User-Agent": "Mozilla/5.0 (Pippin research assistant)"}) as c:
                 r = await c.get(url)
             r.raise_for_status()
         except Exception as exc:

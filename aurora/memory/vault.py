@@ -6,7 +6,7 @@ way a note is a source of platform ``note``: what it claims is merged with what 
 conflict between your own note and a paper is shown as such. When a note changes, its old version is retired (its
 evidence goes, and claims only it made go with it) and the new version is read.
 
-AURORA never writes into the vault from here; writing (a literature note, an appended passage) is the plugin's, and
+Pippin never writes into the vault from here; writing (a literature note, an appended passage) is the plugin's, and
 only as far as you allowed it.
 """
 

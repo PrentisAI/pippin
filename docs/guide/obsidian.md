@@ -24,13 +24,13 @@ plugins. Set the console's address and, with accounts, a token. No build step.
 
 | What | How |
 |---|---|
-| **Memory panel** | The ribbon icon: what surfaces for the note you are writing (the note and your selection go to AURORA as context; kept a few hours, never stored). |
+| **Memory panel** | The ribbon icon: what surfaces for the note you are writing (the note and your selection go to Pippin as context; kept a few hours, never stored). |
 | **Literature note from a paper** | A DOI, arXiv id or title: a note in your literature folder with the paper's methods, findings and limitations (each marked as stated or inferred) and what your memory makes of it. |
 | **Append an idea unit** | Search your memory, pick a unit: its claim, its sources with their own words, and its conflicts are appended to the note you are in. |
-| **Save the selection to AURORA**, **Send this note now** | Commands. |
+| **Save the selection to Pippin**, **Send this note now** | Commands. |
 
 Creating and appending notes are writes: they happen only as far as you allowed *Create notes in your vault* and
-*Append to an existing note* (account button → What AURORA may write). Off gives you the Markdown to copy, *ask*
+*Append to an existing note* (account button → What Pippin may write). Off gives you the Markdown to copy, *ask*
 shows it first with a **Write it** button, *auto* writes. Each write is logged; Obsidian's file recovery undoes an
 append.
 

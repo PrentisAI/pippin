@@ -35,7 +35,7 @@ export function HelpPanel({ collapsed, panelRef, onAction }: {
   const done = ob?.checklist.filter((c) => c.done).length ?? 0
   const total = ob?.checklist.length ?? 0
   const sections = (pages ?? []).reduce<Record<string, HelpPage[]>>((acc, p) => {
-    (acc[p.section || 'AURORA'] ??= []).push(p)
+    (acc[p.section || 'Pippin'] ??= []).push(p)
     return acc
   }, {})
 
@@ -89,7 +89,7 @@ export function HelpPanel({ collapsed, panelRef, onAction }: {
 
         <section className="help-section">
           <b>Guided tours</b>
-          {([['run', 'A finished run', 'eleven steps over the Citi Bike example'], ['app', 'Around AURORA', 'every button of the left bar'],
+          {([['run', 'A finished run', 'eleven steps over the Citi Bike example'], ['app', 'Around Pippin', 'every button of the left bar'],
             ['start', 'Your own research', 'from a question to a report']] as const).map(([id, label, hint]) => (
             <button key={id} className="help-tour" onClick={() => startTour(id)}>
               <span>{ob?.tours.includes(id) ? '✓ ' : ''}{label}</span><span className="help-hint">{hint}</span>

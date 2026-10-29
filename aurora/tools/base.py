@@ -3,7 +3,7 @@
 Every tool implements :meth:`execute` (the async computation) and
 :meth:`validate_params` (pre-execution parameter check).  Results are
 returned as :class:`ToolResult` Pydantic models so they integrate cleanly
-with the rest of the AURORA data layer.
+with the rest of the Pippin data layer.
 """
 
 from __future__ import annotations

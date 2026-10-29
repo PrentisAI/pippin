@@ -1,4 +1,4 @@
-"""Configuration of an AURORA research campaign.
+"""Configuration of an Pippin research campaign.
 
 A campaign is configured by one YAML file (``aurora run --config ...``) or by
 the web console.  Every section below maps to a block of that file; all fields

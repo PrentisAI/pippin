@@ -379,7 +379,7 @@ function SidebarPanel({
       <div className="sidebar-brand">
         <button className="home-link" title="Home" onClick={onNewProject}>
           <div className="logo">A</div>
-          <div className="name">AURORA</div>
+          <div className="name">Pippin</div>
         </button>
         <button className="new-btn" title="New project" onClick={onNewProject}>+</button>
       </div>
@@ -492,7 +492,7 @@ type HomeMode = 'project' | 'brainstorm'
 
 const HOME_GREETING: HomeMsg = {
   from: 'bot', card: 'paths',
-  text: 'Hi, I’m AURORA. What would you like to do?',
+  text: 'Hi, I’m Pippin. What would you like to do?',
 }
 // what each way needs on this machine, in the order it is set up
 const HOME_NEEDS: Record<HomeMode, string[]> = { project: ['model_key', 'claude', 'docker'], brainstorm: ['model_key'] }
@@ -579,7 +579,7 @@ function WelcomeView({ onSend, onOpenRun, onOpenExample, onBrainstorm }: {
 
   const introduce = (k: string) => {
     const c = check(k)
-    if (k === 'model_key') return 'The models: AURORA reaches them through OpenRouter: one key covers Claude, GPT, Gemini and the rest. Create a key at openrouter.ai → Keys and paste it below. It is saved on this machine, not in this chat.'
+    if (k === 'model_key') return 'The models: Pippin reaches them through OpenRouter: one key covers Claude, GPT, Gemini and the rest. Create a key at openrouter.ai → Keys and paste it below. It is saved on this machine, not in this chat.'
     if (k === 'claude') return 'Claude Code: the program the research agents work in. I can install it for you; it takes about a minute.'
     const why = DOCKER_WHY
     if (c?.action === 'start') return `${why} Docker Desktop is installed but not running yet. If its window is open, accept its terms and enter your Mac password when it asks; otherwise I can start it for you. I’ll notice as soon as it is running.`
@@ -1500,7 +1500,7 @@ function ExperimentView({
   const elapsed = run ? (run.finished_at || now) - run.started_at : 0
   const canResume = run?.status === 'failed' || run?.status === 'stopped'
   const { accounts } = useAuth()
-  // an example that comes with AURORA: everything can be looked at, nothing changed
+  // an example that comes with Pippin: everything can be looked at, nothing changed
   const example = campaignId.startsWith('ex_')
 
   return (
@@ -1614,7 +1614,7 @@ function ExperimentView({
       <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />
       {example && (
         <div className="example-bar">
-          <span><b>An example that comes with AURORA.</b> Look at everything — the stream, the files, the report — and ask its
+          <span><b>An example that comes with Pippin.</b> Look at everything — the stream, the files, the report — and ask its
             front desk about it; nothing here can be changed. Duplicate it to run the question yourself.</span>
           <button className="link-btn" onClick={() => startTour('run')}>Take the tour</button>
         </div>

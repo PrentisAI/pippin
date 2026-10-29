@@ -153,7 +153,7 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
       try {
         upsert(await api.reader.change(n.ann_id, { keep: true }))
         say(view?.zotero.state === 'ok' ? `Kept. The ${n.author}’s note goes to Zotero, in its colour.`
-          : 'Kept. It stays in AURORA until Zotero can take it.')
+          : 'Kept. It stays in Pippin until Zotero can take it.')
         setTimeout(load, 1600)
       } catch (e) { fail(e) }
     },
@@ -286,16 +286,16 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
             {z.state === 'ok' && <span className="rd-text-2">[{p.key}] is in your Zotero ({z.library}). Your notes, and the agents’ notes you keep,
               become annotations on its PDF there: same place, same colour. Replies go into the note’s comment. Notes you make in Zotero show up here too.</span>}
             {z.state === 'off' && <span className="rd-text-2">Connect Zotero and your notes become annotations on the paper’s PDF in your library (and the ones you make in Zotero come here).</span>}
-            {z.state === 'writes_off' && <span className="rd-note-warn">Writing to Zotero is off, so these notes stay in AURORA. Turn on “Send the notes you keep on a PDF as Zotero annotations” under the account button → What AURORA may write.</span>}
-            {z.state === 'read_only' && <span className="rd-note-warn">Your Zotero key can only read, so these notes stay in AURORA for now. Connect a key that can write and they go to Zotero at the next sync.</span>}
+            {z.state === 'writes_off' && <span className="rd-note-warn">Writing to Zotero is off, so these notes stay in Pippin. Turn on “Send the notes you keep on a PDF as Zotero annotations” under the account button → What Pippin may write.</span>}
+            {z.state === 'read_only' && <span className="rd-note-warn">Your Zotero key can only read, so these notes stay in Pippin for now. Connect a key that can write and they go to Zotero at the next sync.</span>}
             {(z.state === 'not_in_zotero' || z.state === 'no_pdf') && <span className="rd-note-warn">
-              {z.state === 'not_in_zotero' ? 'This paper is not in your Zotero' : 'Your Zotero has this paper but not its PDF'}, so the notes stay in AURORA.
+              {z.state === 'not_in_zotero' ? 'This paper is not in your Zotero' : 'Your Zotero has this paper but not its PDF'}, so the notes stay in Pippin.
               {z.can_add ? ' Add it and they follow.' : ' Choose a Zotero collection for this project first, then add it.'}</span>}
             <div className="rd-zrows">
               <div><span>In Zotero</span><b>{z.counts.synced}</b></div>
               <div><span>Going to Zotero</span><b>{z.counts.saving}</b></div>
               <div><span>Suggestions you have not kept (stay here)</span><b>{z.counts.suggested}</b></div>
-              <div><span>Only in AURORA</span><b>{z.counts.local}</b></div>
+              <div><span>Only in Pippin</span><b>{z.counts.local}</b></div>
               {z.connected && <div><span>Last sync</span><b>{ago(z.last_sync)}</b></div>}
             </div>
             {z.error && <span className="rd-note-warn">Last sync: {z.error}</span>}

@@ -1,7 +1,7 @@
-// In Overleaf: a citation for the sentence you are writing, from your own library (⌥⇧C or the AURORA button), each
+// In Overleaf: a citation for the sentence you are writing, from your own library (⌥⇧C or the Pippin button), each
 // with the passage that backs it; and a check of the whole project's references before you submit.
 // Writing into the manuscript (inserting \cite, adding to the .bib) happens only as far as you allowed it in
-// AURORA (account button → What AURORA may write); otherwise you get the text to copy.
+// Pippin (account button → What Pippin may write); otherwise you get the text to copy.
 (() => {
   if (window.__auroraOverleaf) return
   window.__auroraOverleaf = true
@@ -32,7 +32,7 @@
   <div class="fab"><button class="q" data-a="audit" title="Check the project's references before you submit">Check references</button>
   <button data-a="cite" title="Find a citation for this sentence (⌥⇧C)">Cite this</button></div>`
   const card = root.querySelector('.card')
-  const show = (html) => { card.innerHTML = `<div class="head"><b>AURORA</b><button class="x">×</button></div>${html}`; card.hidden = false
+  const show = (html) => { card.innerHTML = `<div class="head"><b>Pippin</b><button class="x">×</button></div>${html}`; card.hidden = false
     card.querySelector('.x').onclick = () => { card.hidden = true } }
 
   async function level(write) {
@@ -48,7 +48,7 @@
     if (!sentence || sentence.length < 8) return show('<div class="sub">Put the cursor in the sentence that needs a citation.</div>')
     show(`<div class="sub">Looking in your library for what backs:</div><blockquote>${esc(sentence)}</blockquote>`)
     const res = await call('/memory/cite', { sentence, context })
-    if (!res || !res.ok) return show(`<div class="bad">${esc((res && res.error) || 'AURORA is not reachable')}</div>`)
+    if (!res || !res.ok) return show(`<div class="bad">${esc((res && res.error) || 'Pippin is not reachable')}</div>`)
     const d = res.data
     const canCite = (await level('overleaf.cite')) !== 'off'
     const canBib = (await level('overleaf.bib')) !== 'off'
@@ -57,7 +57,7 @@
       <div class="row">${canCite ? `<button data-i="${i}" data-a="ins">Insert \\cite{${esc(c.key)}}</button>` : `<button class="q" data-i="${i}" data-a="copy">Copy \\cite{${esc(c.key)}}</button>`}
       ${file.endsWith('.bib') && canBib ? `<button class="q" data-i="${i}" data-a="bib">Add to this .bib</button>` : `<button class="q" data-i="${i}" data-a="copybib">Copy BibTeX</button>`}</div></div>`).join('')
     show(`<blockquote>${esc(sentence)}</blockquote>${items || `<div class="sub">${esc(d.note)}</div>`}
-      ${!canCite && d.candidates.length ? '<div class="sub">Inserting into the manuscript is off; turn on “Insert citations in the manuscript” in AURORA to insert with one click.</div>' : ''}`)
+      ${!canCite && d.candidates.length ? '<div class="sub">Inserting into the manuscript is off; turn on “Insert citations in the manuscript” in Pippin to insert with one click.</div>' : ''}`)
     card.querySelectorAll('button[data-i]').forEach((b) => { b.onclick = async () => {
       const c = d.candidates[Number(b.dataset.i)]
       if (b.dataset.a === 'copy') { await navigator.clipboard.writeText(`\\cite{${c.key}}`); b.textContent = 'Copied' }
@@ -164,12 +164,12 @@
     const tex = Object.entries(files).filter(([k]) => /\.tex$/i.test(k)).map(([, v]) => v).join('\n\n')
     const bib = Object.entries(files).filter(([k]) => /\.bib$/i.test(k)).map(([, v]) => v).join('\n\n')
     const start = await call('/memory/audit', { tex, bib, title: document.title.replace(/ - Overleaf.*/, '') })
-    if (!start || !start.ok) return show(`<div class="bad">${esc((start && start.error) || 'AURORA is not reachable')}</div>`)
+    if (!start || !start.ok) return show(`<div class="bad">${esc((start && start.error) || 'Pippin is not reachable')}</div>`)
     const id = start.data.audit_id
     for (;;) {
       await new Promise((r) => setTimeout(r, 3000))
       const r = await call(`/memory/audits/${id}`)
-      if (!r || !r.ok) return show('<div class="bad">Lost AURORA while checking.</div>')
+      if (!r || !r.ok) return show('<div class="bad">Lost Pippin while checking.</div>')
       const a = r.data
       if (a.state === 'running') { show(`<div class="sub">${esc(a.step || 'Checking…')}</div>`); continue }
       if (a.state === 'failed') return show(`<div class="bad">${esc(a.error)}</div>`)

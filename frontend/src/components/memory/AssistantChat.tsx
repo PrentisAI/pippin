@@ -1,4 +1,4 @@
-/** AURORA at your side: the conversation of the desktop orb and the browser's side panel. Typed here or spoken to the
+/** Pippin at your side: the conversation of the desktop orb and the browser's side panel. Typed here or spoken to the
  *  orb (hold ⌥⇧Space), one thread about everything the console knows: your memory, what is in front of you, your
  *  projects. Buttons open the right page of the console when something needs it. */
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -49,7 +49,7 @@ export function AssistantChat({ refreshKey = 0, onPick }: { refreshKey?: number;
       <div className="as-thread" aria-live="polite">
         {turns && turns.length === 0 && !asking && (
           <div className="as-empty">
-            <b>Ask AURORA anything, without opening the console</b>
+            <b>Ask Pippin anything, without opening the console</b>
             <span className="lit-sub">About your projects, your memory, or what is in front of you. Type here, or hold ⌥⇧Space and speak to the orb.</span>
             <div className="as-starters">{STARTERS.map((s) => <button key={s} className="mem-chip" onClick={() => send(s)}>{s}</button>)}</div>
           </div>
@@ -88,7 +88,7 @@ export function AssistantChat({ refreshKey = 0, onPick }: { refreshKey?: number;
       </div>
       {err && <div className="panel-message error">{err}</div>}
       <form className="as-input" onSubmit={(e) => { e.preventDefault(); send(draft) }}>
-        <textarea rows={2} value={draft} placeholder="Ask, or tell AURORA something…" aria-label="Message to AURORA"
+        <textarea rows={2} value={draft} placeholder="Ask, or tell Pippin something…" aria-label="Message to Pippin"
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(draft) } }} />
         <div className="as-input-row">

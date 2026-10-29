@@ -69,7 +69,7 @@ The model is `models.brainstorm` (default: the front desk's).
 When you are drawn to something but do not know yet what exactly to ask ("I want to work on memory for
 robots, not sure what"), the Mentor answers; name it (`@Mentor`) or press **Help me think it through** on an
 idea to bring it in yourself. It follows the Socratic Mentor of
-[Academic Research Skills](https://github.com/Imbad0202/academic-research-skills) (ARS), whose files AURORA
+[Academic Research Skills](https://github.com/Imbad0202/academic-research-skills) (ARS), whose files Pippin
 reads at run time (`aurora/third_party/ars/`, CC BY-NC 4.0):
 
 - **It asks, it does not propose.** Each reply takes up what you said and asks one or two questions: what you
@@ -120,7 +120,7 @@ convergence.
   for, and asks how it could inspire a new version; then it asks you to write two
   or three versions yourself. They are listed exactly as you wrote them; pick one
   to go on with. (This goes beyond the ARS protocol, which gives no content; it is
-  AURORA's extension.)
+  Pippin's extension.)
 - **Versions of an idea.** Whatever you take, pick or edit becomes the idea's next
   version, marked as yours, an AI draft you edited (with how much of the text is
   your own words), or the AI's draft as it was. The history is on the idea and
@@ -130,7 +130,7 @@ convergence.
   letting the Skeptic attack it, mapping the field, the round table); answer in
   words, or say what you would rather do.
 
-For evaluation, AURORA keeps what happens (stimuli, drafts, what was taken and how
+For evaluation, Pippin keeps what happens (stimuli, drafts, what was taken and how
 much was changed) without showing it. `GET /api/brainstorm/spaces/{space}/ideation-metrics`
 gives the diversity of a space's ideas (each idea's distance to the centroid of the
 others, embedded with `openai/text-embedding-3-large`, or word overlap when

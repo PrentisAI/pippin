@@ -1,4 +1,4 @@
-// The side panel shows your memory panel from the AURORA console; it is told when what you are reading changes.
+// The side panel shows your memory panel from the Pippin console; it is told when what you are reading changes.
 const frame = document.getElementById('panel')
 const msg = document.getElementById('msg')
 
@@ -6,7 +6,7 @@ chrome.runtime.sendMessage({ type: 'aurora:panel-url' }).then(({ url }) => {
   frame.src = url
   frame.hidden = false
   msg.hidden = true
-  frame.addEventListener('error', () => { msg.hidden = false; msg.textContent = `Cannot reach AURORA at ${url}. Check the address in the extension’s options.` })
+  frame.addEventListener('error', () => { msg.hidden = false; msg.textContent = `Cannot reach Pippin at ${url}. Check the address in the extension’s options.` })
 })
 
 chrome.runtime.onMessage.addListener((m) => {
@@ -36,10 +36,10 @@ async function checkPdf() {
   chrome.runtime.sendMessage({ type: 'aurora:api', path: '/memory/context', body: { app: 'Browser', title: tab.title || '', url: base, via: 'extension' } })
   const rel = await chrome.runtime.sendMessage({ type: 'aurora:relate', url: base, title: tab.title || '' })
   const paper = rel && rel.ok && rel.data.paper
-  if (!paper) { pdfHead.textContent = 'AURORA does not recognise this PDF as a paper.'; return }
+  if (!paper) { pdfHead.textContent = 'Pippin does not recognise this PDF as a paper.'; return }
   const r = await chrome.runtime.sendMessage({ type: 'aurora:api', path: `/memory/dissent?paper=${encodeURIComponent(paper.paper_id)}` })
   if (base !== shown) return
-  if (!r || !r.ok) { pdfHead.textContent = (r && r.error) || 'Could not reach AURORA'; return }
+  if (!r || !r.ok) { pdfHead.textContent = (r && r.error) || 'Could not reach Pippin'; return }
   const items = r.data.items
   if (!items.length) { pdfHead.textContent = r.data.note || 'Nothing you saved argues with this paper.'; return }
   pdfHead.textContent = `${items.length} sentence${items.length > 1 ? 's' : ''} your saves argue with`

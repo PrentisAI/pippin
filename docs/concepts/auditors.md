@@ -1,7 +1,7 @@
 # Auditors
 
 Long campaigns go wrong in two ways: a phase hands bad output to the next one,
-and an agent goes astray in the middle of long work. AURORA has one auditor
+and an agent goes astray in the middle of long work. Pippin has one auditor
 for each.
 
 ## Milestone auditor

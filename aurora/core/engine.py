@@ -191,7 +191,7 @@ class CampaignResult(BaseModel):
 
 
 class ResearchEngine:
-    """Orchestrates a complete AURORA research campaign.
+    """Orchestrates a complete Pippin research campaign.
 
     Parameters
     ----------

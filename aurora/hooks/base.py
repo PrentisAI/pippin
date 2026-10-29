@@ -1,6 +1,6 @@
 """Hook infrastructure for JIT audit and checkpoint triggers (Section F.3).
 
-The hook system provides event-driven extensibility across the AURORA
+The hook system provides event-driven extensibility across the Pippin
 pipeline.  Each :class:`Hook` declares the :class:`HookPoint` values it
 subscribes to and an async ``execute`` method that receives a
 :class:`HookContext` snapshot and returns a :class:`HookResult`.

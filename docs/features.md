@@ -1,6 +1,6 @@
-# Everything AURORA does
+# Everything Pippin does
 
-This page lists every feature of AURORA in one place, grouped by what you are doing. Each section says what the
+This page lists every feature of Pippin in one place, grouped by what you are doing. Each section says what the
 feature does, how you reach it, and the settings that matter; the linked pages go into detail.
 
 | Area | In short |
@@ -20,7 +20,7 @@ feature does, how you reach it, and the settings that matter; the linked pages g
 | [Zotero](#zotero) | two-way sync, annotations both ways, and a Zotero 7 plugin |
 | [The shared memory](#the-shared-memory) | everything you save, kept by claim; what bears on what you do surfaces |
 | [Where you read and write](#where-you-read-and-write) | browser extension, Overleaf, macOS orb, Obsidian, voice |
-| [What AURORA may write](#what-aurora-may-write) | every write into your tools off by default, logged, undoable |
+| [What Pippin may write](#what-aurora-may-write) | every write into your tools off by default, logged, undoable |
 | [Accounts and sharing](#accounts-and-sharing) | sign-in, roles, sharing, own keys, confidential projects, team rules |
 | [Notifications](#notifications) | WeCom, Feishu, Slack, WeChat, webhooks; answer decisions from the phone |
 | [Around the console](#around-the-console) | files, search, analytics, settings, settings by conversation |
@@ -39,7 +39,7 @@ feature does, how you reach it, and the settings that matter; the linked pages g
 | **`aurora init`** | Writes a commented starter `aurora.yaml`. |
 | **Welcome** | The first time someone opens the console (with accounts, every new member): *Welcome*, *Connect* (what this machine has and lacks, each with how to fix it; the model key), *Your way of working* (field, supervised or autonomous, budget), *Start* (example, demo or own research). Every step can be skipped; **Help → Open the welcome again**. |
 | **Examples** | Finished runs to look at, read-only: *Citi Bike usage patterns* (a real run, with a screening decision and the live auditor stopping the agent) and the scripted demo. **Duplicate** makes a project of your own with the same question. Each person can hide them; an admin can withdraw one. |
-| **The tour** | Three chapters of spotlights: *A finished run*, *Around AURORA* (every button of the left bar), *Your own research*. Arrow keys move, Esc ends. |
+| **The tour** | Three chapters of spotlights: *A finished run*, *Around Pippin* (every button of the left bar), *Your own research*. Arrow keys move, Esc ends. |
 | **Help (?)** | Ask how to do something (answered from the documentation, with links); a *Getting started* checklist that ticks itself; the tours, the examples and every guide, read in the console. |
 | **First-time tips** | The first proposal card, decision, running run, report, Compare, Fork, GPU jobs, Brainstorm and Library each get a short tip; *Got it* hides it for good. |
 | **Setup card** | On the start page: what a run needs (key, Claude Code, Docker) and what helps (image pulled, GPU jobs, notifications, OpenAlex key), each with its fix. Without accounts the key can be pasted there and the image pulled with one click. |
@@ -97,7 +97,7 @@ earlier outputs and transcripts are. See [How a campaign runs](concepts/pipeline
   suggestions, evidence, build-ons) and responses, follow-ups, open discussion, and the chair's decision from its
   notes. The transcript, notes and decision are saved; the meeting streams live in the console.
 - **Literature during the meeting**: before presenting and before answering remarks, a seat chooses search
-  queries that AURORA runs on the scholarly indexes; every reference it cites is checked and a not-found paper is
+  queries that Pippin runs on the scholarly indexes; every reference it cites is checked and a not-found paper is
   marked unsupported for everyone. Optional web search through OpenRouter.
 - **Starting from your idea** (`ideation.develop_objective`): the seats develop the objective into its strongest
   version and say what is wrong with it, instead of proposing other directions.
@@ -212,7 +212,7 @@ experiment at any time. See [Working with the human](concepts/human-in-the-loop.
 | **Recorded results** | Agents record every number as they compute it (`aurora results record`): value, unit, uncertainty, the script's path, hash and a **copy as it was then**, the command, inputs, outputs, the job and the time. IDs `R1`, `R2`…; recording again supersedes (the old one stays). |
 | **Checked citations of results** | When the report is written, its `{R3}` IDs are checked: unknown IDs and superseded results are reported. |
 | **The report view** | Every number a chip showing its provenance (open the script now or as it was, copy the command); every reference a chip opening the paper; *What was done*, *Key results*, *Conclusions*, *Figures*. |
-| **Downloads** | *Report (zip)*: `report.md`, `report.tex` (made by AURORA, with `\citep` and a results appendix), figures, `references.bib`, results as CSV and JSON, provenance, `environment.txt`, `reproduce.sh`. *Everything (zip)*: the whole run directory (up to 2 GB). |
+| **Downloads** | *Report (zip)*: `report.md`, `report.tex` (made by Pippin, with `\citep` and a results appendix), figures, `references.bib`, results as CSV and JSON, provenance, `environment.txt`, `reproduce.sh`. *Everything (zip)*: the whole run directory (up to 2 GB). |
 | **`reproduce.sh`** | Replays the commands that produced the results and the GPU jobs, in the run's image, after installing the saved `pip freeze`. |
 | **Put into Overleaf** | Sends the report, figures, bib and results into a folder of an Overleaf project through its git integration; one commit in your name; the token is stored encrypted. |
 | **Compare** | Runs side by side: setup, outcome (cost, time, direction, screening scores, GPU hours), results matched by name, conclusions; differences marked; *Only what differs*. |
@@ -344,7 +344,7 @@ See [Zoom out and zoom in](concepts/zoom-out-zoom-in.md).
 
 - New papers, posts, blogs and discussions from the people and sources you follow, ranked against every project
   you can see, each with **Why for <project>** and how well it fits.
-- **People**: by name (pick the right one among namesakes), profile link, ORCID or handle; AURORA finds their
+- **People**: by name (pick the right one among namesakes), profile link, ORCID or handle; Pippin finds their
   other places (Bluesky, Mastodon, X, blog) and you choose what to follow from each.
 - **Topics**: arXiv categories and keywords, and topics worked out from your projects' objectives.
 - **Other sources**: HF Daily Papers, discussions around your projects' papers (Bluesky, Hacker News,
@@ -365,7 +365,7 @@ See [The feed](guide/feed.md).
 - **The Zotero 7 plugin**: every paper you add is read in the background into a card (methods, findings,
   limitations, each marked stated or inferred) with what your memory makes of it; the sentences your saves argue
   with (opening the PDF at the page, and orange margin marks when allowed, removable); in the reader, **What my
-  saves say** and **Save to AURORA** for a selection; **Save the card as a note** when allowed.
+  saves say** and **Save to Pippin** for a selection; **Save the card as a note** when allowed.
 
 See [Zotero](guide/zotero.md).
 
@@ -470,10 +470,10 @@ See [Browser extension and desktop app](guide/extension-and-desktop.md) and [Voi
 Without accounts nothing beyond the console's address; with accounts a **device token** per entry point (Memory
 page → *Browser extension and desktop app* → **Make a token**), revocable, with when it was last used.
 
-## What AURORA may write
+## What Pippin may write
 
 - Reading your pages, Zotero, notes and manuscripts needs no permission; **every kind of write is off** until you
-  change it under the account button → **What AURORA may write**.
+  change it under the account button → **What Pippin may write**.
 - Levels: **Off** (you get what it would write, to copy), **When I do it**, **Also on its own**.
 - Kinds: save papers and PDFs to Zotero; write notes on Zotero items; send PDF notes as Zotero annotations; mark
   items to read; insert citations in Overleaf; add `.bib` entries; create notes in Obsidian; append to a note.

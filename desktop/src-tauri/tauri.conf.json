@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "AURORA",
+  "productName": "Pippin",
   "version": "0.1.0",
   "identifier": "ai.prentis.aurora",
   "build": { "frontendDist": "../ui" },
@@ -10,7 +10,7 @@
     "windows": [
       {
         "label": "orb",
-        "title": "AURORA",
+        "title": "Pippin",
         "url": "orb.html",
         "width": 76,
         "height": 76,

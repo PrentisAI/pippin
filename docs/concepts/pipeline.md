@@ -122,4 +122,4 @@ report (OpenRouter) for all agent sessions and API calls.
 `mock_mode: true` (or `aurora demo`) replaces every model with a scripted mock
 and every tool with a simulation. Nothing external runs. The pipeline, the
 files and the events are the same as in a real run, which makes it useful for
-trying AURORA, for developing integrations and for tests.
+trying Pippin, for developing integrations and for tests.

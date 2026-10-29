@@ -1,7 +1,7 @@
 # Multi-agent ideation
 
 A single model, sampled repeatedly, tends to propose variations of the same
-idea. AURORA draws on several model families instead and lets a chair from
+idea. Pippin draws on several model families instead and lets a chair from
 another family choose.
 
 ```yaml
@@ -60,7 +60,7 @@ ideation:
 ```
 
 Before a seat presents, and before it answers remarks on its idea, it chooses
-search queries. AURORA runs them on the scholarly indexes and gives the seat the
+search queries. Pippin runs them on the scholarly indexes and gives the seat the
 papers found. Every reference a seat cites is checked, and one that cannot be
 found is marked unsupported for everyone at the meeting (see
 [Literature](literature.md)). With `web_search`, seats can also search the web

@@ -30,7 +30,7 @@ def test_decision_links_in_each_channel():
         flat = str(body)
         assert "http://c/a/t1" in flat and "http://c/a/t2" in flat, kind
     _, card = _request(NotifyChannel(type="feishu", target="https://hook/x"), "decision_needed", "T", "d", "http://c/run", {}, links)
-    assert [b["text"]["content"] for b in card["card"]["elements"][1]["actions"]] == ["Open in AURORA", "Approve and continue", "Stop the experiment"]
+    assert [b["text"]["content"] for b in card["card"]["elements"][1]["actions"]] == ["Open in Pippin", "Approve and continue", "Stop the experiment"]
 
 
 async def test_held_in_quiet_hours_and_links_added():

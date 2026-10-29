@@ -1,4 +1,4 @@
-"""Base agent abstraction for AURORA.
+"""Base agent abstraction for Pippin.
 
 Every agent receives an :class:`AgentContext` (reconstructed on demand, never
 persisted wholesale) and returns one or more :class:`AgentAction` objects that
@@ -36,7 +36,7 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class AgentRole(str, Enum):
-    """Roles an agent can assume in the AURORA pipeline."""
+    """Roles an agent can assume in the Pippin pipeline."""
 
     RESEARCHER = "researcher"
     AUDITOR = "auditor"
@@ -123,7 +123,7 @@ class AgentContext:
 
 
 class Agent(ABC):
-    """Abstract base class for all AURORA agents.
+    """Abstract base class for all Pippin agents.
 
     Each agent:
     1. Receives a reconstructed context (never the full workspace)

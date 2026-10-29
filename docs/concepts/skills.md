@@ -4,7 +4,7 @@ Skills carry know-how from one campaign to the next: experts' conventions, the
 procedures that worked and the failures that were diagnosed. They are
 [Claude Code skills](https://docs.claude.com/en/docs/claude-code/skills): a
 folder with a `SKILL.md` that an agent loads when its task matches. Before every
-agent session AURORA writes the current library to the campaign's
+agent session Pippin writes the current library to the campaign's
 `.claude/skills/` (and, for agents inside the container, to their home), and
 lists the skills in the agent's system prompt, so it knows when to use them.
 
@@ -35,7 +35,7 @@ reason it was replaced.
 
 When you correct an agent — an instruction relayed by the front desk to a
 working agent, one given before research starts (kept for the planning and
-research agents), or a message with your answer at a decision point — AURORA
+research agents), or a message with your answer at a decision point — Pippin
 asks whether it is a
 reusable correction or convention (a default setting, a validity rule, a
 resource or safety rule, a method constraint) rather than a decision about this
@@ -45,7 +45,7 @@ processes you did not start" becomes a skill; "use only the 2024 data" does not.
 
 ### The agents' own runs (self-distillation)
 
-After every research job, and after each other phase passes its audit, AURORA
+After every research job, and after each other phase passes its audit, Pippin
 reads what the agent did (its transcript, failures in full) together with the
 library, and proposes up to three skills: procedures that worked, with the
 settings that mattered and how they were validated, and failures that were

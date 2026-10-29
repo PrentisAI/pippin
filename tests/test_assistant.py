@@ -1,4 +1,4 @@
-"""AURORA at your side: one conversation from the orb or the side panel, answered with tools over the memory and the
+"""Pippin at your side: one conversation from the orb or the side panel, answered with tools over the memory and the
 projects, kept per person so it goes on where it stopped, with buttons that open the console."""
 
 import json

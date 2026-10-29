@@ -98,7 +98,7 @@ export function ZoteroDialog({ onClose, onChanged }: { onClose: () => void; onCh
               <b>{report!.held} paper{report!.held === 1 ? '' : 's'} not sent to Zotero yet.</b>{' '}
               {report!.held_level === 'ask'
                 ? 'Saving papers to Zotero is set to “When I do it”, so a sync does not send them on its own.'
-                : 'Saving papers to Zotero is off (account button → What AURORA may write).'}
+                : 'Saving papers to Zotero is off (account button → What Pippin may write).'}
               <div className="bs-row">
                 {report!.held_level === 'ask' && (
                   <button className="btn-sm btn-approve" disabled={busy} onClick={() => run(async () => {
@@ -139,18 +139,18 @@ export function ZoteroDialog({ onClose, onChanged }: { onClose: () => void; onCh
     body = (
       <>
         <div className="modal-body">
-          <div className="modal-hint">Step 1 of 3 · How should AURORA reach your Zotero?</div>
+          <div className="modal-hint">Step 1 of 3 · How should Pippin reach your Zotero?</div>
           <label className="modal-check">
             <input type="radio" name="zm" checked={method === 'web'} onChange={() => setMethod('web')} />
             <span><b>Your Zotero account</b> <span className="lit-ok">recommended</span><br />
-              <span className="modal-hint">Works wherever AURORA runs, with your own library and your group libraries, both ways. Create a key at
+              <span className="modal-hint">Works wherever Pippin runs, with your own library and your group libraries, both ways. Create a key at
                 zotero.org → Settings → Security → <i>Create new private key</i>, with library access and, to send papers back, write access.</span></span>
           </label>
           {method === 'web' && <input type="password" placeholder="Paste the key" aria-label="Zotero API key" value={key} onChange={(e) => setKey(e.target.value)} />}
           <label className="modal-check">
             <input type="radio" name="zm" checked={method === 'local'} onChange={() => setMethod('local')} />
             <span><b>Zotero 7 on this computer</b><br />
-              <span className="modal-hint">Only if AURORA runs on the computer where Zotero is. Read-only, and only while Zotero is open.
+              <span className="modal-hint">Only if Pippin runs on the computer where Zotero is. Read-only, and only while Zotero is open.
                 In Zotero: Settings → Advanced → “Allow other applications on this computer to communicate with Zotero”.</span></span>
           </label>
           {error && <div className="modal-error">{error}</div>}

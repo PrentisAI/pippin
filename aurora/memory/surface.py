@@ -65,7 +65,7 @@ def pdf_title(title: str) -> tuple[str, str]:
 
 
 async def infer_paper(owner: str, ctx: dict[str, Any]) -> dict[str, Any]:
-    """In a PDF reader that is not AURORA's (Preview, Acrobat…) only the file name is known: which paper it is, if
+    """In a PDF reader that is not Pippin's (Preview, Acrobat…) only the file name is known: which paper it is, if
     it can be told. An arXiv id in the name; a paper of your Library or your memory with that title; else the
     scholarly indexes, by the title in the name (Zotero names files "Author - Year - Title")."""
     import difflib

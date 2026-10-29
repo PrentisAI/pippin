@@ -21,7 +21,7 @@
     button.b{border:1px solid #2d6cdf;background:#2d6cdf;color:#fff;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:12.5px}
     button.b.q2{background:#fff;color:#2d6cdf}button.b:disabled{opacity:.5;cursor:default}
     textarea{width:100%;font:11px ui-monospace,monospace;margin-top:6px}
-  </style><button class="tab" hidden>AURORA</button><div class="card" hidden></div>`
+  </style><button class="tab" hidden>Pippin</button><div class="card" hidden></div>`
   const tab = root.querySelector('.tab')
   const card = root.querySelector('.card')
   const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
@@ -37,7 +37,7 @@
       <div>${esc(q.how || q.text)}</div></div>`).join('')
     const us = d.units.map((u) => `<div class="u">${esc(u.relation || '')}<div class="sub">${esc(u.claim)}</div></div>`).join('')
     const z = d.zotero
-    card.innerHTML = `<div class="head"><b>AURORA</b><button class="x" title="Close">×</button></div>
+    card.innerHTML = `<div class="head"><b>Pippin</b><button class="x" title="Close">×</button></div>
       ${d.paper ? `<div class="sub">${esc(d.paper.byline || '')}</div>` : ''}
       ${d.quiet ? '<div class="sub">It does not bear on your research questions or on what you saved.</div>' : ''}
       ${qs ? '<div class="sub" style="margin-top:8px">Your questions</div>' + qs : ''}
@@ -58,7 +58,7 @@
     if (db) db.onclick = async () => {
       db.disabled = true; db.textContent = 'Reading it against your memory…'
       const r = await chrome.runtime.sendMessage({ type: 'aurora:api', path: `/memory/dissent?paper=${encodeURIComponent(d.paper.paper_id)}` })
-      if (!r || !r.ok) { db.textContent = (r && r.error) || 'Could not reach AURORA'; return }
+      if (!r || !r.ok) { db.textContent = (r && r.error) || 'Could not reach Pippin'; return }
       const pdf = d.paper.arxiv ? `https://arxiv.org/pdf/${d.paper.arxiv}` : ''
       const list = r.data.items.map((it) => `<div class="u" style="border-left:3px solid #f59e0b">
         ${pdf ? `<a href="${pdf}#page=${it.page + 1}" target="_blank">p. ${it.page + 1}</a>` : `p. ${it.page + 1}`}: “${esc(it.quote)}”
@@ -71,13 +71,13 @@
       const r = await chrome.runtime.sendMessage({ type: 'aurora:zotero', paper_id: d.paper.paper_id })
       if (r && r.ok && r.data.saved) { zb.textContent = 'In Zotero'; return }
       zb.disabled = false
-      const why = r && r.ok ? r.data.reason : (r && r.error) || 'Could not reach AURORA'
+      const why = r && r.ok ? r.data.reason : (r && r.error) || 'Could not reach Pippin'
       render(`<div class="sub" style="margin-top:8px">${esc(why)}</div>${r && r.ok && r.data.bibtex ? `<textarea rows="6" readonly>${esc(r.data.bibtex)}</textarea>` : ''}`)
     }
   }
 
   chrome.runtime.sendMessage({ type: 'aurora:relate', url: location.href, title: document.title }).then((r) => {
-    if (!r || !r.ok) return              // AURORA not reachable: stay out of the way
+    if (!r || !r.ok) return              // Pippin not reachable: stay out of the way
     data = r.data
     render()
     tab.hidden = false

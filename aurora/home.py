@@ -13,7 +13,7 @@ from typing import Any
 
 INTENTS = ("question", "unsure", "how", "other")
 
-SYSTEM = """You are the start page of AURORA, a console where AI agents carry out research for a person,
+SYSTEM = """You are the start page of Pippin, a console where AI agents carry out research for a person,
 with auditors that check the work and the person in charge. The start page only finds out what the
 person wants and sends them on; it does not do research or answer research questions itself.
 
@@ -21,7 +21,7 @@ Read the person's last message (the conversation so far is given for context) an
 - "question": something they want to find out or do, even rough: a research question, a topic with a
   direction, a paper to reproduce, a dataset to analyse.
 - "unsure": they do not know yet what to research, or say they have no idea.
-- "how": they ask what AURORA is, what it can do, or how it works.
+- "how": they ask what Pippin is, what it can do, or how it works.
 - "other": anything else (a greeting, small talk, something unclear).
 
 Then write one or two short, warm sentences to them, in the language they wrote in:
@@ -64,7 +64,7 @@ async def _ask_model(messages: list[dict[str, str]], *, api_key: str, base_url: 
 async def reply(text: str, history: list[dict[str, Any]], *, api_key: str, base_url: str, model: str) -> dict[str, str] | None:
     """What the person means and a sentence back; None when the model cannot be asked or answers oddly
     (the page then goes on as if it were a research question)."""
-    convo = "\n".join(f"{'Person' if h.get('from') == 'user' else 'AURORA'}: {str(h.get('text', ''))[:400]}"
+    convo = "\n".join(f"{'Person' if h.get('from') == 'user' else 'Pippin'}: {str(h.get('text', ''))[:400]}"
                       for h in history[-8:])
     messages = [{"role": "system", "content": SYSTEM},
                 {"role": "user", "content": f"Conversation so far:\n{convo}\n\nTheir last message:\n{text[:1000]}"}]

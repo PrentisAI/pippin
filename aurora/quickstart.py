@@ -154,7 +154,7 @@ def open_console(assume: bool, port: int) -> None:
 
 def main(assume: bool = False, port: int = 8000, serve: bool = True) -> int:
     from aurora import __version__
-    print(f"AURORA {__version__} — a few steps and you are running.\n")
+    print(f"Pippin {__version__} — a few steps and you are running.\n")
     ready = check_machine(assume)
     print()
     have_key = set_key(assume)

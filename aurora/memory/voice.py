@@ -1,4 +1,4 @@
-"""Speaking to AURORA: hold a key, say it, let go.
+"""Speaking to Pippin: hold a key, say it, let go.
 
 What you say is understood together with what you are doing at that moment, so "this paragraph", "this figure",
 "this paper", "the one before" and "the second one" (of the digest you just heard) mean something concrete:
@@ -11,7 +11,7 @@ What you say is understood together with what you are doing at that moment, so "
 
 Answers are short when spoken and complete on the panel, with their sources (citations are hard to read aloud).
 Writes are confirmed in words ("added to your reading list; say undo to take it back") when you allowed them;
-when a write is set to "ask", AURORA asks and your next words decide; when it is off, AURORA says where to turn it
+when a write is set to "ask", Pippin asks and your next words decide; when it is off, Pippin says where to turn it
 on. Large writes (the manuscript) are never made by voice: they are shown on the panel.
 
 Speech recognition runs on your machine: the desktop app runs whisper.cpp itself and sends the words, or the
@@ -444,8 +444,8 @@ async def _note(access: Any, models: dict[str, str], owner: str, said: str, thou
         _pending[owner] = w
         res["speech"] += " " + w["question"]
     else:
-        res["speech"] += " " + _say(zh, "只记在 AURORA 里；要同时写进 Zotero 笔记，在账号按钮 → AURORA 可以写什么 里打开。",
-                                   "Kept in AURORA only; to write it to Zotero as well, allow it under the account button → What AURORA may write.")
+        res["speech"] += " " + _say(zh, "只记在 Pippin 里；要同时写进 Zotero 笔记，在账号按钮 → Pippin 可以写什么 里打开。",
+                                   "Kept in Pippin only; to write it to Zotero as well, allow it under the account button → What Pippin may write.")
     return res
 
 
@@ -468,7 +468,7 @@ async def _write(owner: str, said: str, w: dict[str, Any], zh: bool, prefix: str
     try:
         if w["write"] == "zotero.note":
             made = await client.create_items(item["library"], [{"itemType": "note", "parentItem": item["item_key"],
-                                                                "note": f"<p>{h.escape(w['note'])}</p><p><i>Said to AURORA "
+                                                                "note": f"<p>{h.escape(w['note'])}</p><p><i>Said to Pippin "
                                                                         f"{time.strftime('%Y-%m-%d %H:%M')}</i></p>",
                                                                 "tags": [{"tag": "aurora"}]}])
             key = next((v["key"] for v in made.values() if v.get("key")), "")

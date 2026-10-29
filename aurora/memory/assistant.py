@@ -1,4 +1,4 @@
-"""AURORA at your side: one conversation, from the desktop orb (typed or spoken) or the browser's side panel, about
+"""Pippin at your side: one conversation, from the desktop orb (typed or spoken) or the browser's side panel, about
 everything the console knows, without opening it.
 
 It is the front desk's tool loop with the whole system in reach rather than one project: your memory (what you
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 TURNS = 200                      # kept per person
 SPOKEN = 260                     # a reply longer than this is shown on the panel too, not only said
 
-SYSTEM = """You are AURORA, the research assistant at the researcher's side: a small orb on their desktop, or a \
+SYSTEM = """You are Pippin, the research assistant at the researcher's side: a small orb on their desktop, or a \
 panel beside what they read. They ask you things in passing, without opening the console; answer so they need \
 not open it.
 

@@ -33,7 +33,7 @@ export function AccountButton({ onOpenTeam }: { onOpenTeam: () => void }) {
             <div className="account-who"><b>Single-user console</b><span>No accounts: nothing asks for a sign-in.</span></div>
           )}
           {auth.accounts && <button role="menuitem" onClick={() => { setOpen(false); setKeysOpen(true) }}>Your API keys</button>}
-          <button role="menuitem" onClick={() => { setOpen(false); setWritesOpen(true) }}>What AURORA may write</button>
+          <button role="menuitem" onClick={() => { setOpen(false); setWritesOpen(true) }}>What Pippin may write</button>
           <button role="menuitem" onClick={() => { setOpen(false); onOpenTeam() }}>{auth.accounts ? `Team: ${auth.team}` : 'Working with others'}</button>
           {auth.accounts && <button role="menuitem" onClick={() => auth.signOut()}>Sign out</button>}
         </div>
@@ -89,7 +89,7 @@ function KeysDialog({ onClose }: { onClose: () => void }) {
 
 const LEVEL_LABEL: Record<WriteLevel, string> = { off: 'Off', ask: 'When I do it', auto: 'Also on its own' }
 
-/** What AURORA may write into your own tools: each kind of write is off until you allow it. */
+/** What Pippin may write into your own tools: each kind of write is off until you allow it. */
 function WritesDialog({ onClose }: { onClose: () => void }) {
   const [w, setW] = useState<WriteSettings | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -105,10 +105,10 @@ function WritesDialog({ onClose }: { onClose: () => void }) {
   const targets = w ? [...new Set(Object.values(w.writes).map((x) => x.target))] : []
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal modal-wide" role="dialog" aria-modal="true" aria-label="What AURORA may write" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="modal-title">What AURORA may write</div>
+      <div className="modal modal-wide" role="dialog" aria-modal="true" aria-label="What Pippin may write" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="modal-title">What Pippin may write</div>
         <div className="modal-body">
-          <div className="modal-hint">AURORA reads your pages, Zotero, notes and manuscripts freely. It writes into them only as far as you allow here,
+          <div className="modal-hint">Pippin reads your pages, Zotero, notes and manuscripts freely. It writes into them only as far as you allow here,
             one kind at a time: <b>Off</b> (it offers what it would write, for you to copy), <b>When I do it</b> (only when you click or say it),
             or <b>Also on its own</b> (a sync may write too). Every write is logged and can be undone. It never changes your manuscript’s text.</div>
           {targets.map((t) => (

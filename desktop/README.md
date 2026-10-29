@@ -1,4 +1,4 @@
-# AURORA for macOS
+# Pippin for macOS
 
 The orb at the edge of your screen, and your memory panel. See
 [Browser extension and desktop app](../docs/guide/extension-and-desktop.md) for what it does.
@@ -12,13 +12,13 @@ line tools:
 cd desktop
 npm install
 npm run icons        # the app icons, from src-tauri/icons/icon.png
-npm run build        # src-tauri/target/release/bundle/macos/AURORA.app and a .dmg
+npm run build        # src-tauri/target/release/bundle/macos/Pippin.app and a .dmg
 ```
 
 `npm run dev` runs it without bundling.
 
 The first time it runs, macOS asks to allow Accessibility access (System Settings → Privacy & Security →
-Accessibility): the app reads which app and window are in front, to tell AURORA what you are doing. It works
+Accessibility): the app reads which app and window are in front, to tell Pippin what you are doing. It works
 without it; it then does not know. The first time you hold ⌥⇧Space it asks for the Microphone, and the first time
 you say "this figure", for Screen Recording (only the window in front is captured, only then).
 
@@ -37,5 +37,5 @@ voice. **Listen to today's digest** is there too.
 | Drop a link, a selection or a file on it | saved into your memory |
 | Drag it | it moves |
 | ⌥ Space | show or hide the panel |
-| Hold ⌥⇧Space | talk to AURORA; let go to send (pressing again stops it speaking) |
+| Hold ⌥⇧Space | talk to Pippin; let go to send (pressing again stops it speaking) |
 | ⌥⇧N | type a thought about what is in front |

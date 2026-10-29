@@ -1,4 +1,4 @@
-"""The first minutes: the examples that come with AURORA, the welcome wizard and a person's defaults,
+"""The first minutes: the examples that come with Pippin, the welcome wizard and a person's defaults,
 the getting-started checklist, help from the documentation, the demo, aurora quickstart."""
 
 from aurora import examples

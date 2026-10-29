@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "AURORA",
+  "name": "Pippin",
   "version": "0.1.0",
   "description": "Your research assistant where you read: save anything into your memory, see how a paper relates to your questions, follow people and threads.",
   "icons": {
@@ -9,7 +9,7 @@
     "128": "icons/128.png"
   },
   "action": {
-    "default_title": "AURORA"
+    "default_title": "Pippin"
   },
   "background": {
     "service_worker": "background.js",
@@ -73,7 +73,7 @@
       "suggested_key": {
         "default": "Alt+Shift+S"
       },
-      "description": "Save this page (or the selection) to AURORA"
+      "description": "Save this page (or the selection) to Pippin"
     },
     "_execute_action": {
       "suggested_key": {

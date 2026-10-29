@@ -5,7 +5,7 @@ model: a question mode (the model gives a piece of knowledge or an analogy and a
 of their idea, picks one, and is asked to elaborate it), a suggestion mode, and a model-led mode (the model
 rewrites the idea, once or over rounds). The question mode gave better ideas that stayed diverse and that people
 felt were theirs; the one-shot rewrite gave good ideas that converged and that people did not feel were theirs,
-while the iterative rewrite did not converge. In AURORA every move leaves room for the researcher:
+while the iterative rewrite did not converge. In Pippin every move leaves room for the researcher:
 
 * **Drafts** (model-led): an agent writes two or three drafts when asked; the researcher edits any of them in
   place, takes one, or asks for another round from it (their version first, then new variants).

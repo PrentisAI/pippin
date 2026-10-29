@@ -1,4 +1,4 @@
-"""Domain-specific skills for AURORA (Section D).
+"""Domain-specific skills for Pippin (Section D).
 
 Skills encapsulate established conventions, recommended procedures, and
 domain-specific validation checks so that agents can invoke them rather

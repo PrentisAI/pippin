@@ -1,4 +1,4 @@
-"""Computational tools for AURORA.
+"""Computational tools for Pippin.
 
 Tools are low-level executors that perform specific computational operations
 (DFT calculations, structure manipulation, data analysis, etc.).  Each tool

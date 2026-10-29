@@ -11,7 +11,7 @@ aurora serve              # then open http://localhost:8000
 **The welcome.** The first time a person opens the console — you, and with
 accounts every new member — a short welcome takes them through four steps:
 
-1. *Welcome*: what AURORA does, who checks the work, where they come in.
+1. *Welcome*: what Pippin does, who checks the work, where they come in.
 2. *Connect*: what this machine has and what is missing, each with how to fix
    it, and the model key (without accounts the console's, with accounts their
    own). Optional extras (GPU jobs, notifications, OpenAlex, Zotero) can wait.
@@ -36,7 +36,7 @@ and an admin can take one out of the console (and put it back).
 what it is and what to do there: *A finished run* (the project list, the status
 of a run, report, re-run and fork, the stream and its decisions, files and
 jobs, the project's tabs, talking to a run, the report and its downloads),
-*Around AURORA* (every button of the left bar) and *Your own research* (the
+*Around Pippin* (every button of the left bar) and *Your own research* (the
 brief, the templates, the proposal card, a run at work, what comes after).
 Arrow keys move through it; Esc ends it.
 
@@ -148,7 +148,7 @@ Each project and run in the sidebar has a **⋮** menu (it appears on hover):
   displayed name changes; the ID and the directory stay, and a resume or re-run
   keeps the new name.
 - **Delete** asks for confirmation first. It removes the project (with all its
-  runs) or the run from AURORA; tick *Also delete its files on disk* (the dialog
+  runs) or the run from Pippin; tick *Also delete its files on disk* (the dialog
   shows how much space that frees) to remove the report, workspace and data as
   well, otherwise they stay where they are. A running experiment must be stopped
   first.

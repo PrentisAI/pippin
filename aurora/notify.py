@@ -90,7 +90,7 @@ def _request(channel: NotifyChannel, kind: str, title: str, text: str, url: str,
              extra: dict[str, Any], actions: list[tuple[str, str]] | None = None) -> tuple[str, dict[str, Any]]:
     """The URL and JSON body a channel takes.  ``actions``: [(label, url)] answered from the message."""
     actions = actions or []
-    links = ([("Open in AURORA", url)] if url else []) + actions
+    links = ([("Open in Pippin", url)] if url else []) + actions
     if channel.type == "wecom":
         md = f"**{title}**\n{text}" + ("\n" + " · ".join(f"[{label}]({u})" for label, u in links) if links else "")
         return channel.target, {"msgtype": "markdown", "markdown": {"content": _clip(md, 3800)}}

@@ -1,4 +1,4 @@
-"""AURORA at your side: ``/api/assistant``, the conversation of the desktop orb and the side panel."""
+"""Pippin at your side: ``/api/assistant``, the conversation of the desktop orb and the side panel."""
 
 from __future__ import annotations
 

@@ -3,7 +3,7 @@ import { api, describeError } from '../api/client'
 import type { ExampleCard } from '../types'
 import { startTour, updateOnboarding, useOnboarding } from './store'
 
-/** The examples that come with AURORA: open one (with the tour), copy its question into a project of
+/** The examples that come with Pippin: open one (with the tour), copy its question into a project of
  *  your own, or watch the scripted demo. Admins can take an example out of the console. */
 export function ExamplesView({ onOpen, onDuplicated, onDemo }: {
   onOpen: (campaignId: string, runId: string) => void
@@ -27,7 +27,7 @@ export function ExamplesView({ onOpen, onDuplicated, onDemo }: {
     <div className="examples-page">
       <div className="examples-head">
         <h2>Examples</h2>
-        <p>Finished runs that come with AURORA. Open one to see what a run produces — the tour shows what to look at — or
+        <p>Finished runs that come with Pippin. Open one to see what a run produces — the tour shows what to look at — or
           duplicate it to change the question and run it yourself. Opening costs nothing.</p>
       </div>
       {error && <div className="panel-message error">{error}</div>}

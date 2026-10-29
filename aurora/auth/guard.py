@@ -403,7 +403,7 @@ def user_of(conn: HTTPConnection) -> User | None:
 
 def rights(user: User, campaign_id: str) -> frozenset[str]:
     from aurora.examples import is_example
-    if is_example(campaign_id):          # examples that come with AURORA: everyone may look, nobody may change them
+    if is_example(campaign_id):          # examples that come with Pippin: everyone may look, nobody may change them
         return frozenset({"view"})
     if user.is_local:
         return frozenset(PERMS)

@@ -1,4 +1,4 @@
-"""The Library: the papers AURORA knows, which projects they belong to, and how they got there.
+"""The Library: the papers Pippin knows, which projects they belong to, and how they got there.
 
 Tables (in ``AURORA_HOME/aurora.db``):
 

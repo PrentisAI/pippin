@@ -1,4 +1,4 @@
-"""Agent implementations for AURORA pipeline stages.
+"""Agent implementations for Pippin pipeline stages.
 
 Re-exports all agent classes and the base abstractions.
 """

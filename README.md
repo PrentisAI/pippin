@@ -1,9 +1,9 @@
-# AURORA
+# Pippin
 
 **Long-horizon, open-ended research with AI agents — with auditors that check
 the work and a human who stays in charge.**
 
-You give AURORA a research question. Several models propose directions and a
+You give Pippin a research question. Several models propose directions and a
 chair picks one; the direction is screened against prior work, planned, checked
 with small trial runs and carried out by a research agent in its own container;
 the results are analysed, with follow-up rounds when more work is needed, and
@@ -12,10 +12,10 @@ it. A milestone auditor reviews every hand-off, a live auditor watches the
 research agent as it works, and the run asks you whenever a decision should be
 yours — while you can talk to it at any time without stopping it.
 
-AURORA is the system of the paper *AURORA: Towards Long-Horizon Open-Ended
+Pippin is the system of the paper *Pippin: Towards Long-Horizon Open-Ended
 AutoResearch with Human-Agent Synergy*.
 
-![A report in the AURORA console: every number is a chip; clicking one shows the script, command, files and job that produced it](docs/assets/console-report.png)
+![A report in the Pippin console: every number is a chip; clicking one shows the script, command, files and job that produced it](docs/assets/console-report.png)
 
 ## Contents
 
@@ -30,7 +30,7 @@ AutoResearch with Human-Agent Synergy*.
 
 ### The research cycle
 
-![AURORA's architecture: the research cycle under the milestone audits and the live auditor, the front desk through which you take part, and the persistent state every stage shares](docs/assets/architecture.png)
+![Pippin's architecture: the research cycle under the milestone audits and the live auditor, the front desk through which you take part, and the persistent state every stage shares](docs/assets/architecture.png)
 
 | Phase | What happens |
 |---|---|
@@ -115,7 +115,7 @@ See [Results, reports and runs](docs/guide/results.md).
   Zotero (every paper you add read in the background) and Obsidian (your own notes in the memory),
   citations from your own library in Overleaf, a reference check before you submit (retracted,
   miscited, missing work), interruptions only for a retraction or overlapping work, and voice on
-  the Mac (hold a key, "add this one to my reading list"). AURORA writes into your Zotero,
+  the Mac (hold a key, "add this one to my reading list"). Pippin writes into your Zotero,
   Overleaf or notes only as far as you allow, each kind off by default, and every write can be undone.
 - **Feed** — new papers and posts from the people and sources you follow,
   ranked against your projects, with one sentence on why each fits.
@@ -150,7 +150,7 @@ providers that keep no data. See [Accounts and sharing](docs/guide/accounts.md).
 
 ## Quick start
 
-AURORA needs Python 3.11 or newer.
+Pippin needs Python 3.11 or newer.
 
 ```bash
 git clone https://github.com/prentisai/aurora && cd aurora
@@ -161,7 +161,7 @@ aurora quickstart
 
 `aurora quickstart` checks this machine, asks for your OpenRouter key, plays the
 offline demo (scripted models: no key, no Docker, no cost) and opens the web
-console. There a short welcome shows what AURORA does, sets your defaults, and
+console. There a short welcome shows what Pippin does, sets your defaults, and
 offers a finished example run with a guided tour. **Help (?)** in the left bar
 keeps a getting-started checklist, the tours, and the documentation, which also
 answers "how do I …" questions.
@@ -222,7 +222,7 @@ The documentation is in [`docs/`](docs/) and reads directly on GitHub:
 
 | | |
 |---|---|
-| Overview | [Everything AURORA does](docs/features.md): every feature in one place |
+| Overview | [Everything Pippin does](docs/features.md): every feature in one place |
 | Getting started | [Installation](docs/getting-started/installation.md) · [Your first campaign](docs/getting-started/first-campaign.md) |
 | Concepts | [How a campaign runs](docs/concepts/pipeline.md) · [Ideation](docs/concepts/ideation.md) · [Auditors](docs/concepts/auditors.md) · [Working with the human](docs/concepts/human-in-the-loop.md) · [Literature](docs/concepts/literature.md) · [Brainstorm](docs/concepts/brainstorm.md) · [Zoom out and zoom in](docs/concepts/zoom-out-zoom-in.md) · [Memory](docs/concepts/memory.md) · [Skills](docs/concepts/skills.md) |
 | Guides | [Command line](docs/guide/cli.md) · [Web console](docs/guide/web-console.md) · [Results, reports and runs](docs/guide/results.md) · [Accounts and sharing](docs/guide/accounts.md) · [The feed](docs/guide/feed.md) · [Zotero](docs/guide/zotero.md) · [Extension and desktop app](docs/guide/extension-and-desktop.md) · [Obsidian](docs/guide/obsidian.md) · [Voice](docs/guide/voice.md) · [Notifications](docs/guide/notifications.md) · [GPU jobs](docs/guide/cluster-jobs.md) · [Models and costs](docs/guide/models-and-costs.md) · [Sandbox and security](docs/guide/sandbox.md) · [Troubleshooting](docs/guide/troubleshooting.md) |
@@ -230,7 +230,7 @@ The documentation is in [`docs/`](docs/) and reads directly on GitHub:
 
 ## For AI agents working with this repository
 
-If you are an agent asked to use or change AURORA:
+If you are an agent asked to use or change Pippin:
 
 - **To run it**, use the CLI: `aurora --help`, `aurora doctor`, `aurora demo`
   (offline), `aurora run <config>`. Every configuration key, with its default
@@ -284,7 +284,7 @@ commands that recompute every reported number offline. See
 
 ```bibtex
 @misc{aurora2026,
-  title  = {AURORA: Towards Long-Horizon Open-Ended AutoResearch with Human-Agent Synergy},
+  title  = {Pippin: Towards Long-Horizon Open-Ended AutoResearch with Human-Agent Synergy},
   author = {Yanlin Fei and Nazhou Liu and Lei Li and Xinmiao Yu and Shaolong Chen and
             Madalina Ciobanu and Navan Preet Singh and Qingqing Mao and Ritankar Das},
   year   = {2026},

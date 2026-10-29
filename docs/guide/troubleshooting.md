@@ -4,7 +4,7 @@ Start with `aurora doctor [config]`: it checks everything a campaign needs.
 
 **"Claude Code CLI not found"** — install it (`npm install -g
 @anthropic-ai/claude-code`, Node.js 18+) and make sure `claude` is on the `PATH`
-of the shell that runs AURORA. On clusters, batch jobs often have a different
+of the shell that runs Pippin. On clusters, batch jobs often have a different
 `PATH` than your login shell; add the npm global bin directory in the job script.
 
 **"Docker is required ... the Docker daemon is not reachable"** — start Docker,

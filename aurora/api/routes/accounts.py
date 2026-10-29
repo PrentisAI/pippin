@@ -181,7 +181,7 @@ class WriteLevels(BaseModel):
 
 @me_router.get("/writes")
 async def my_writes() -> dict[str, Any]:
-    """What AURORA may write into your own tools (each off by default), and what it wrote."""
+    """What Pippin may write into your own tools (each off by default), and what it wrote."""
     from aurora.auth import writes
     uid = current_user().user_id
     return {"levels": writes.levels(uid), "writes": writes.WRITES, "options": list(writes.LEVELS),
@@ -204,7 +204,7 @@ class DeviceBody(BaseModel):
 
 @me_router.post("/writes/{log_id}/undo")
 async def undo_write(log_id: str) -> dict[str, Any]:
-    """Undo a write AURORA made into your tools."""
+    """Undo a write Pippin made into your tools."""
     from aurora.auth import writes
     try:
         return await writes.undo(current_user().user_id, log_id)
@@ -226,7 +226,7 @@ async def record_write(body: WriteRecord) -> dict[str, Any]:
     if body.write not in writes.WRITES:
         raise HTTPException(400, "unknown write")
     if not writes.allowed(uid, body.write):
-        raise HTTPException(403, "This write is off: turn it on under What AURORA may write")
+        raise HTTPException(403, "This write is off: turn it on under What Pippin may write")
     return {"log_id": writes.write_log.record(uid, body.write, body.detail, body.undo)}
 
 

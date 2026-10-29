@@ -41,7 +41,7 @@ follows.
 **People.** Type a name, a profile link (OpenAlex, Semantic Scholar, ORCID, a
 homepage), an ORCID, or a handle (`@someone.bsky.social`, `@user@mastodon.social`,
 `x.com/someone`). When several authors share the name, you pick the right one by
-affiliation, number of papers, latest paper and co-authors. AURORA then looks
+affiliation, number of papers, latest paper and co-authors. Pippin then looks
 for their other places, in their ORCID record and on their homepage: Bluesky,
 Mastodon, X, their blog's feed. What it is sure of is ticked; what it only found
 by name is offered unticked, with a note. For each person you choose what to

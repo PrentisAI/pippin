@@ -54,7 +54,7 @@ def test_events_become_notifications():
 def test_channel_formats():
     wecom = NotifyChannel(type="wecom", target="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=k")
     url, body = _request(wecom, "run_finished", "Finished: x", "text", "http://c/e", {})
-    assert body["msgtype"] == "markdown" and "[Open in AURORA](http://c/e)" in body["markdown"]["content"]
+    assert body["msgtype"] == "markdown" and "[Open in Pippin](http://c/e)" in body["markdown"]["content"]
     feishu = NotifyChannel(type="feishu", target="https://open.feishu.cn/hook/x")
     assert _request(feishu, "k", "t", "x", "http://c", {})[1]["card"]["elements"][1]["actions"][0]["url"] == "http://c"
     sc = NotifyChannel(type="serverchan", target="SCT123abc")

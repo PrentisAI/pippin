@@ -285,7 +285,7 @@ def to_latex(md: str, *, results: list[dict[str, Any]], figure_names: dict[str, 
     return ("\\documentclass[11pt]{article}\n\\usepackage[utf8]{inputenc}\n\\usepackage[T1]{fontenc}\n"
             "\\usepackage{graphicx,amsmath,amssymb,booktabs,longtable}\n\\usepackage[numbers]{natbib}\n"
             "\\usepackage[hidelinks]{hyperref}\n\\usepackage[margin=1in]{geometry}\n\n"
-            f"\\title{{{doc_title or 'Report'}}}\n\\author{{Written with AURORA}}\n\\date{{\\today}}\n\n"
+            f"\\title{{{doc_title or 'Report'}}}\n\\author{{Written with Pippin}}\n\\date{{\\today}}\n\n"
             "\\begin{document}\n\\maketitle\n\n" + text.strip() + "\n"
             + ("\n\\bibliographystyle{plainnat}\n\\bibliography{references}\n" if _KEYS.search(md) else "")
             + table + "\n\\end{document}\n")
@@ -312,7 +312,7 @@ def reproduce_script(campaign_dir: Path, *, image: str, results: list[dict[str, 
     env = Path(campaign_dir) / "workspace" / ".aurora" / "environment.txt"
     lines = [
         "#!/usr/bin/env bash",
-        f"# Reproduce the results of the AURORA run {run_name or Path(campaign_dir).name}.",
+        f"# Reproduce the results of the Pippin run {run_name or Path(campaign_dir).name}.",
         "# It replays, in the run's container image, the commands that produced the recorded results,",
         "# in the order they were run. Run it from the folder that holds the run's workspace/ (this archive).",
         "# Data the agents downloaded during the run is fetched again by the same commands if they did so.",

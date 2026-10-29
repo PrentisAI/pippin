@@ -1,7 +1,7 @@
 # GPU jobs: a SLURM cluster or a GPU machine over SSH
 
 The experiment's container is where the research agent writes code and tries it
-on small inputs. Training a model or a long run belongs on a GPU. AURORA reaches
+on small inputs. Training a model or a long run belongs on a GPU. Pippin reaches
 GPUs in one of two ways:
 
 - **a SLURM cluster** (`compute.slurm`): jobs go through the queue and run on a
@@ -32,7 +32,7 @@ GPUs are held only while a job runs, not while the agent thinks or waits for you
 
 - SLURM with the [pyxis](https://github.com/NVIDIA/pyxis) plugin on the nodes
   (`srun --help` lists `--container-image`), and `enroot` on the machine running
-  AURORA (to save the image for the nodes).
+  Pippin (to save the image for the nodes).
 - The workspace on storage the nodes see (`AURORA_HOME` on a shared file system)
   and `sandbox.mount_workspace: true` (the default).
 - The Docker container (`sandbox.docker`). Agents may work from the host (the
@@ -141,8 +141,8 @@ compute:
     max_gpu_hours: 200
 ```
 
-**Requirements.** The machine running AURORA reaches the GPU machine with
-`ssh <host>` and a key, with no password prompt (AURORA uses `BatchMode`), and
+**Requirements.** The machine running Pippin reaches the GPU machine with
+`ssh <host>` and a key, with no password prompt (Pippin uses `BatchMode`), and
 both have `rsync`. The GPU machine has `nvidia-smi`, `pkill` and `timeout` (any
 Linux), and, with `docker: true`, Docker with GPU support (the NVIDIA container
 toolkit: `docker run --gpus all ...` works). **Settings → Setup** checks that the
@@ -150,7 +150,7 @@ machine answers and how many GPUs it has.
 
 **What happens to a job:**
 
-1. *GPUs.* AURORA asks `nvidia-smi` which GPUs are free: among `gpus`, those no
+1. *GPUs.* Pippin asks `nvidia-smi` which GPUs are free: among `gpus`, those no
    job of this console holds and whose memory use is at most `busy_memory_mb`
    (so other people's work is left alone). With too few free, the job waits,
    shown as *pending* with the reason (*waiting for 2 free GPU(s) (1 free now of 4)*),
@@ -161,13 +161,13 @@ machine answers and how many GPUs it has.
 3. *Running.* With `docker: true` the job runs in the experiment's image with
    only its GPUs visible (`--gpus "device=2,3"`), the copied workspace as `/app`,
    CPUs and memory from `cpus_per_gpu` and `mem_per_gpu_gb`, as your user on
-   that machine. If the machine does not have the image, AURORA pulls it there,
+   that machine. If the machine does not have the image, Pippin pulls it there,
    or else sends it (`docker save | ssh ... docker load`) once. With
    `docker: false` the job runs directly in the copied workspace with
    `CUDA_VISIBLE_DEVICES` set; the agent is told to use relative paths and set
    up its packages in the job's command (or use `setup`).
 4. *Time limit.* `timeout` stops it at its limit; it then ends as `TIMEOUT`.
-5. *The end.* AURORA checks the job every 20 seconds. When it ends, the
+5. *The end.* Pippin checks the job every 20 seconds. When it ends, the
    workspace is copied back (files newer here are kept) and its GPUs are free
    again. `aurora job logs` shows the output live while it runs; the copy in the
    workspace arrives at the end.
@@ -186,10 +186,10 @@ events also appear in the stream (submitted, running, ended), and the
 
 **GPU usage.** Above the jobs, a small table shows what the GPUs are doing: use
 (%), memory, and which job holds each one. On a SLURM cluster it covers the GPUs
-of the running jobs (AURORA runs `nvidia-smi` in the job's allocation, with
+of the running jobs (Pippin runs `nvidia-smi` in the job's allocation, with
 `srun --jobid ... --overlap`); on a GPU machine it covers every GPU jobs may use,
 marked *free*, held by a job, held by another experiment, or *in use (not
-AURORA)*. It refreshes every 30 seconds. When a running job's GPUs sit near 0%,
+Pippin)*. It refreshes every 30 seconds. When a running job's GPUs sit near 0%,
 the panel says so: the job may be loading data or running on the CPU.
 
 ## How it works (SLURM)
@@ -199,7 +199,7 @@ the panel says so: the job may be loading data or running on the CPU.
   `AURORA_HOME/compute/images`), named by the image's ID, and reused. Large images
   take a few GB there.
 - **Files.** Jobs run as your cluster user, while files written in the container
-  belong to root. AURORA makes the workspace writable for jobs before each one is
+  belong to root. Pippin makes the workspace writable for jobs before each one is
   submitted (and files the agent creates afterwards are writable too), so a job
   can write next to the agent's code.
 - **Agents inside the container** reach the job manager through its socket's
@@ -222,7 +222,7 @@ the panel says so: the job may be loading data or running on the CPU.
 | `enroot import ... failed` | `enroot` missing on this machine, or no room in `image_dir` |
 | `nvidia-smi` not found in the job | the node's enroot has no NVIDIA hook; ask the cluster's admins |
 | a warning about the job name | set `job_name_prefix` to start with your cluster user name |
-| (SSH) *could not reach* / *Permission denied* | `ssh -o BatchMode=yes <host> true` must work as the user running AURORA |
+| (SSH) *could not reach* / *Permission denied* | `ssh -o BatchMode=yes <host> true` must work as the user running Pippin |
 | (SSH) a job stays *waiting for free GPUs* | the GPUs are busy (someone's memory is above `busy_memory_mb`), or `gpus` lists fewer than it asks |
 | (SSH) *could not get image ... onto* the machine | Docker missing there, or no room for the image; or use `docker: false` |
 | (SSH) `could not select device driver "" with capabilities: [[gpu]]` | the NVIDIA container toolkit is missing on the GPU machine |

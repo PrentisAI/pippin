@@ -1,4 +1,4 @@
-site_name: AURORA
+site_name: Pippin
 site_description: Long-horizon, open-ended research with AI agents, auditors and a human in the loop
 repo_url: https://github.com/prentisai/aurora
 edit_uri: edit/main/docs/
@@ -19,7 +19,7 @@ markdown_extensions:
   - toc: {permalink: true}
 nav:
   - Home: index.md
-  - Everything AURORA does: features.md
+  - Everything Pippin does: features.md
   - Getting started:
       - Installation: getting-started/installation.md
       - Your first campaign: getting-started/first-campaign.md

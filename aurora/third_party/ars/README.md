@@ -4,7 +4,7 @@ The files in this directory, other than this README, are unmodified copies from
 [Academic Research Skills](https://github.com/Imbad0202/academic-research-skills) by Cheng-I Wu,
 commit `1ec249d` (2026-10-26; `socratic_mentor_agent.md` from commit `b34c63f`, 2026-10-27), licensed under the
 [Creative Commons Attribution-NonCommercial 4.0 International License](LICENSE)
-(CC BY-NC 4.0). **They may not be used for commercial purposes.** The rest of AURORA is under its own
+(CC BY-NC 4.0). **They may not be used for commercial purposes.** The rest of Pippin is under its own
 license (MIT); this license applies to these files only.
 
 | File here | Original path |
@@ -14,7 +14,7 @@ license (MIT); this license applies to these files only.
 | `decision_rules.md` | `sr-screener/references/decision_rules.md` |
 | `socratic_mentor_agent.md` | `deep-research/agents/socratic_mentor_agent.md` |
 
-AURORA's paper search (`aurora/review/search.py`) reads these files at run time and gives the relevant
+Pippin's paper search (`aurora/review/search.py`) reads these files at run time and gives the relevant
 sections to the models as their protocol: scoping a research direction (topic decomposition, scope
 boundaries, sub-questions), the search strategy and two-pass screening with inclusion and exclusion criteria
 defined before searching, PRISMA-style search documentation and the distributional skew advisory, and the

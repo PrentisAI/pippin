@@ -22,7 +22,7 @@ from pathlib import Path
 from aurora import __version__
 
 STARTER_CONFIG = """\
-# AURORA campaign configuration. Only `objective` is required; everything else
+# Pippin campaign configuration. Only `objective` is required; everything else
 # shows its default. Reference: docs/configuration.md
 
 objective: >
@@ -77,7 +77,7 @@ def _run_engine(config, *, resume: bool = False) -> int:
     from aurora.core.requirements import RuntimeRequirementError
 
     print(flush=True)
-    print(f"AURORA {__version__} — campaign '{config.campaign_id}'" + ("  [mock mode]" if config.mock_mode else ""))
+    print(f"Pippin {__version__} — campaign '{config.campaign_id}'" + ("  [mock mode]" if config.mock_mode else ""))
     print(f"  objective : {' '.join(config.objective.split())[:150]}")
     print(f"  workspace : {Path(config.workspace.root).resolve() / config.campaign_id}")
     print()
@@ -166,7 +166,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     def line(good: bool, what: str, detail: str = "") -> None:
         print(f"  [{'ok' if good else '!!'}] {what}" + (f" — {detail}" if detail else ""))
 
-    print(f"AURORA {__version__}, Python {sys.version.split()[0]}")
+    print(f"Pippin {__version__}, Python {sys.version.split()[0]}")
     claude = shutil.which("claude")
     version = ""
     if claude:
@@ -249,7 +249,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         os.environ["AURORA_SERVER_CONFIG"] = str(Path(args.config).resolve())
 
     url = f"http://{'localhost' if args.host in ('0.0.0.0', '127.0.0.1') else args.host}:{args.port}"
-    print(f"AURORA web console: {url}")
+    print(f"Pippin web console: {url}")
     os.environ.setdefault("AURORA_CONSOLE_URL", url)    # links in notifications
     if args.host not in ("127.0.0.1", "localhost"):
         print("Warning: the console has no login. Anyone who can reach this address can start "
@@ -384,7 +384,7 @@ def cmd_skills(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="aurora",
-        description="AURORA — long-horizon, open-ended research with AI agents and a human in the loop.",
+        description="Pippin — long-horizon, open-ended research with AI agents and a human in the loop.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")

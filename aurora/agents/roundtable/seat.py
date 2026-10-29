@@ -67,7 +67,7 @@ SEARCH_TURNS = {"presentation", "response"}
 PAPERS_NOTE = """
 
 ## Papers
-Before you write a presentation or answer remarks on it, AURORA searches the scholarly indexes (OpenAlex, \
+Before you write a presentation or answer remarks on it, Pippin searches the scholarly indexes (OpenAlex, \
 arXiv, Crossref, Semantic Scholar) with queries you choose and gives you what it found. Cite a paper from \
 those results or from the project's literature by its key in square brackets, e.g. [Behrens12]. Cite any \
 other paper as [ref: title; first author; year; DOI or arXiv ID if you know it]. Every reference is \

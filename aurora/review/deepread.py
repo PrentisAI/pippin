@@ -168,7 +168,7 @@ def _context(entry: dict[str, Any], text: str, map_note: str) -> str:
 async def answer(access: Access, q: dict[str, Any], entry: dict[str, Any], text: str, pages: list[str],
                  map_note: str = "", earlier: dict[int, dict[str, Any]] | None = None) -> dict[str, Any]:
     n = q["n"]
-    persona = f"You answer as the {q['agent']} of AURORA's brainstorm.\n" if q.get("agent") else ""
+    persona = f"You answer as the {q['agent']} of Pippin's brainstorm.\n" if q.get("agent") else ""
     prior = ""
     if n == 12 and earlier:
         prior = "\n".join(f"Q{k} {TITLES[k]}:\n" + "\n".join(p["text"] for p in earlier.get(k, {}).get("paragraphs") or [])

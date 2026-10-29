@@ -174,7 +174,7 @@ class MockProvider(LLMProvider):
 
     provider_name = "mock"
 
-    # Built-in mock defaults for known AURORA schemas.
+    # Built-in mock defaults for known Pippin schemas.
     # These produce realistic-looking data so that the pipeline executes
     # all phases (roundtable → … → writing) with non-trivial content.
     _BUILTIN_DEFAULTS: dict[str, dict[str, Any]] = {

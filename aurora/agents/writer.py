@@ -84,7 +84,7 @@ class SectionDraft(BaseModel):
 # ---------------------------------------------------------------------------
 
 WRITER_SYSTEM_PROMPT = """\
-You are a scientific manuscript writer within the AURORA framework.
+You are a scientific manuscript writer within the Pippin framework.
 
 ## Your Role
 You write publication-quality scientific manuscripts based on completed \

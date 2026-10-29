@@ -8,7 +8,7 @@ one adjacent facet at a time, and the insights they reach, which become their re
 ask for it does it propose questions itself, and it says so first; those are marked as the AI's.
 
 What the protocol has the model write inline (``[INSIGHT: ...]``, ``[Q:PROBE]``, the exit marker) is taken
-out of the reply and kept in the conversation's *guide*; the researcher sees plain conversation. AURORA adds a
+out of the reply and kept in the conversation's *guide*; the researcher sees plain conversation. Pippin adds a
 few markers of its own the same way (the layer, the intent, the convergence signals, a research question ready
 to be written down, the end), listed in :data:`ADAPTER`.
 
@@ -64,7 +64,7 @@ def active(chat: dict[str, Any]) -> bool:
 # The protocol, as the model reads it
 
 # (heading to start at, heading to stop before, a heading to look after): the reading probe is left out (it is
-# dormant by default in ARS too), and so is the activation of the adjacent-framing probe (AURORA turns it on)
+# dormant by default in ARS too), and so is the activation of the adjacent-framing probe (Pippin turns it on)
 PROTOCOL_SECTIONS = [
     ("## Role Definition", "## Wording-Pattern Advisory", ""),
     ("## Wording-Pattern Advisory", "## Intent Detection Layer", ""),
@@ -77,7 +77,7 @@ PROTOCOL_SECTIONS = [
 ]
 
 ADAPTER = """\
-HOW THIS RUNS IN AURORA (it overrides the protocol where they differ)
+HOW THIS RUNS IN Pippin (it overrides the protocol where they differ)
 - You are the Mentor in a research brainstorm. Three other agents are in the room: the Skeptic (finds the weak \
 points; it plays the protocol's devil's advocate, and the console brings it in when the researcher has settled \
 their method and when they examine their conclusions), Methods (turns ideas into tests) and the Librarian \
@@ -119,7 +119,7 @@ predictions first.
 yours, in prose), then [RQ-CANDIDATES] so the console writes them down with their FINER scores for the \
 researcher to take one or not. [GUIDED: resume] when they ask you to go back to guiding them by questions.
 
-CONVERSATION CRAFT (AURORA's own rules; they override the protocol where they differ, learned from long sessions in \
+CONVERSATION CRAFT (Pippin's own rules; they override the protocol where they differ, learned from long sessions in \
 which researchers tired of being questioned)
 - One question per reply. A second only as a short either/or of the same question. Never stack two or three \
 questions: the researcher answers one and the rest are lost.
@@ -152,7 +152,7 @@ of theirs, which the other agents can then work on; a later [DIRECTION] revises 
 the conversation is not a sequence of stages. Take up what those brought in (it is in the conversation) and go on \
 from where they are now.
 
-AURORA EXTENSIONS (beyond the ARS protocol; from Maier, Schneider and Feuerriegel, CHI 2026, where a question mode \
+Pippin EXTENSIONS (beyond the ARS protocol; from Maier, Schneider and Feuerriegel, CHI 2026, where a question mode \
 with these moves gave better ideas that stayed diverse and that people felt were their own)
 - A stimulus. When the researcher is stuck on one version of their idea (exploring, Layer 1), you may give ONE of: \
 a piece of specific knowledge they may not have (a capability, a result, a lesser-known fact), or an analogy from \

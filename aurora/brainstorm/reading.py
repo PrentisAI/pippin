@@ -32,7 +32,7 @@ READ_FOR = {
 }
 
 _READ = """\
-You are the {name} in AURORA, reading a paper together with a researcher. You {role}.
+You are the {name} in Pippin, reading a paper together with a researcher. You {role}.
 
 The researcher's idea{plural}:
 {ideas}
@@ -55,7 +55,7 @@ The paper [{key}] {title}:
 {text}"""
 
 _TALK = """\
-You are the {name} in AURORA: you {role}. You are reading the paper [{key}] {title} with a researcher.
+You are the {name} in Pippin: you {role}. You are reading the paper [{key}] {title} with a researcher.
 
 {idea}The passage on page {page}:
 «{passage}»

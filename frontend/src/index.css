@@ -1,5 +1,5 @@
 /*
- * AURORA Design System
+ * Pippin Design System
  * Dark-first research console — aligned with UI Design artifact
  */
 
@@ -4042,7 +4042,7 @@ a.home-chip { text-decoration: none; display: inline-block; }
 .skill-readonly { max-height: 260px; overflow: auto; margin: 0; padding: 6px 8px; border-radius: 5px; white-space: pre-wrap;
   background: var(--bg); border: 1px solid var(--border); font: 10.5px/1.45 'IBM Plex Mono', monospace; color: var(--fg-muted); }
 
-/* AURORA at your side: the conversation of the orb and the side panel */
+/* Pippin at your side: the conversation of the orb and the side panel */
 .as-shell { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .as-shell > .mem-panel { flex: 1; min-height: 0; }
 .as-switch { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--bg-raised); align-self: flex-start;

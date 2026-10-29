@@ -1,5 +1,5 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>AURORA settings</title>
+<html><head><meta charset="utf-8"><title>Pippin settings</title>
 <style>
 body{font:14px -apple-system,system-ui,sans-serif;margin:20px;color:#1f2328}
 label{display:block;margin:12px 0 4px;font-weight:600}input[type=text],input[type=password]{width:100%;box-sizing:border-box;padding:7px;border:1px solid #ccd;border-radius:8px;font:inherit}
@@ -8,21 +8,21 @@ button{padding:7px 14px;border-radius:8px;border:1px solid #2d6cdf;background:#2
 @media (prefers-color-scheme: dark){body{background:#1e2128;color:#e6edf3}input{background:#2a2f38;color:#e6edf3;border-color:#3a4150}button.q{background:#1e2128}}
 </style></head>
 <body>
-<label for="server">Your AURORA console</label><input id="server" type="text">
+<label for="server">Your Pippin console</label><input id="server" type="text">
 <label for="token">Token</label><input id="token" type="password" placeholder="Only when the console has accounts">
 <div class="hint">In the console: Memory → Browser extension and desktop app → Make a token.</div>
 <label><input id="start" type="checkbox"> Start the console when it is not running</label>
 <input id="cmd" type="text"><div class="hint">The command that starts it (run in a login shell).</div>
-<label><input id="ctx" type="checkbox"> Tell AURORA which app and window I am in</label>
+<label><input id="ctx" type="checkbox"> Tell Pippin which app and window I am in</label>
 <div class="hint">Needs Accessibility access (System Settings → Privacy &amp; Security). Browsers are left to the extension. Kept a few hours, never stored.</div>
-<label><input id="voice" type="checkbox"> Hold ⌥⇧Space to talk to AURORA</label>
+<label><input id="voice" type="checkbox"> Hold ⌥⇧Space to talk to Pippin</label>
 <div class="hint">Listens only while you hold it. Needs Microphone access; “this figure” also needs Screen Recording (only the window in front, only then).</div>
 <label for="whisper">Recognise speech on this Mac</label><input id="whisper" type="text" placeholder="whisper-cli -m ~/models/ggml-large-v3-turbo.bin -nt -l auto -f {audio}">
 <div class="hint">A whisper.cpp command ({audio} is the recording). Empty: the console recognises it (its AURORA_WHISPER).</div>
 <label for="sayv">Voice</label><input id="sayv" type="text" placeholder="The system voice (or a name from: say -v '?')">
 <label><input id="cloud" type="checkbox"> Read long things (the digest) in the console’s cloud voice, when it has one</label>
 <div class="row"><button id="digest" class="q">Listen to today’s digest</button></div>
-<div class="row"><button id="save">Save</button><button id="quit" class="q">Quit AURORA</button></div>
+<div class="row"><button id="save">Save</button><button id="quit" class="q">Quit Pippin</button></div>
 <script>
 const { invoke } = window.__TAURI__.core
 const $ = (id) => document.getElementById(id)

@@ -1,7 +1,7 @@
 """A manuscript's references, before you submit it: whether each one exists, whether it was retracted, whether it
 says what the sentence citing it says, and which key work is missing.
 
-1. **Exists**: every .bib entry is looked up in the scholarly indexes (as any reference AURORA checks).
+1. **Exists**: every .bib entry is looked up in the scholarly indexes (as any reference Pippin checks).
 2. **Retracted**: the DOIs found are checked against OpenAlex and Crossref's retraction notices. They are also
    watched from then on: a later retraction interrupts you (``alerts``).
 3. **Misquoted**: each sentence that cites a paper is read against the paper (its abstract, and what your memory

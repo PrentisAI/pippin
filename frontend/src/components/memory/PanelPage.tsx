@@ -1,5 +1,5 @@
 /** The panel on its own page, for the entry points that show it: the browser extension's side panel and the desktop
- *  app. It opens on the conversation with AURORA (the orb's, typed or spoken), with the memory a tab away. Drop a
+ *  app. It opens on the conversation with Pippin (the orb's, typed or spoken), with the memory a tab away. Drop a
  *  link, a selection or a file on it to save it; the entry point tells it when what you are reading changes, or
  *  when you spoke to the orb (a `aurora:refresh` message). */
 import { useEffect, useRef, useState } from 'react'
@@ -71,7 +71,7 @@ export function PanelPage() {
       onDragLeave={() => setOver(false)} onDrop={drop}>
       <div className="as-shell">
         <div className="as-switch" role="tablist">
-          <button role="tab" aria-selected={view === 'chat'} className={view === 'chat' ? 'on' : ''} onClick={() => show('chat')}>AURORA</button>
+          <button role="tab" aria-selected={view === 'chat'} className={view === 'chat' ? 'on' : ''} onClick={() => show('chat')}>Pippin</button>
           <button role="tab" aria-selected={view === 'memory'} className={view === 'memory' ? 'on' : ''} onClick={() => show('memory')}>Memory</button>
         </div>
         {view === 'chat' ? <div className="mem-panel"><AssistantChat refreshKey={refresh} /></div> : <MemoryPanel refreshKey={refresh} />}

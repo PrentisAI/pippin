@@ -61,7 +61,7 @@ async def confirm_page(token: str) -> HTMLResponse:
     except ValueError as exc:
         return _page("Link not working", f"<h1>{html.escape(str(exc).capitalize())}</h1>", 410)
     link = _console(data)
-    open_it = f"<p class='dim'><a href='{html.escape(link)}'>Open the experiment in AURORA</a></p>" if link else ""
+    open_it = f"<p class='dim'><a href='{html.escape(link)}'>Open the experiment in Pippin</a></p>" if link else ""
     if gate is None:
         return _page("Already decided", f"<h1>This decision was already made</h1><p class='dim'>{html.escape(run.task_name)}</p>{open_it}")
     label = actions.LABELS[data["a"]]
@@ -107,4 +107,4 @@ async def act(token: str, request: Request) -> HTMLResponse:
     done = "Approved: the experiment continues." if data["a"] == "continue" else "Stopped: the experiment ends after it saves its work."
     link = _console(data)
     return _page("Done", f"<h1>{done}</h1><p class='dim'>{html.escape(run.task_name)}</p>"
-                         + (f"<p><a href='{html.escape(link)}'>Open the experiment in AURORA</a></p>" if link else ""))
+                         + (f"<p><a href='{html.escape(link)}'>Open the experiment in Pippin</a></p>" if link else ""))

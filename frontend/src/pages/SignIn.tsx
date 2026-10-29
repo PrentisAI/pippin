@@ -27,7 +27,7 @@ export function LoginPage({ team, onSignedIn }: { team: string | null; onSignedI
   return (
     <div className="signin-page">
       <form className="signin-card" onSubmit={submit}>
-        <div className="signin-brand"><span className="signin-logo">A</span>AURORA</div>
+        <div className="signin-brand"><span className="signin-logo">A</span>Pippin</div>
         <h1>Sign in{team ? ` to ${team}` : ''}</h1>
         <label className="signin-field" htmlFor="si-email">Email
           <input id="si-email" type="email" autoComplete="username" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} required />
@@ -74,7 +74,7 @@ export function InvitePage({ token, onDone }: { token: string; onDone: () => voi
   return (
     <div className="signin-page">
       <form className="signin-card" onSubmit={accept}>
-        <div className="signin-brand"><span className="signin-logo">A</span>AURORA</div>
+        <div className="signin-brand"><span className="signin-logo">A</span>Pippin</div>
         {!info && !error && <div className="signin-hint">Opening the invitation…</div>}
         {!info && error && <><h1>Invitation</h1><div className="modal-error">{error}</div></>}
         {info && (

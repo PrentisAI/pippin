@@ -132,7 +132,7 @@ async def _download(paper_id: str, url: str, target: Path, job: dict[str, Any]) 
     tmp = target.with_suffix(".part")
     try:
         client = http_client or httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0), follow_redirects=True,
-                                                  headers={"User-Agent": "AURORA (research reader)"})
+                                                  headers={"User-Agent": "Pippin (research reader)"})
         try:
             async with client.stream("GET", url, follow_redirects=True) as r:
                 if r.status_code != 200:

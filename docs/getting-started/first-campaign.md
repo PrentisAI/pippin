@@ -58,7 +58,7 @@ recorded and it continues.
 
 ## Results
 
-At the end AURORA prints a summary:
+At the end Pippin prints a summary:
 
 ```text
 ================================================================

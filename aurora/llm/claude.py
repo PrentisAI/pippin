@@ -221,7 +221,7 @@ class ClaudeProvider(LLMProvider):
 
     @staticmethod
     def _handle_api_error(exc: Exception) -> None:
-        """Translate provider-specific exceptions to AURORA exceptions."""
+        """Translate provider-specific exceptions to Pippin exceptions."""
         exc_name = type(exc).__name__
         msg = str(exc)
 

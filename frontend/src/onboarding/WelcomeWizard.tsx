@@ -11,7 +11,7 @@ const FIELDS: [string, string][] = [['materials', 'Materials and chemistry'], ['
   ['bio', 'Biology and medicine'], ['data', 'Social and data science'], ['other', 'Something else']]
 const BUDGETS: [number | null, string][] = [[5, '$5'], [20, '$20'], [50, '$50'], [null, 'No limit']]
 
-/** The first time a person opens the console (each person, with accounts): what AURORA is, what it
+/** The first time a person opens the console (each person, with accounts): what Pippin is, what it
  *  needs, how they want to work, and where to begin. Every step can be left and come back to. */
 export function WelcomeWizard({ ob, onExample, onDemo, onOwn }: {
   ob: Onboarding
@@ -29,9 +29,9 @@ export function WelcomeWizard({ ob, onExample, onDemo, onOwn }: {
   }
 
   return (
-    <div className="wiz-backdrop" role="dialog" aria-modal="true" aria-label="Welcome to AURORA">
+    <div className="wiz-backdrop" role="dialog" aria-modal="true" aria-label="Welcome to Pippin">
       <div className="wiz-top">
-        <div className="wiz-brand"><span className="wiz-logo">A</span> AURORA</div>
+        <div className="wiz-brand"><span className="wiz-logo">A</span> Pippin</div>
         <ol className="wiz-steps" aria-label="Steps">
           {STEPS.map((s, i) => (
             <li key={s.id} className={i < at ? 'done' : i === at ? 'now' : ''} aria-current={i === at ? 'step' : undefined}>
@@ -59,7 +59,7 @@ function WelcomeStep({ name, onSkip, onNext }: { name: string; onSkip: () => voi
       <div className="wiz-head">
         <div className="wiz-kicker">{name ? `Welcome, ${name.split(' ')[0]}` : 'Welcome'}</div>
         <h1>Research with AI agents — and you stay in charge</h1>
-        <p>AURORA carries a research project from ideas to a written report. Agents do the work, two auditors check it,
+        <p>Pippin carries a research project from ideas to a written report. Agents do the work, two auditors check it,
           and the run asks you when a decision should be yours.</p>
       </div>
       <div className="wiz-grid3">
@@ -88,7 +88,7 @@ function WelcomeStep({ name, onSkip, onNext }: { name: string; onSkip: () => voi
       </div>
       <div className="wiz-foot">
         <span className="wiz-note">About two minutes. Everything here can be changed later; Help (?) brings it back.</span>
-        <button className="wiz-btn ghost" onClick={onSkip}>Skip — I know AURORA</button>
+        <button className="wiz-btn ghost" onClick={onSkip}>Skip — I know Pippin</button>
         <button className="wiz-btn primary" onClick={onNext}>Get started</button>
       </div>
     </>
@@ -125,7 +125,7 @@ function ConnectStep({ ob, onBack, onNext, onExamples }: { ob: Onboarding; onBac
     <>
       <div className="wiz-head">
         <div className="wiz-kicker">Step 2 · Connect</div>
-        <h2>Connect AURORA to what it needs</h2>
+        <h2>Connect Pippin to what it needs</h2>
         <p>{!setup ? 'Checking this machine…'
           : keyOk && machine.every((c) => c.ok) ? 'Everything a run needs is here.'
             : ob.accounts && !ob.admin ? 'The server is set up by your admin; what you add is your own model key.'

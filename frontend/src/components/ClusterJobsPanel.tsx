@@ -95,7 +95,7 @@ export function ClusterJobsPanel({ campaignId, expId, tick, onOpenLog }: {
                       <td className="gpu-holder">
                         {g.jobs.length > 0 ? g.jobs.map((j) => `${j.id}. ${j.name}`).join(', ')
                           : g.other_experiment ? 'another experiment'
-                            : g.busy ? 'in use (not AURORA)' : 'free'}
+                            : g.busy ? 'in use (not Pippin)' : 'free'}
                       </td>
                     </tr>
                   )

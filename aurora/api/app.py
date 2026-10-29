@@ -1,4 +1,4 @@
-"""FastAPI application behind the AURORA web console.
+"""FastAPI application behind the Pippin web console.
 
 Serves the REST + WebSocket API under ``/api`` and, when a frontend build is
 available, the single-page console at ``/``.  Start it with ``aurora serve``.
@@ -40,8 +40,8 @@ def _frontend_dir() -> Path | None:
 def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
     """Build the FastAPI application."""
     app = FastAPI(
-        title="AURORA API",
-        description="Backend API for the AURORA web console.",
+        title="Pippin API",
+        description="Backend API for the Pippin web console.",
         version=__version__,
     )
 
@@ -98,13 +98,13 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
             orphans = await remove_orphaned_containers(store.data_dir)
             if orphans:
                 logger.info("Removed %d containers left behind by interrupted experiments", orphans)
-        # the examples that come with AURORA (once per console; an admin can take them out)
+        # the examples that come with Pippin (once per console; an admin can take them out)
         try:
             from aurora.examples import install_all
             await asyncio.to_thread(install_all, home=store.data_dir, store=store)
         except Exception:
             logger.warning("Could not install the examples", exc_info=True)
-        logger.info("AURORA API started; %d projects in %s",
+        logger.info("Pippin API started; %d projects in %s",
                     len(store.list_campaigns()), store.data_dir)
         # everyone's Zotero collections, every few minutes
         from aurora.literature.zotero import sync_loop

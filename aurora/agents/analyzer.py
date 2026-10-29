@@ -78,7 +78,7 @@ class AnalysisResult(BaseModel):
 # ---------------------------------------------------------------------------
 
 _DEFAULT_ANALYZER_PROMPT = """\
-You are a senior data scientist and research analyst within the AURORA \
+You are a senior data scientist and research analyst within the Pippin \
 framework.
 
 ## Your Role

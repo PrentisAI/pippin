@@ -54,7 +54,7 @@ export interface CampaignSummary {
   needs_attention: boolean
   /** How it is shared (null: the console has no accounts). */
   sharing?: ProjectSharing | null
-  /** An example that comes with AURORA: read-only for everyone. */
+  /** An example that comes with Pippin: read-only for everyone. */
   example?: boolean
 }
 
@@ -1483,7 +1483,7 @@ export interface MemVault {
   path: string; folders: string[]; exclude: string[]; on: boolean; notes?: number
 }
 
-/** A turn of the conversation with AURORA at your side (the orb, the side panel). */
+/** A turn of the conversation with Pippin at your side (the orb, the side panel). */
 export interface AssistantTurn {
   turn_id: string
   role: 'user' | 'assistant'

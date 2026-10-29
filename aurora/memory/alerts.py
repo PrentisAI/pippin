@@ -1,4 +1,4 @@
-"""When AURORA interrupts: only for what you would regret missing.
+"""When Pippin interrupts: only for what you would regret missing.
 
 Two kinds of thing interrupt, everything else waits for the daily digest:
 
@@ -228,7 +228,7 @@ async def is_retracted(dois: list[str]) -> dict[str, str]:
     """{doi: notice} of the retracted ones among ``dois`` (OpenAlex, then Crossref's notices)."""
     import httpx
     found: dict[str, str] = {}
-    async with httpx.AsyncClient(timeout=30, headers={"User-Agent": "AURORA (mailto:aurora@prentis.ai)"}) as c:
+    async with httpx.AsyncClient(timeout=30, headers={"User-Agent": "Pippin (mailto:aurora@prentis.ai)"}) as c:
         for i in range(0, len(dois), 40):
             chunk = dois[i:i + 40]
             try:

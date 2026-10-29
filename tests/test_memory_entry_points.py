@@ -109,7 +109,7 @@ def test_a_retracted_paper_you_rely_on_raises_one_alert(client, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# What AURORA may write, the log, and undo
+# What Pippin may write, the log, and undo
 
 
 def test_entry_points_log_their_writes_only_when_allowed_and_say_how_to_undo(client):

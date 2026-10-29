@@ -31,13 +31,13 @@ you are writing, start a close reading of a paper, hear today's digest, or say *
 ## Short aloud, complete on the panel
 
 The answer is spoken in a sentence or two; the full answer, with its sources and their words, appears on the panel
-(**You said**). Every point names its source; when nothing you have answers it, AURORA says so.
+(**You said**). Every point names its source; when nothing you have answers it, Pippin says so.
 
 ## Writes, confirmed in words
 
-AURORA's own changes (your reading list, saving, sinking) are made and confirmed: *added to your reading list; say
+Pippin's own changes (your reading list, saving, sinking) are made and confirmed: *added to your reading list; say
 undo to take it back*. Writes into your tools follow [what you allowed](accounts.md#what-aurora-may-write): *auto*
-writes and says so; *ask* asks, and your next words (*yes*, *no*) decide; *off* keeps it in AURORA and says where to
+writes and says so; *ask* asks, and your next words (*yes*, *no*) decide; *off* keeps it in Pippin and says where to
 turn it on. A thought said while a paper is open becomes a Zotero note on it only when *Write notes on Zotero items*
 is allowed. Changes to a manuscript are never made by voice.
 

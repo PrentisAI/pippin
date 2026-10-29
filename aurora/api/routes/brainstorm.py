@@ -1141,7 +1141,7 @@ async def promote(card_id: str, body: Promote) -> dict[str, Any]:
                         ("Next steps proposed in the brainstorm", lines("builds on", "idea"))):
         if rows:
             parts.append(f"{title}:\n" + "\n".join(rows))
-    parts.append("(From a brainstorm in AURORA. Cite papers by their keys; they are in the project's literature.)")
+    parts.append("(From a brainstorm in Pippin. Cite papers by their keys; they are in the project's literature.)")
     instruction = "\n\n".join(parts)
     skip = ["ideation", "screening"] if body.ideation == "start" else []
     params: dict[str, Any] = {"instruction": instruction, "name": c["text"][:60], "based_on": [], "inputs": [],

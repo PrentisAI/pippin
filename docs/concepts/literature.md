@@ -2,13 +2,13 @@
 
 Agents read and cite papers at three points: the ideation seats while they
 prepare and answer remarks, screening when it judges novelty, and the writing
-phase. AURORA gives them real papers from the scholarly indexes, and it checks
+phase. Pippin gives them real papers from the scholarly indexes, and it checks
 every reference they cite. A paper the indexes cannot find is never presented as
 real.
 
 ## Where papers come from
 
-AURORA searches four free indexes and merges what they return, one record per
+Pippin searches four free indexes and merges what they return, one record per
 work:
 
 | Index | What it is good for |
@@ -57,7 +57,7 @@ does not hide a paper another index has right.
 
 **Ideation.** Before a seat presents its idea, and again before it answers
 remarks on it, it chooses up to three search queries
-(`literature.queries_per_turn`). AURORA runs them, and the seat writes with the
+(`literature.queries_per_turn`). Pippin runs them, and the seat writes with the
 papers found in front of it. After every turn, the turn's references are checked
 and a short note is added for everyone at the meeting, the chair included.
 The note lists the papers that were verified and the ones that were not found,
@@ -110,7 +110,7 @@ Their searches are recorded as the research agent's on the Literature page,
 rule), and `check` takes a citation however it is written: a DOI, an arXiv ID,
 "Behrens et al. (2012). Title. Journal", or Vancouver style "Behrens M, Studt F,
 et al. Title. Science. 2012". `pdf` uses the researcher's own copy from Zotero
-when the project has one, else the open-access PDF; it is downloaded by AURORA,
+when the project has one, else the open-access PDF; it is downloaded by Pippin,
 so it works when the container has no network.
 
 Searches and checks show up in the experiment's stream, and so do flagged

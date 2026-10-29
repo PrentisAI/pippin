@@ -201,7 +201,7 @@ def test_comments_say_who_wrote_them_and_read_back():
     a = {"author": "Skeptic", "comment": "Stable is not accurate.", "idea_text": "Judge force fields by simulations"}
     text = compose_comment(a, [{"who": "local", "text": "Agreed.", "pending": False},
                                {"who": "Skeptic", "text": "", "pending": True}], {"local": "You"})
-    assert text == ("Skeptic (AURORA): Stable is not accurate.\n\nIdea: Judge force fields by simulations\n\n"
+    assert text == ("Skeptic (Pippin): Stable is not accurate.\n\nIdea: Judge force fields by simulations\n\n"
                     "— You: Agreed.")
     assert parse_comment(text, "Skeptic") == "Stable is not accurate."
     assert parse_comment("Edited in Zotero\n\n— You: Agreed.", "") == "Edited in Zotero"
@@ -300,7 +300,7 @@ async def test_notes_go_to_zotero_and_come_back(zclient):
                          rects=RECTS, space=cid)
     c.patch(f"/api/reader/notes/{sk['ann_id']}", json={"keep": True})
     await z.sync_notes("local")
-    assert fake.created[-1]["annotationComment"] == "Skeptic (AURORA): Steps or interface?"
+    assert fake.created[-1]["annotationComment"] == "Skeptic (Pippin): Steps or interface?"
     assert fake.created[-1]["annotationColor"] == "#f19837" and {"tag": "aurora:skeptic"} in fake.created[-1]["tags"]
     # a reply changes the comment in Zotero
     c.post(f"/api/reader/notes/{n['ann_id']}/replies", json={"text": "Check the materials too."})
