@@ -1,5 +1,5 @@
 /** Today: the start page of someone who has work going. One sentence on how things stand, then what waits for
- *  you (every project's decisions, what the memory flagged, skills to approve), each answerable right here;
+ *  you (every project's decisions, what the notebook flagged, skills to approve), each answerable right here;
  *  what changed since yesterday; the papers most worth reading; and a box to ask Pippin. A new question is a
  *  click away (the start conversation). */
 import { useCallback, useEffect, useState } from 'react'

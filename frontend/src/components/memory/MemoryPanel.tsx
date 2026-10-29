@@ -1,6 +1,6 @@
-/** The memory beside what you are doing: what surfaces now (at most three), what is absorbed, what has sunk; a unit
+/** The notebook beside what you are doing: what surfaces now (at most three), what is absorbed, what has sunk; a unit
  *  up close (why it is at that depth, its sources, a conflict, what you did with it); and, instead of a summary, a
- *  question to you. The console's Memory page shows it; the desktop app shows the same panel. */
+ *  question to you. The console's Notebook page shows it; the desktop app shows the same panel. */
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import type { MemAlert, MemVoiceTurn, MemAsk, MemDigest, MemItem, MemQuestion, MemStance, MemSurface, MemUnit } from '../../types'
@@ -12,7 +12,11 @@ const PLATFORM: Record<string, string> = {
 }
 const LANG: Record<string, string> = { zh: 'Chinese', en: 'English', ja: 'Japanese', ko: 'Korean', de: 'German', fr: 'French' }
 
-export function MemoryPanel({ refreshKey = 0, onReport }: { refreshKey?: number; onReport?: () => void }) {
+export function MemoryPanel({ refreshKey = 0, onReport, bare = false }: {
+  refreshKey?: number; onReport?: () => void
+  /** Inside the Notebook page, which has the title already. */
+  bare?: boolean
+}) {
   const [ctxs, setCtxs] = useState<{ current: { label: string; app: string } | null; questions: MemQuestion[] } | null>(null)
   const [ctx, setCtx] = useState<string>('')
   const [data, setData] = useState<MemSurface | null>(null)
@@ -37,7 +41,7 @@ export function MemoryPanel({ refreshKey = 0, onReport }: { refreshKey?: number;
 
   if (!ctxs) return (
     <div className="mem-panel">
-      {err ? <div className="cw-empty"><b>Cannot reach your memory here</b>
+      {err ? <div className="cw-empty"><b>Cannot reach your notebook here</b>
         <span>{window.location.origin} answered: {err}. This console may be an older Pippin, or another program on this port. Point the
           extension (its options) or the desktop app (right click the orb) at the console you started.</span></div>
         : <div className="panel-empty">Loading…</div>}
@@ -46,9 +50,9 @@ export function MemoryPanel({ refreshKey = 0, onReport }: { refreshKey?: number;
   const chips = [...(ctxs.current ? [{ key: 'current', chip: 'Reading', title: ctxs.current.label }] : []),
     ...ctxs.questions.map((q) => ({ key: `q:${q.question_id}`, chip: q.label, title: q.text }))]
   return (
-    <div className="mem-panel">
+    <div className={`mem-panel${bare ? ' bare' : ''}`}>
       <div className="mem-head">
-        <b className="mem-logo">Memory</b>
+        {!bare && <b className="mem-logo">Notebook</b>}
         <div className="mem-tabs" role="tablist">
           <button role="tab" aria-selected={tab === 'now'} className={tab === 'now' ? 'on' : ''} onClick={() => setTab('now')}>Now</button>
           <button role="tab" aria-selected={tab === 'ask'} className={tab === 'ask' ? 'on' : ''} onClick={() => { setTab('ask'); setSel(null) }}>Ask me</button>
@@ -58,8 +62,9 @@ export function MemoryPanel({ refreshKey = 0, onReport }: { refreshKey?: number;
       </div>
       {chips.length === 0 ? (
         <div className="cw-empty"><b>Nothing to organise by yet</b>
-          <span>Add a research question (or settle one with the Mentor), or say what you are reading. The memory then shows
-            what bears on it.</span></div>
+          <span>Add a question you are working on (or settle one with the Mentor in a brainstorm). What you saved is then
+            sorted by it: what bears on it now, what was read for you, what is unrelated for now. While you read in the browser
+            or on the desktop, what you are reading is a context here too.</span></div>
       ) : (
         <>
           <div className="mem-chips">
@@ -81,7 +86,7 @@ export function MemoryPanel({ refreshKey = 0, onReport }: { refreshKey?: number;
             <section className="mem-zone surface">
               <h4>Surface: bears on this now (at most 3)</h4>
               {data.surface.length ? data.surface.map((it) => <Big key={it.unit_id} it={it} on={sel === it.unit_id} onPick={() => setSel(sel === it.unit_id ? null : it.unit_id)} />)
-                : <span className="lit-sub">Nothing in your memory bears directly on this.</span>}
+                : <span className="lit-sub">Nothing in your notebook bears directly on this.</span>}
             </section>
             <section className="mem-zone">
               <h4>Absorbed: read for you, you need not read it</h4>
@@ -103,7 +108,7 @@ export function MemoryPanel({ refreshKey = 0, onReport }: { refreshKey?: number;
             {sel && <Detail key={sel} id={sel} item={[...data.surface, ...data.absorbed, ...data.sunk].find((x) => x.unit_id === sel)}
               onPick={setSel} onClose={() => setSel(null)} onChanged={load} />}
           </div>
-        ) : busy ? <div className="panel-empty">Ranking your memory for this…</div> : null
+        ) : busy ? <div className="panel-empty">Ranking your notebook for this…</div> : null
       ) : ctx ? <AskMe key={ctx} ctx={ctx} onPick={(id) => { setTab('now'); setSel(id) }} /> : null}
     </div>
   )
@@ -336,7 +341,7 @@ function Synthesis({ qid, onPick }: { qid: string; onPick: (id: string) => void 
   }}>What it adds up to</button>
   if (state === 'busy') return <span className="lit-sub">Putting it together…</span>
   if (state === 'error' || !s) return <span className="lit-sub">Could not put it together.</span>
-  if (!s.text) return <span className="lit-sub">Nothing in your memory bears on this question yet.</span>
+  if (!s.text) return <span className="lit-sub">Nothing in your notebook bears on this question yet.</span>
   const refs = Object.fromEntries(s.units.map((u) => [u.ref, u.unit_id]))
   return (
     <div className="mem-why">

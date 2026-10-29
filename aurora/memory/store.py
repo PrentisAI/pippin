@@ -1,4 +1,4 @@
-"""The shared memory: sources, idea units and their evidence, research questions, and what the researcher did.
+"""The shared notebook: sources, idea units and their evidence, research questions, and what the researcher did.
 
 * a **source** is one thing saved or fetched (a paper, a post, a page, a note), with a snapshot of its text;
 * an **idea unit** is one claim, said by one or more sources; each source's words for it are its **evidence**;
@@ -6,7 +6,7 @@
 * a unit **bears on** research questions, with how much;
 * the researcher's **marks** on a unit (let it sink, it changed my view, an answer) are kept with their time.
 
-Everything is the person's own (``owner``); the memory is personal for now.
+Everything is the person's own (``owner``); the notebook is personal for now.
 """
 
 from __future__ import annotations

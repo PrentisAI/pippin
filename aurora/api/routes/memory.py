@@ -1,7 +1,7 @@
-"""The shared memory, for every entry point (the console, the browser extension, the desktop app, plugins).
+"""The shared notebook, for every entry point (the console, the browser extension, the desktop app, plugins).
 
 Each person's memory is their own. An entry point saves things into it (``/capture``), says what the person is
-doing now (``/context``), and shows what surfaces for that (``/surface``); the rest is the memory's units, sources,
+doing now (``/context``), and shows what surfaces for that (``/surface``); the rest is the notebook's units, sources,
 questions, marks, the questions it asks the person, and the weekly report.
 """
 
@@ -255,7 +255,7 @@ class MergeBody(BaseModel):
 
 @router.post("/units/{unit_id}/merge")
 async def merge(unit_id: str, body: MergeBody) -> dict[str, Any]:
-    """Two units make the same claim (the memory missed it): one unit, all the sources."""
+    """Two units make the same claim (the notebook missed it): one unit, all the sources."""
     u, target = _unit(unit_id), _unit(body.into)
     if u["unit_id"] == target["unit_id"]:
         raise HTTPException(400, "It is the same unit")
@@ -266,7 +266,7 @@ async def merge(unit_id: str, body: MergeBody) -> dict[str, Any]:
 
 @router.post("/evidence/{evidence_id}/split")
 async def split(evidence_id: str) -> dict[str, Any]:
-    """A source was merged into the wrong unit: it becomes a unit of its own (and the memory remembers)."""
+    """A source was merged into the wrong unit: it becomes a unit of its own (and the notebook remembers)."""
     e = mem_store.evidence_item(evidence_id)
     u = _unit(e["unit_id"]) if e else None
     if e is None or u is None:
@@ -301,7 +301,7 @@ async def ask(body: AskBody) -> dict[str, Any]:
     access, models = _access()
     a = await surface.ask(access, models, uid, c)
     if a is None:
-        raise HTTPException(404, "Nothing in your memory bears on this yet")
+        raise HTTPException(404, "Nothing in your notebook bears on this yet")
     return a
 
 
@@ -489,7 +489,7 @@ class FollowItems(BaseModel):
 
 @router.post("/follows/{follow_id}/items")
 async def follow_items(follow_id: str, body: FollowItems) -> dict[str, Any]:
-    """What a followed page showed: the posts not seen before are saved into the memory."""
+    """What a followed page showed: the posts not seen before are saved into the notebook."""
     f = _follow(follow_id)
     access, models = _access()
     return {"taken": follow.take(access, models, f, body.items[:100], error=body.error)}
@@ -545,7 +545,7 @@ async def check_now() -> dict[str, Any]:
 
 @router.delete("/sources/{source_id}")
 async def forget_source(source_id: str) -> dict[str, Any]:
-    """Take a saved thing out of your memory (units left without any source go too)."""
+    """Take a saved thing out of your notebook (units left without any source go too)."""
     s = mem_store.source(source_id)
     if s is None or s["owner"] != _uid():
         raise HTTPException(404, "No such source")
@@ -649,7 +649,7 @@ class ZoteroItem(BaseModel):
 
 @router.post("/zotero-read")
 async def zotero_read(body: ZoteroItem) -> dict[str, Any]:
-    """A paper added to Zotero: read it in the background (into the memory, and a card of it)."""
+    """A paper added to Zotero: read it in the background (into the notebook, and a card of it)."""
     import base64
 
     from aurora.memory import card
@@ -678,7 +678,7 @@ async def zotero_read(body: ZoteroItem) -> dict[str, Any]:
 
 @router.get("/zotero-card")
 async def zotero_card(doi: str = "", arxiv: str = "", title: str = "") -> dict[str, Any]:
-    """What the plugin shows beside an item: its card (methods, findings, limitations) and what your memory makes of it."""
+    """What the plugin shows beside an item: its card (methods, findings, limitations) and what your notebook makes of it."""
     from aurora.memory import card
     entry = await card.resolve(doi=doi, arxiv=arxiv, title=title)
     if entry is None:
@@ -737,7 +737,7 @@ class NoteBody(BaseModel):
 
 @router.post("/notes")
 async def put_note(body: NoteBody) -> dict[str, Any]:
-    """A note sent by the Obsidian plugin as you write it: read into your memory (its old version retired)."""
+    """A note sent by the Obsidian plugin as you write it: read into your notebook (its old version retired)."""
     from aurora.memory import vault
     if not body.vault.strip() or not body.path.strip():
         raise HTTPException(400, "Give the vault and the note's path")
@@ -747,7 +747,7 @@ async def put_note(body: NoteBody) -> dict[str, Any]:
 
 @router.delete("/notes")
 async def delete_note(vault_name: str, path: str) -> dict[str, Any]:
-    """A note deleted (or excluded) in the vault: what only it said goes from your memory."""
+    """A note deleted (or excluded) in the vault: what only it said goes from your notebook."""
     from aurora.memory import vault
     return {"removed": vault.remove(_uid(), vault_name, path)}
 
@@ -919,7 +919,7 @@ class ToBrainstorm(BaseModel):
 
 @router.post("/units/{unit_id}/to-brainstorm")
 async def unit_to_brainstorm(unit_id: str, body: ToBrainstorm) -> dict[str, Any]:
-    """Bring a claim from your memory onto a brainstorm board, as material (private to you), filed under an idea if
+    """Bring a claim from your notebook onto a brainstorm board, as material (private to you), filed under an idea if
     you name one."""
     from aurora.brainstorm.agents import memory_card
     from aurora.brainstorm.store import bs_store
@@ -967,7 +967,7 @@ async def digest_worth() -> list[dict[str, Any]]:
             q = len(s["result"].get("questions") or [])
             out.append({"paper_id": e["paper_id"], "title": e["paper"].title, "byline": e["paper"].byline(),
                         "why": f"You saved it today; it bears on {q} of your questions." if q else "You saved it today.",
-                        "from": "your memory"})
+                        "from": "your notebook"})
     for o in out:
         o["to_read"] = library.has_item("", o["paper_id"], owner=uid)
     return out[:2]

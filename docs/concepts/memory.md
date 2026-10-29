@@ -1,11 +1,11 @@
-# The shared memory
+# The shared notebook
 
 Everything you save, from a paper on arXiv to a thread on Zhihu, X, Reddit or Xiaohongshu, goes into one memory.
-Every entry point uses it: the console's **Memory** page now, the browser extension and the desktop app next.
-The memory is kept by **claim**, not by document. A claim that three sources make is one *idea unit* with three
+Every entry point uses it: the console's **Notebook** page now, the browser extension and the desktop app next.
+The notebook is kept by **claim**, not by document. A claim that three sources make is one *idea unit* with three
 sources. Two units that say opposite things are linked as a **conflict**.
 
-The memory is personal: only you see yours.
+The notebook is personal: only you see yours.
 
 ## Idea units
 
@@ -34,17 +34,17 @@ When you save something:
 
 What happened comes back in a sentence, for example *Merged into "…", now 3 sources; bears on Q1.*
 
-A merge can be undone: **not the same** on a source splits it into a unit of its own, and the memory remembers:
+A merge can be undone: **not the same** on a source splits it into a unit of its own, and the notebook remembers:
 when it aligns new claims later, it is told which claims you kept apart from each unit, so the same mistake is not
-made again. Two units the memory failed to merge can be joined: **same claim, merge** where one qualifies the
+made again. Two units the notebook failed to merge can be joined: **same claim, merge** where one qualifies the
 other. A claim can be said in your own words (**edit**), and a saved thing taken out (**forget**; claims only it
 made go too).
 
 ## Research questions and context
 
-The memory is organised by your research questions: those you settle with the Mentor in a brainstorm (they come
-in on their own) and any you add on the Memory page. They appear as Q1, Q2, … next to **Reading**, which is what
-an entry point says you have open (the page, the paper and the page you are on, your selection). On the Memory
+The notebook is organised by your research questions: those you settle with the Mentor in a brainstorm (they come
+in on their own) and any you add on the Notebook page. They appear as Q1, Q2, … next to **Reading** (under *What bears on your questions*), which is what
+an entry point says you have open (the page, the paper and the page you are on, your selection). On the Notebook
 page you can set that by hand.
 
 ## Three layers
@@ -79,9 +79,9 @@ from where the field stands: how far each capability is, what is unsolved.
 
 ## In a brainstorm
 
-**Bring to a brainstorm** puts a claim on a board as material (*From your memory · 3 sources*), to file under an
-idea as evidence for or against. In your own (private) brainstorms the Librarian and the Skeptic search your memory
-too and record what they find as evidence, saying it is yours; in a shared brainstorm your memory is never used.
+**Bring to a brainstorm** puts a claim on a board as material (*From your notebook · 3 sources*), to file under an
+idea as evidence for or against. In your own (private) brainstorms the Librarian and the Skeptic search your notebook
+too and record what they find as evidence, saying it is yours; in a shared brainstorm your notebook is never used.
 
 ## This week
 
@@ -94,7 +94,7 @@ Only for what you would regret missing; everything else waits for the daily dige
 
 | | |
 |---|---|
-| **Retraction** | A paper you rely on (in your memory, your Library, or a manuscript whose references you checked) has been retracted. Checked once a day against OpenAlex and Crossref's retraction notices (which include the Retraction Watch data). Always interrupts. |
+| **Retraction** | A paper you rely on (in your notebook, your Library, or a manuscript whose references you checked) has been retracted. Checked once a day against OpenAlex and Crossref's retraction notices (which include the Retraction Watch data). Always interrupts. |
 | **Overlap** | A new paper (saved, or from what you follow) overlaps a research question you settled with the Mentor and the plan you made for it, or the contribution of a manuscript whose references you checked; a model confirms the overlap. At most two a day; quiet hours hold them. |
 | **Decision** | An experiment of yours waits for your decision: the dot and the notifications, until you decide (the notification channels already get it as *decision needed*). |
 
@@ -105,10 +105,10 @@ worth interrupting me for** moves that kind to the digest from then on.
 ## Your own notes
 
 Your notes are the most telling source: they say what you already think. Point the console at an Obsidian vault (or
-any folder of Markdown files) on the Memory page → **Your notes**, naming the subfolders to read and those never to
+any folder of Markdown files) on the Notebook page → *How things come in on their own* → **Your notes**, naming the subfolders to read and those never to
 read (a journal, private notes), or let the [Obsidian plugin](../guide/obsidian.md) send them. A note's claims are
 marked as yours and aligned with what you saved; a paper that disagrees with your own note is the conflict shown
-first. An edited note is read again (its old version's evidence goes), a deleted one leaves the memory. Any unit
+first. An edited note is read again (its old version's evidence goes), a deleted one leaves the notebook. Any unit
 copies as Markdown (claim, sources with their words, conflicts) for your notes.
 
 ## Models and settings
@@ -117,14 +117,14 @@ copies as Markdown (claim, sources with their words, conflicts) for your notes.
 |---|---|
 | `models.memory` | Takes the claims out, aligns them, ranks them, asks the questions (default `anthropic/claude-haiku-5.5`). |
 | `models.embedding` | An OpenRouter embedding model (default `openai/text-embedding-3-large`). A local model may come later. |
-| Language | On the Memory page: explanations in the language of what you read, in Chinese, or in English. |
+| Language | On the Notebook page (*How things come in on their own*): explanations in the language of what you read, in Chinese, or in English. |
 
 Saving something costs a few model calls (taking the claims out, aligning them) and one embedding call. Ranking
-for a context is cached until your memory changes. A paper read for the Zotero card, a citation suggestion, the
+for a context is cached until your notebook changes. A paper read for the Zotero card, a citation suggestion, the
 sentences your saves argue with, and a voice request are a model call or two each; checking a manuscript's
 references is about one call per eight citations, plus a few for the missing work.
 
 ## What Pippin may write
 
-The memory is Pippin's own. Writing into your tools (Zotero, Overleaf, your notes) is set separately: see
+The notebook is Pippin's own. Writing into your tools (Zotero, Overleaf, your notes) is set separately: see
 [What Pippin may write](../guide/accounts.md#what-aurora-may-write).

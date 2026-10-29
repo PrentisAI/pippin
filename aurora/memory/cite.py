@@ -1,4 +1,4 @@
-"""A citation for a sentence you are writing, from your own library: papers you saved into your memory or keep in
+"""A citation for a sentence you are writing, from your own library: papers you saved into your notebook or keep in
 your Library, each with the passage that backs the sentence.
 
 Candidates are found by meaning (embeddings of the units you saved from papers, and of your Library's papers),
@@ -43,7 +43,7 @@ async def suggest(access: Any, models: dict[str, str], owner: str, sentence: str
     for u in sorted(units, key=lambda u: -ingest.cosine(vec, uv.get(u["unit_id"], [0.0])))[:15]:
         for e in mem_store.evidence(u["unit_id"]):
             if e["paper_id"]:
-                c = cands.setdefault(e["paper_id"], {"paper_id": e["paper_id"], "texts": [], "from": "your memory"})
+                c = cands.setdefault(e["paper_id"], {"paper_id": e["paper_id"], "texts": [], "from": "your notebook"})
                 c["texts"].append(e["quote"])
     # your Library's papers, by their abstracts
     items = [library.paper(i["paper_id"]) for i in library.items("", owner=owner)]
@@ -53,7 +53,7 @@ async def suggest(access: Any, models: dict[str, str], owner: str, sentence: str
         c = cands.setdefault(p["paper_id"], {"paper_id": p["paper_id"], "texts": [], "from": "your Library"})
         c["texts"].append(p["paper"].abstract)
     if not cands:
-        return {"sentence": sentence, "candidates": [], "note": "Your memory and Library hold no papers yet."}
+        return {"sentence": sentence, "candidates": [], "note": "Your notebook and Library hold no papers yet."}
     rows = []
     for pid, c in list(cands.items())[:20]:
         e = library.paper(pid)
@@ -88,7 +88,7 @@ JSON: {{"cites": [{{"id": "...", "quote": "...", "how": "..."}}]}}""", want="cit
                       "quote": quote, "how": llm.unlabel(x.get("how", "")), "from": c["from"],
                       "bibtex": entry(e["key"], e["paper"]), "doi": e["paper"].doi or ""})
     return {"sentence": sentence, "candidates": found,
-            "note": "" if found else "Nothing in your memory or Library supports this sentence. Search for it, or soften it."}
+            "note": "" if found else "Nothing in your notebook or Library supports this sentence. Search for it, or soften it."}
 
 
 _hints: dict[tuple[str, str, str], dict[str, Any]] = {}

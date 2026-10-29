@@ -4,10 +4,10 @@ says what the sentence citing it says, and which key work is missing.
 1. **Exists**: every .bib entry is looked up in the scholarly indexes (as any reference Pippin checks).
 2. **Retracted**: the DOIs found are checked against OpenAlex and Crossref's retraction notices. They are also
    watched from then on: a later retraction interrupts you (``alerts``).
-3. **Misquoted**: each sentence that cites a paper is read against the paper (its abstract, and what your memory
+3. **Misquoted**: each sentence that cites a paper is read against the paper (its abstract, and what your notebook
    holds from it): does it support the sentence, partly, or not; numbers that differ are named. Only what does not
    fully hold is reported, with the paper's own words.
-4. **Missing**: the manuscript's question is searched in the indexes and in your memory and Library; a model names
+4. **Missing**: the manuscript's question is searched in the indexes and in your notebook and Library; a model names
    the work closest to its contribution that is not cited, and why it should be.
 
 The report is advice: nothing in the manuscript is changed.

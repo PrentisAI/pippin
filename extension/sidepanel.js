@@ -1,4 +1,4 @@
-// The side panel shows your memory panel from the Pippin console; it is told when what you are reading changes.
+// The side panel shows your notebook panel from the Pippin console; it is told when what you are reading changes.
 const frame = document.getElementById('panel')
 const msg = document.getElementById('msg')
 
@@ -31,7 +31,7 @@ async function checkPdf() {
   if (base === shown) return
   shown = base
   pdfBox.hidden = false
-  pdfHead.textContent = 'Reading this PDF against your memory…'
+  pdfHead.textContent = 'Reading this PDF against your notebook…'
   pdfList.innerHTML = ''
   chrome.runtime.sendMessage({ type: 'aurora:api', path: '/memory/context', body: { app: 'Browser', title: tab.title || '', url: base, via: 'extension' } })
   const rel = await chrome.runtime.sendMessage({ type: 'aurora:relate', url: base, title: tab.title || '' })

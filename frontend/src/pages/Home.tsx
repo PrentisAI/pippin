@@ -272,7 +272,7 @@ function SidebarNav({ page, onOpenPage, onHome, atHome, onSearch }: NavProps) {
       <NavItem icon={<HomeIcon />} label="Home" active={atHome} onClick={onHome} title="Home, where a new question begins" />
       <NavItem icon={<BulbIcon />} label="Brainstorm" active={page === 'brainstorm'} onClick={() => onOpenPage(page === 'brainstorm' ? null : 'brainstorm')} />
       <NavItem icon={<BooksIcon />} label="Library" active={page === 'library'} onClick={() => onOpenPage(page === 'library' ? null : 'library')} />
-      <NavItem icon={<WaveIcon />} label="Memory" active={page === 'memory'} onClick={() => onOpenPage(page === 'memory' ? null : 'memory')} />
+      <NavItem icon={<WaveIcon />} label="Notebook" active={page === 'memory'} onClick={() => onOpenPage(page === 'memory' ? null : 'memory')} />
       <NavItem icon={<ChartIcon />} label="Analytics" active={page === 'analytics'} onClick={() => onOpenPage(page === 'analytics' ? null : 'analytics')} />
     </nav>
   )
@@ -2907,7 +2907,7 @@ export default function Home() {
     onSearch: () => setPaletteOpen(true),
   }
   const runName = activeExperimentId ? experimentName(experiments.find((e) => e.run_id === activeExperimentId)) || activeExperimentId : ''
-  const where = page === 'library' ? 'the Library' : page === 'memory' ? 'their memory' : page === 'brainstorm' ? 'a brainstorm'
+  const where = page === 'library' ? 'the Library' : page === 'memory' ? 'their notebook' : page === 'brainstorm' ? 'a brainstorm'
     : page === 'team' ? 'the team page' : activeCampaign ? `the project “${activeCampaign.name}”${runName ? `, its run “${runName}”` : ''}` : ''
   const paletteGo: PaletteGo = {
     page: (p) => { setStartingNew(false); setPage(p) },

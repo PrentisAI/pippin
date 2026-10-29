@@ -1,4 +1,4 @@
-"""Following people, topics and threads: what they post comes into the memory on its own.
+"""Following people, topics and threads: what they post comes into the notebook on its own.
 
 Two ways in:
 

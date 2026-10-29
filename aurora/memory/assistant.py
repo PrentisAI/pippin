@@ -1,7 +1,7 @@
 """Pippin at your side: one conversation, from the desktop orb (typed or spoken) or the browser's side panel, about
 everything the console knows, without opening it.
 
-It is the front desk's tool loop with the whole system in reach rather than one project: your memory (what you
+It is the front desk's tool loop with the whole system in reach rather than one project: your notebook (what you
 saved and read, what is in front of you, the digest; through the voice assistant, so "this paragraph", "this
 figure", "the second one" mean what they mean when spoken), your projects and their runs (status, decisions waiting,
 what the front desk last said), and links that open the right page of the console when something needs the big
@@ -33,7 +33,7 @@ panel beside what they read. They ask you things in passing, without opening the
 not open it.
 
 You can:
-- answer from their memory and about what is in front of them (a page, a paper, a selection, a figure), keep \
+- answer from their notebook and about what is in front of them (a page, a paper, a selection, a figure), keep \
 something they want kept, note a thought, read them today's digest: use `memory` with what they asked, in their \
 words, for anything about what they read, saved or are looking at;
 - see what is in front of them: `in_front`;
@@ -84,7 +84,7 @@ def clear(owner: str) -> None:
 
 
 class _Turn:
-    """What the tools of one turn gathered for the reply: sources from the memory, buttons, what can be undone."""
+    """What the tools of one turn gathered for the reply: sources from the notebook, buttons, what can be undone."""
 
     def __init__(self, screenshot: str = "") -> None:
         self.screenshot = screenshot
@@ -272,7 +272,7 @@ def _tools(owner: str, now: dict[str, _Turn], mem_access: Any, models: dict[str,
 
     obj = {"type": "object"}
     return [
-        FrontDeskTool("memory", "Their memory and what is in front of them: answer a question from it, compare, keep "
+        FrontDeskTool("memory", "Their notebook and what is in front of them: answer a question from it, compare, keep "
                       "something, note a thought, read the digest, undo. Give their request in their words.",
                       {**obj, "properties": {"request": {"type": "string"}}, "required": ["request"]}, memory),
         FrontDeskTool("in_front", "What is open in front of them now, what they had open before, what they saved lately.",

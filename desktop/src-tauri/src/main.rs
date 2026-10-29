@@ -1,9 +1,9 @@
 // Pippin on the macOS desktop.
 //
 // * The orb: a small ball at the edge of the screen. Drop a link, a selection or a file on it to save it into
-//   your memory; click it for the memory panel; it says in a bubble when something you saved bears on what you
+//   your notebook; click it for the notebook panel; it says in a bubble when something you saved bears on what you
 //   are doing.
-// * The panel: the console's memory panel (`/panel`), in a window of its own.
+// * The panel: the console's notebook panel (`/panel`), in a window of its own.
 // * What you are doing: the frontmost app and its window title (macOS Accessibility), sent to Pippin as context.
 //   Browsers are left to the browser extension, which knows the page and the selection.
 // * The server: the local Pippin console is started in the background when it is not running.

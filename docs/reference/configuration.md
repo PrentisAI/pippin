@@ -71,8 +71,8 @@ Which model plays each role.
 | `models.frontdesk` | str | `"anthropic/claude-haiku-5.5"` | Model of the front desk agent that talks with the human. |
 | `models.brainstorm` | str | `""` | Model of the brainstorm agents (Skeptic, Methods, Librarian). Empty: models.frontdesk. |
 | `models.review` | str | `"anthropic/claude-sonnet-5.5"` | Model that maps a field and reads papers closely (zoom out, zoom in): scoping, searching the web for papers, adjudicating screening, and every judgement of the map. A strong model matters here. |
-| `models.memory` | str | `"anthropic/claude-haiku-5.5"` | Model of the shared memory: it takes the claims out of what you save, tells whether two claims say the same thing (or the opposite), and ranks them for what you are doing. |
-| `models.embedding` | str | `"openai/text-embedding-3-large"` | Embedding model of the shared memory (an OpenRouter model): finds claims that may say the same thing, across languages, and what bears on what you are reading. |
+| `models.memory` | str | `"anthropic/claude-haiku-5.5"` | Model of the shared notebook: it takes the claims out of what you save, tells whether two claims say the same thing (or the opposite), and ranks them for what you are doing. |
+| `models.embedding` | str | `"openai/text-embedding-3-large"` | Embedding model of the shared notebook (an OpenRouter model): finds claims that may say the same thing, across languages, and what bears on what you are reading. |
 | `models.review_screen` | list[str] | `["anthropic/claude-haiku-5.5", "google/gemini-3.5-flash-lite"]` | Two models that screen candidate papers independently (title and abstract), and read them for their cards. Different families make the two screenings independent. |
 
 ## `ideation`

@@ -3,11 +3,11 @@
 import type { MemDissent } from '../../types'
 
 export function DissentPanel({ data, onQuote }: { data: MemDissent | null | undefined; onQuote: (quote: string, page: number) => void }) {
-  if (data === undefined) return <div className="rd-loading">Reading the paper against your memory…</div>
-  if (data === null) return <div className="rd-note-warn">Your memory could not be read for this paper.</div>
+  if (data === undefined) return <div className="rd-loading">Reading the paper against your notebook…</div>
+  if (data === null) return <div className="rd-note-warn">Your notebook could not be read for this paper.</div>
   if (!data.items.length) return (
     <div className="cw-empty"><b>Nothing you saved argues with this paper</b>
-      <span>{data.note || 'The claims in your memory nearest to it agree with it, or are about something else.'}</span></div>
+      <span>{data.note || 'The claims in your notebook nearest to it agree with it, or are about something else.'}</span></div>
   )
   return (
     <div className="mem-dissent">

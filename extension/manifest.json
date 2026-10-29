@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Pippin",
   "version": "0.1.0",
-  "description": "Your research assistant where you read: save anything into your memory, see how a paper relates to your questions, follow people and threads.",
+  "description": "Your research assistant where you read: save anything into your notebook, see how a paper relates to your questions, follow people and threads.",
   "icons": {
     "16": "icons/16.png",
     "48": "icons/48.png",

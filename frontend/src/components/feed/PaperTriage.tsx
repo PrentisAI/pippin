@@ -1,5 +1,5 @@
 /** The feed's papers, one at a time: why it was picked, what it says, and four ways on. Skip (J or ←) passes it
- *  by; Less like this (X) hides it and similar ones rank lower; Into memory (S or ↓) keeps what it says among your
+ *  by; Less like this (X) hides it and similar ones rank lower; Into notebook (S or ↓) keeps what it says among your
  *  saves; Read with me (R or →) puts it in the project it fits and opens it in the reader. U undoes the last one.
  *  On a trackpad or phone, swipe: left to skip, right to read, down to keep. */
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -22,7 +22,7 @@ function setSkipped(ids: string[]) {
 
 function tally(done: Done[]): string {
   const n = (c: Choice) => done.filter((d) => d.choice === c).length
-  const parts = [n('read') && `${n('read')} to read`, n('keep') && `${n('keep')} into memory`, n('skip') + n('less') && `${n('skip') + n('less')} skipped`].filter(Boolean)
+  const parts = [n('read') && `${n('read')} to read`, n('keep') && `${n('keep')} into your notebook`, n('skip') + n('less') && `${n('skip') + n('less')} skipped`].filter(Boolean)
   return parts.length ? parts.join(' · ') : 'Nothing chosen yet'
 }
 
@@ -106,7 +106,7 @@ export function PaperTriage({ items, onClose, onChanged }: {
     else if (d.x > 90) choose('read')
     else if (d.y > 90) choose('keep')
   }
-  const lean = drag ? (drag.x < -90 ? 'Skip' : drag.x > 90 ? 'Read with me' : drag.y > 90 ? 'Into memory' : '') : ''
+  const lean = drag ? (drag.x < -90 ? 'Skip' : drag.x > 90 ? 'Read with me' : drag.y > 90 ? 'Into notebook' : '') : ''
 
   return (
     <div className="tr">
@@ -134,7 +134,7 @@ export function PaperTriage({ items, onClose, onChanged }: {
           <div className="tr-actions">
             <button className="tr-btn" disabled={busy} onClick={() => choose('skip')}>Skip<kbd>J · ←</kbd></button>
             <button className="tr-btn quiet" disabled={busy} onClick={() => choose('less')}>Less like this<kbd>X</kbd></button>
-            <button className="tr-btn" disabled={busy} onClick={() => choose('keep')}>Into memory<kbd>S · ↓</kbd></button>
+            <button className="tr-btn" disabled={busy} onClick={() => choose('keep')}>Into notebook<kbd>S · ↓</kbd></button>
             <button className="tr-btn primary" disabled={busy} onClick={() => choose('read')}>Read with me<kbd>R · →</kbd></button>
           </div>
           {error && <p className="td-error tr-error">{error}</p>}

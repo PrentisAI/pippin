@@ -182,7 +182,7 @@
         ${(rep.miscites || []).length ? '<h4>Citations that do not fully hold</h4>' + rep.miscites.map((m) => `<div class="c"><b>[${esc(m.key)}]</b> line ${m.line}<div class="sub">${esc(m.sentence)}</div><div>${esc(m.issue)}</div>${m.quote ? `<blockquote>${esc(m.quote)}</blockquote>` : ''}</div>`).join('') : ''}
         ${(rep.missing || []).length ? '<h4>Key work not cited</h4>' + rep.missing.map((m) => `<div class="c"><b>${esc(m.title)}</b><div class="sub">${esc(m.byline)}</div><div>${esc(m.why)}</div></div>`).join('') : ''}
         ${(rep.undefined || []).length ? `<h4>Cited but not in the .bib</h4><div>${esc(rep.undefined.join(', '))}</div>` : ''}
-        <div class="sub" style="margin-top:8px">Nothing was changed in the manuscript. The full report is on the console’s Memory page.</div>`)
+        <div class="sub" style="margin-top:8px">Nothing was changed in the manuscript. The full report is in the console’s Library, under Check references.</div>`)
     }
   }
 

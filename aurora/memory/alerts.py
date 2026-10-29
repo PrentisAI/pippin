@@ -2,7 +2,7 @@
 
 Two kinds of thing interrupt, everything else waits for the daily digest:
 
-* **retraction**: a paper you rely on (in your memory, your Library, or a manuscript whose references you checked)
+* **retraction**: a paper you rely on (in your notebook, your Library, or a manuscript whose references you checked)
   has been retracted. Checked once a day against OpenAlex (``is_retracted``) and Crossref's retraction notices
   (which include the Retraction Watch data).
 * **overlap**: a new paper that comes in (saved, or from what you follow) does what you set out to do: it overlaps
@@ -210,7 +210,7 @@ def relied_on(owner: str) -> dict[str, dict[str, Any]]:
                 row["where"].append(where)
     for s in mem_store.sources(owner, 2000):
         if s["paper_id"] and s["state"] == "done":
-            add(s["paper_id"], "your memory")
+            add(s["paper_id"], "your notebook")
     for item in library.items("", owner=owner):
         add(item["paper_id"], "your Library")
     for doi, row in (_audited(owner) or {}).items():

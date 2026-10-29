@@ -1,4 +1,4 @@
-"""Your own notes, from an Obsidian vault (or any folder of Markdown files), in your memory.
+"""Your own notes, from an Obsidian vault (or any folder of Markdown files), in your notebook.
 
 Notes come in two ways: the console reads a vault folder on the machine it runs on (Memory → Your notes: the folder,
 and which subfolders), or the Obsidian plugin sends notes as you write them (when the console runs elsewhere). Either
@@ -98,7 +98,7 @@ def _body(text: str) -> str:
 
 def upsert(access: Any, models: dict[str, str], owner: str, vault: str, path: str, text: str,
            mtime: float = 0.0) -> dict[str, Any]:
-    """A note, new or changed: read it into the memory (its old version retired). Unchanged notes are left alone."""
+    """A note, new or changed: read it into the notebook (its old version retired). Unchanged notes are left alone."""
     body = _body(text)
     digest = hashlib.sha256(body.encode()).hexdigest()
     have = _row(owner, vault, path)
@@ -118,7 +118,7 @@ def upsert(access: Any, models: dict[str, str], owner: str, vault: str, path: st
 
 
 def remove(owner: str, vault: str, path: str) -> bool:
-    """A note deleted in the vault: what only it said goes from the memory."""
+    """A note deleted in the vault: what only it said goes from the notebook."""
     have = _row(owner, vault, path)
     if have is None:
         return False

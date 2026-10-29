@@ -1,5 +1,5 @@
 // On a paper's page (arXiv, OpenReview, ACL Anthology, Semantic Scholar, a DOI): how it relates to your research
-// questions and to what you saved, with saving it to your memory and to Zotero. It stays a small tab when the paper
+// questions and to what you saved, with saving it to your notebook and to Zotero. It stays a small tab when the paper
 // has nothing to do with your work.
 (() => {
   if (window.__auroraPaper) return
@@ -43,7 +43,7 @@
       ${qs ? '<div class="sub" style="margin-top:8px">Your questions</div>' + qs : ''}
       ${us ? '<div class="sub" style="margin-top:8px">What you saved before</div>' + us : ''}
       <div class="row">
-        <button class="b" data-a="save" ${d.saved ? 'disabled' : ''}>${d.saved ? 'In your memory' : 'Save to memory'}</button>
+        <button class="b" data-a="save" ${d.saved ? 'disabled' : ''}>${d.saved ? 'In your notebook' : 'Save to notebook'}</button>
         ${d.paper && z && z.connected ? `<button class="b q2" data-a="zotero" ${z.in_zotero ? 'disabled' : ''}>${z.in_zotero ? 'In Zotero' : 'Save to Zotero'}</button>` : ''}
         ${d.paper ? '<button class="b q2" data-a="dissent">Sentences your saves argue with</button>' : ''}
       </div>${extra}`
@@ -52,11 +52,11 @@
     if (s) s.onclick = async () => {
       s.disabled = true; s.textContent = 'Saving…'
       const r = await chrome.runtime.sendMessage({ type: 'aurora:save' })
-      s.textContent = r && r.ok ? 'In your memory' : 'Could not save'
+      s.textContent = r && r.ok ? 'In your notebook' : 'Could not save'
     }
     const db = card.querySelector('[data-a="dissent"]')
     if (db) db.onclick = async () => {
-      db.disabled = true; db.textContent = 'Reading it against your memory…'
+      db.disabled = true; db.textContent = 'Reading it against your notebook…'
       const r = await chrome.runtime.sendMessage({ type: 'aurora:api', path: `/memory/dissent?paper=${encodeURIComponent(d.paper.paper_id)}` })
       if (!r || !r.ok) { db.textContent = (r && r.error) || 'Could not reach Pippin'; return }
       const pdf = d.paper.arxiv ? `https://arxiv.org/pdf/${d.paper.arxiv}` : ''

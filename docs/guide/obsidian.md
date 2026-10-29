@@ -7,9 +7,9 @@ saved, and a paper that disagrees with your note surfaces first.
 
 Two ways, use either:
 
-- **The console reads the folder** (when it runs on the machine that has the vault): Memory page → **Your notes**.
+- **The console reads the folder** (when it runs on the machine that has the vault): Notebook page → *How things come in on their own* → **Your notes**.
   Give the vault folder, the subfolders to read (empty: all) and those never to read (`Journal, Private`). New and
-  edited notes are read every few minutes; deleted ones leave the memory. Only an admin may point a shared console
+  edited notes are read every few minutes; deleted ones leave the notebook. Only an admin may point a shared console
   at its disks.
 - **The plugin sends notes** as you write them (after a minute without edits), from the folders you name in its
   settings. Off until you turn it on.
@@ -24,9 +24,9 @@ plugins. Set the console's address and, with accounts, a token. No build step.
 
 | What | How |
 |---|---|
-| **Memory panel** | The ribbon icon: what surfaces for the note you are writing (the note and your selection go to Pippin as context; kept a few hours, never stored). |
-| **Literature note from a paper** | A DOI, arXiv id or title: a note in your literature folder with the paper's methods, findings and limitations (each marked as stated or inferred) and what your memory makes of it. |
-| **Append an idea unit** | Search your memory, pick a unit: its claim, its sources with their own words, and its conflicts are appended to the note you are in. |
+| **Notebook panel** | The ribbon icon: what surfaces for the note you are writing (the note and your selection go to Pippin as context; kept a few hours, never stored). |
+| **Literature note from a paper** | A DOI, arXiv id or title: a note in your literature folder with the paper's methods, findings and limitations (each marked as stated or inferred) and what your notebook makes of it. |
+| **Append an idea unit** | Search your notebook, pick a unit: its claim, its sources with their own words, and its conflicts are appended to the note you are in. |
 | **Save the selection to Pippin**, **Send this note now** | Commands. |
 
 Creating and appending notes are writes: they happen only as far as you allowed *Create notes in your vault* and

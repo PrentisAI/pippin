@@ -126,7 +126,7 @@ RULES: dict[tuple[str, str], str] = {
     ("GET", "/api/zotero/collections"): "any",
     ("POST", "/api/zotero/sync"): "any",
     ("POST", "/api/zotero/push/{campaign_id}"): "any",
-    # the shared memory: each person's own
+    # the shared notebook: each person's own
     ("POST", "/api/memory/capture"): "any",
     ("POST", "/api/memory/capture/file"): "any",
     ("GET", "/api/memory/sources"): "any",

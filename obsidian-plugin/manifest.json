@@ -3,7 +3,7 @@
   "name": "Pippin",
   "version": "0.1.0",
   "minAppVersion": "1.4.0",
-  "description": "Your Pippin research memory beside your notes: what surfaces for the note you are writing, literature notes from papers, idea units appended with their sources, and your notes read into your memory.",
+  "description": "Your Pippin research notebook beside your notes: what surfaces for the note you are writing, literature notes from papers, idea units appended with their sources, and your notes read into your notebook.",
   "author": "The Pippin authors",
   "isDesktopOnly": false
 }

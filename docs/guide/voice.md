@@ -24,7 +24,7 @@ What you say goes with what you are doing at that moment, so pointing words mean
 | the one before | what you had open before it |
 | the second one | the second item of the digest you just heard |
 
-You can ask a question (about what is in front, or of your memory), compare two things, save what is in front, keep
+You can ask a question (about what is in front, or of your notebook), compare two things, save what is in front, keep
 a thought (*note that…*), put a paper on your reading list, let something sink, ask for a citation for the sentence
 you are writing, start a close reading of a paper, hear today's digest, or say *undo*.
 

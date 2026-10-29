@@ -5,6 +5,7 @@ import { ago, askFrontDesk, initialsOf, useToast } from './feed/common'
 import { FeedCard, type FeedActions } from './feed/FeedCard'
 import { FollowingView } from './feed/FollowingView'
 import { PaperTriage } from './feed/PaperTriage'
+import { ReferenceCheck } from './ReferenceCheck'
 import { ScholarView } from './feed/ScholarView'
 import { PaperLinks } from './LiteratureView'
 import { ZoteroDialog } from './ZoteroDialog'
@@ -16,7 +17,7 @@ const SOURCE_ORDER = ['arxiv', 'openalex', 's2', 'hf', 'bluesky', 'mastodon', 'r
 /** The Library: today's feed, picked for your projects; what you saved; searching the indexes. */
 export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: string) => void }) {
   const [sub, setSub] = useState<null | 'following' | { person: string }>(null)
-  const [tab, setTab] = useState<'feed' | 'saved' | 'search'>('feed')
+  const [tab, setTab] = useState<'feed' | 'saved' | 'search' | 'refs'>('feed')
   const [feed, setFeed] = useState<FeedView | null>(null)
   const [lib, setLib] = useState<Library | null>(null)
   const [saved, setSaved] = useState<FeedItem[]>([])
@@ -120,6 +121,8 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
         <button role="tab" aria-selected={tab === 'feed'} className={tab === 'feed' ? 'on' : ''} onClick={() => setTab('feed')}>Feed</button>
         <button role="tab" aria-selected={tab === 'saved'} className={tab === 'saved' ? 'on' : ''} onClick={() => setTab('saved')}>Saved · {savedCount}</button>
         <button role="tab" aria-selected={tab === 'search'} className={tab === 'search' ? 'on' : ''} onClick={() => setTab('search')}>Search</button>
+        <button role="tab" aria-selected={tab === 'refs'} className={tab === 'refs' ? 'on' : ''} onClick={() => setTab('refs')}
+          title="Before you submit: whether each reference of a manuscript exists, was retracted, and says what you cite it for">Check references</button>
       </div>
       </div>
       {zotero && <ZoteroDialog onClose={() => { setZotero(false); loadSaved() }} />}
@@ -176,6 +179,7 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
               onChanged={loadSaved} />
           )}
           {tab === 'search' && <SearchTab lib={lib} onChanged={loadSaved} />}
+          {tab === 'refs' && <ReferenceCheck />}
         </div>
 
         <aside className="fd-side">

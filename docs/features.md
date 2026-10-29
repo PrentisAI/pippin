@@ -18,7 +18,7 @@ feature does, how you reach it, and the settings that matter; the linked pages g
 | [Paper reader](#paper-reader) | read a PDF with the agents; notes in step with Zotero |
 | [The feed](#the-feed) | new papers and posts from whom you follow, ranked against your projects |
 | [Zotero](#zotero) | two-way sync, annotations both ways, and a Zotero 7 plugin |
-| [The shared memory](#the-shared-memory) | everything you save, kept by claim; what bears on what you do surfaces |
+| [The shared notebook](#the-shared-notebook) | everything you save, kept by claim; what bears on what you do surfaces |
 | [Where you read and write](#where-you-read-and-write) | browser extension, Overleaf, macOS orb, Obsidian, voice |
 | [What Pippin may write](#what-aurora-may-write) | every write into your tools off by default, logged, undoable |
 | [Accounts and sharing](#accounts-and-sharing) | sign-in, roles, sharing, own keys, confidential projects, team rules |
@@ -351,7 +351,7 @@ See [Zoom out and zoom in](concepts/zoom-out-zoom-in.md).
   OpenReview, with **Show the points**), any blog's RSS or Atom; X with your own API key.
 - Buttons: **Save to project**, **Bring to brainstorm**, **Ask the front desk**, open it, **Not interested** (and
   similar items rank lower).
-- **The daily digest** at your chosen time to a notification channel, with what came into your memory.
+- **The daily digest** at your chosen time to a notification channel, with what came into your notebook.
 
 See [The feed](guide/feed.md).
 
@@ -363,13 +363,13 @@ See [The feed](guide/feed.md).
   BibTeX keys; every 5 minutes.
 - **Notes on PDFs both ways** with the paper reader.
 - **The Zotero 7 plugin**: every paper you add is read in the background into a card (methods, findings,
-  limitations, each marked stated or inferred) with what your memory makes of it; the sentences your saves argue
+  limitations, each marked stated or inferred) with what your notebook makes of it; the sentences your saves argue
   with (opening the PDF at the page, and orange margin marks when allowed, removable); in the reader, **What my
   saves say** and **Save to Pippin** for a selection; **Save the card as a note** when allowed.
 
 See [Zotero](guide/zotero.md).
 
-## The shared memory
+## The shared notebook
 
 Everything you save is kept by **claim**: the same claim from several sources (in any language) is one **idea
 unit** with several sources, each with its own words found again in a snapshot; opposite claims are linked as
@@ -386,16 +386,16 @@ unit** with several sources, each with its own words found again in a snapshot; 
 | **Ask me** | A question from what surfaced (usually a conflict) instead of a summary; your answer comes back with those units later and joins the Mentor's research plan for that question. |
 | **What it adds up to** | For a research question: what its claims amount to, starting from the map of its field when there is one. |
 | **Today** | What came in over the last day, by question: +1 source, new claims, new conflicts; one or two papers **worth reading closely** with **Deep read** and **To read**; let a claim sink, or see **how it differs** from another. |
-| **In a brainstorm** | **Bring to a brainstorm** as evidence; in your private brainstorms the Librarian and the Skeptic search your memory themselves. |
+| **In a brainstorm** | **Bring to a brainstorm** as evidence; in your private brainstorms the Librarian and the Skeptic search your notebook themselves. |
 | **This week** | A weekly report: what merged, new units and conflicts, what changed your view, your answers, what to archive. |
 | **Interruptions** | Only an experiment **waiting for your decision**, a **retraction** of a paper you rely on (memory, Library, a manuscript you checked; OpenAlex and Crossref daily), or a new paper that **overlaps** a question you settled with its plan or a manuscript you checked (at most two overlaps a day, quiet hours respected). Banner, orb dot, notifications; **Not worth interrupting me for** moves that kind to the digest. |
 | **Your own notes** | An Obsidian vault (or any Markdown folder) read by the console or sent by the plugin; claims marked as yours; a paper disagreeing with your note shown first; edited notes re-read, deleted ones removed. |
 | **Copy as Markdown** | Any unit, with its sources' words and conflicts, for any note app. |
 | **Forget** | Take a saved thing out (**forget** in the list of what you saved; units left without a source go too). |
 | **Language** | Explanations in the language of what you read, Chinese, or English. |
-| **Personal** | Only you see your memory. |
+| **Personal** | Only you see your notebook. |
 
-See [The shared memory](concepts/memory.md).
+See [The shared notebook](concepts/memory.md).
 
 ## Where you read and write
 
@@ -403,12 +403,12 @@ See [The shared memory](concepts/memory.md).
 
 - **Save anything**: right click or ⌥⇧S; a notification says what saving did.
 - **On a paper's page** (arXiv, OpenReview, ACL Anthology, Semantic Scholar, DOI): a card with the research
-  questions it bears on and how, the saved claims it touches, **Save to memory**, **Save to Zotero** (or the
+  questions it bears on and how, the saved claims it touches, **Save to notebook**, **Save to Zotero** (or the
   BibTeX and DOI), **Sentences your saves argue with**. Unrelated papers leave only a small tab.
 - **Context**: the page and your selection (sites can be excluded).
 - **Following**: people, topics and threads on Zhihu, X and Xiaohongshu read every 15 minutes in a background tab
-  of your signed-in browser; Reddit and blog feeds read by the console; new posts into the memory and the digest.
-- **Side panel**: your memory panel beside the page; for a PDF open in the browser, the sentences your saves argue
+  of your signed-in browser; Reddit and blog feeds read by the console; new posts into the notebook and the digest.
+- **Side panel**: your notebook panel beside the page; for a PDF open in the browser, the sentences your saves argue
   with above it, each opening its page.
 - **Interruptions** as browser notifications (a decision opens its experiment).
 
@@ -422,7 +422,7 @@ See [The shared memory](concepts/memory.md).
   otherwise copy.
 - **Check references** before you submit: every reference exists, none is retracted, each `\cite` supports its
   sentence (differing numbers named, with the paper's words), key work not cited, keys cited but undefined and
-  entries unused. A report, never an edit; also on the Memory page for a pasted `.tex` and `.bib`, or for the
+  entries unused. A report, never an edit; also in the Library (**Check references**) for a pasted `.tex` and `.bib`, or for the
   manuscript as a **PDF** (numbered or author-year references). The references are watched for retractions from
   then on, and new papers that overlap the manuscript's contribution interrupt you.
 - **Context**: the sentence at your cursor.
@@ -443,7 +443,7 @@ See [The shared memory](concepts/memory.md).
 
 - The console reads the vault (only the folders you name, never those you exclude), or the plugin sends notes
   as you write.
-- The plugin: memory panel in the sidebar with your note and selection as context; **Literature note from a
+- The plugin: notebook panel in the sidebar with your note and selection as context; **Literature note from a
   paper** (DOI, arXiv id or title); **Append an idea unit**; **Save the selection**; **Send this note now**.
   Creating and appending follow the write levels (off gives the Markdown to copy).
 
@@ -455,7 +455,7 @@ See [Obsidian](guide/obsidian.md).
   recordings are not kept.
 - **Pointing words**: *this sentence/paragraph* (selection, else the text around you), *this figure* (a capture
   of the window in front, only then), *this paper*, *the one before*, *the second one* (of the digest you heard).
-- Ask (about what is in front, or your memory), compare two things, save, keep a thought, add to the reading
+- Ask (about what is in front, or your notebook), compare two things, save, keep a thought, add to the reading
   list, let something sink or raise it, ask for a citation, start a deep read, hear the digest, **undo**.
 - **Short aloud, complete on the panel** (*You said*, with sources and their words); answers only from sources.
 - Writes confirmed in words (*say undo to take it back*); *ask* level asks and your next words decide; off says
@@ -467,8 +467,8 @@ See [Browser extension and desktop app](guide/extension-and-desktop.md) and [Voi
 
 ### Connecting entry points
 
-Without accounts nothing beyond the console's address; with accounts a **device token** per entry point (Memory
-page → *Browser extension and desktop app* → **Make a token**), revocable, with when it was last used.
+Without accounts nothing beyond the console's address; with accounts a **device token** per entry point (Notebook
+page → *How things come in on their own* → **Make a token**), revocable, with when it was last used.
 
 ## What Pippin may write
 
@@ -500,7 +500,7 @@ See [Accounts and sharing](guide/accounts.md).
 - Channels: WeCom group robot, Server酱 (personal WeChat), Feishu/Lark, Slack, any webhook; several at once; a
   test button; per-person.
 - Events: a decision waits, a run finished, failed or stopped on its own, 80 % of the budget, the estimate
-  exceeded, the agent replied, a skill proposed, a GPU job ended, something in your memory you would regret
+  exceeded, the agent replied, a skill proposed, a GPU job ended, something in your notebook you would regret
   missing, and the daily digest.
 - **Approve and continue** / **Stop the experiment** links that confirm on a page (so link previews cannot act),
   signed, expiring after a day, respecting who may decide.
@@ -545,7 +545,7 @@ In a terminal, decisions are asked at the prompt. See [Command line](guide/cli.m
 
 ## Not there yet
 
-- The memory is personal; sharing idea units with a team comes later.
+- The notebook is personal; sharing idea units with a team comes later.
 - Embeddings come from an API (OpenRouter `text-embedding-3-large`); a local model may follow.
 - Mobile entry points (headphones, lock screen) come after the desktop.
 - Notion is not connected; Logseq works as a Markdown folder.

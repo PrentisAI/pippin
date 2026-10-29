@@ -1,4 +1,4 @@
-// Pippin in the browser: saving into the memory, saying what you are reading, reading what you follow.
+// Pippin in the browser: saving into the notebook, saying what you are reading, reading what you follow.
 // Everything goes to your Pippin console (its address and, with accounts, a token are set in the options).
 import { EXTRACT } from './extractors.js'
 
@@ -57,7 +57,7 @@ async function save(tab, { selection = '', link = '' } = {}) {
     }
     const done = await follow(await api('/memory/capture', { method: 'POST', body: JSON.stringify(body) }))
     await chrome.action.setBadgeText({ text: done && done.state === 'done' ? '✓' : '!', tabId: tab.id })
-    tell(done ? (done.summary || done.error) : 'Still working on it; it will be in your memory soon.')
+    tell(done ? (done.summary || done.error) : 'Still working on it; it will be in your notebook soon.')
     refreshPanel()
     return done
   } catch (err) {
@@ -94,7 +94,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   else if (info.menuItemId === 'follow-page') {
     try {
       const f = await api('/memory/follows', { method: 'POST', body: JSON.stringify({ url: tab.url, label: tab.title }) })
-      tell(`Following “${f.label}”. New posts come into your memory${f.via === 'extension' ? ', read here in your browser' : ''}.`)
+      tell(`Following “${f.label}”. New posts come into your notebook${f.via === 'extension' ? ', read here in your browser' : ''}.`)
     } catch (err) { tell(`Could not follow it: ${err.message}`) }
   }
 })

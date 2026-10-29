@@ -290,7 +290,7 @@ class BoardTools:
             query = str(args.get("query", "")).strip()
             if not query or b.shared_chat:
                 return {"error": "the researcher's memory is not used in a shared conversation"}
-            self.turn.step(f"Looking in your memory: “{query}”")
+            self.turn.step(f"Looking in your notebook: “{query}”")
             return await search_memory(b.viewer, query)
         if name == "add_question":
             idea = self._idea(str(args.get("card_id")))
@@ -520,7 +520,7 @@ def tool_specs(agent: str, board: Board) -> list[dict[str, Any]]:
     if board.shared_chat and board.private:
         specs.append(_ASK_TO_SHARE)
     if "search_memory" in allowed and not board.shared_chat and _has_memory(board.viewer):
-        specs.append(_MEMORY)       # the memory is personal: only in the researcher's own conversations
+        specs.append(_MEMORY)       # the notebook is personal: only in the researcher's own conversations
     return [{"type": "function", "function": s} for s in specs]
 
 
@@ -696,17 +696,17 @@ async def search_memory(owner: str, query: str, limit: int = 8) -> str:
     from aurora.memory.store import mem_store
     units = mem_store.units(owner)
     if not units:
-        return "Their memory is empty."
+        return "Their notebook is empty."
     try:
         access, models = _access_of(owner)
     except Exception as exc:
-        return f"Their memory cannot be searched now: {exc}"
+        return f"Their notebook cannot be searched now: {exc}"
     vec = (await ingest.embed(access, models["embedding"], [query]))[0]
     uv = await ingest.unit_vectors(access, models["embedding"], units)
     near = [u for u in sorted(units, key=lambda u: -ingest.cosine(vec, uv.get(u["unit_id"], [0.0])))[:limit]
             if ingest.relevance(ingest.cosine(vec, uv.get(u["unit_id"], [0.0]))) >= 0.3]
     if not near:
-        return "Nothing in their memory bears on it."
+        return "Nothing in their notebook bears on it."
     out = []
     for u in near:
         ev = mem_store.evidence(u["unit_id"])
@@ -727,5 +727,5 @@ def memory_card(space: str, owner: str, u: dict[str, Any], text: str = "", *, by
     own = any(e["platform"] == "note" for e in ev)
     body = u["claim"] + (f" {text}" if text and text.strip() != u["claim"] else "")
     return bs_store.add_card(space, owner, "material", body, by=by or owner, vis=vis, chat_id=chat_id,
-                             source=f"From your memory · {n} source{'s' if n != 1 else ''}" + (" · your note" if own else ""),
+                             source=f"From your notebook · {n} source{'s' if n != 1 else ''}" + (" · your note" if own else ""),
                              url=url, unit_id=u["unit_id"])

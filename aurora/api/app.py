@@ -120,7 +120,7 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
         # each person's feed: their sources every few hours, and their daily digest
         from aurora.feed.service import loop as feed_loop
         app.state.feed_work = asyncio.create_task(feed_loop())
-        # what each person follows and the server reads (Reddit, feeds), into their memory
+        # what each person follows and the server reads (Reddit, feeds), into their notebook
         from aurora.memory.follow import loop as follow_loop
         app.state.follow_work = asyncio.create_task(follow_loop())
         # notifications held during quiet hours, sent when those end

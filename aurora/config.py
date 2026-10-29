@@ -228,12 +228,12 @@ class ModelConfig(_Section):
     )
     memory: str = Field(
         default="anthropic/claude-haiku-5.5",
-        description="Model of the shared memory: it takes the claims out of what you save, tells whether two claims "
+        description="Model of the shared notebook: it takes the claims out of what you save, tells whether two claims "
                     "say the same thing (or the opposite), and ranks them for what you are doing.",
     )
     embedding: str = Field(
         default="openai/text-embedding-3-large",
-        description="Embedding model of the shared memory (an OpenRouter model): finds claims that may say the same "
+        description="Embedding model of the shared notebook (an OpenRouter model): finds claims that may say the same "
                     "thing, across languages, and what bears on what you are reading.",
     )
     review_screen: list[str] = Field(

@@ -204,8 +204,8 @@ They said: "{said}"
 What is around them now:
 {_scene_text(sc)}
 
-intent, one of: ask (a question: about what is in front, or to their memory), compare (how two things differ), \
-save (keep what is in front in their memory), note (a thought of theirs to keep: "note that…", "记一下…"), toread \
+intent, one of: ask (a question: about what is in front, or to their notebook), compare (how two things differ), \
+save (keep what is in front in their notebook), note (a thought of theirs to keep: "note that…", "记一下…"), toread \
 (put a paper on their reading list), sink (they do not want to see it again), raise (bring it back), digest (read \
 them today's digest), cite (find a citation for the sentence they are writing), deep_read (read a paper closely with \
 them), undo (take back what was just done), confirm (yes, to the question waiting), cancel (no), unknown.
@@ -340,7 +340,7 @@ def _short(title: str) -> str:
 
 async def _answer(access: Any, models: dict[str, str], owner: str, said: str, question: str,
                   targets: list[dict[str, Any]], zh: bool, images: list[str]) -> dict[str, Any]:
-    """An answer from what is in front and from the memory, every point with its source; none without one."""
+    """An answer from what is in front and from the notebook, every point with its source; none without one."""
     from aurora.review import llm
     units = mem_store.units(owner, include_sunk=False)
     near: list[dict[str, Any]] = []
@@ -362,7 +362,7 @@ What they have in front of them:
 {front or '(nothing)'}
 {'(A screenshot of the window they meant is attached.)' if images else ''}
 
-From their memory (claims they saved, with the sources' words):
+From their notebook (claims they saved, with the sources' words):
 {mem or '(nothing relevant)'}
 
 Answer only from these. Every point names where it comes from: [t0] for what is in front, a claim id for the \
@@ -419,7 +419,7 @@ JSON: {{"speech": "...", "answer": "..."}}""", max_tokens=5000)
 
 async def _note(access: Any, models: dict[str, str], owner: str, said: str, thought: str, targets: list[dict[str, Any]],
                 zh: bool) -> dict[str, Any]:
-    """A thought kept: in the memory as your own note; on the paper's Zotero item too, as far as allowed."""
+    """A thought kept: in the notebook as your own note; on the paper's Zotero item too, as far as allowed."""
     from aurora.auth import writes
     t = targets[0] if targets else None
     about = (t or {}).get("title", "")

@@ -107,12 +107,12 @@ See [Results, reports and runs](docs/guide/results.md).
 - **Paper reader** — read a PDF with the agents: highlight and note passages,
   ask an agent about one, let them mark what bears on your idea; the notes you
   keep become annotations on the PDF in Zotero, and back.
-- **Memory** — everything you save, from arXiv to Zhihu, X, Reddit and Xiaohongshu, kept by
+- **Notebook** — everything you save, from arXiv to Zhihu, X, Reddit and Xiaohongshu, kept by
   claim: the same claim from several sources (in any language) is one idea unit, opposite claims
   are flagged as conflicts, and what bears on what you are reading surfaces (at most three) while
   the rest is absorbed or sinks. A browser extension (Chrome, Safari) and a macOS desktop orb save
-  pages and posts, follow people and threads, and show the memory where you read. Plugins for
-  Zotero (every paper you add read in the background) and Obsidian (your own notes in the memory),
+  pages and posts, follow people and threads, and show the notebook where you read. Plugins for
+  Zotero (every paper you add read in the background) and Obsidian (your own notes in the notebook),
   citations from your own library in Overleaf, a reference check before you submit (retracted,
   miscited, missing work), interruptions only for a retraction or overlapping work, and voice on
   the Mac (hold a key, "add this one to my reading list"). Pippin writes into your Zotero,
@@ -120,7 +120,7 @@ See [Results, reports and runs](docs/guide/results.md).
 - **Feed** — new papers and posts from the people and sources you follow,
   ranked against your projects, with one sentence on why each fits.
 
-See [Literature](docs/concepts/literature.md), [Brainstorm](docs/concepts/brainstorm.md), [Memory](docs/concepts/memory.md),
+See [Literature](docs/concepts/literature.md), [Brainstorm](docs/concepts/brainstorm.md), [Notebook](docs/concepts/memory.md),
 [Zotero](docs/guide/zotero.md), [The feed](docs/guide/feed.md), [Browser extension and desktop app](docs/guide/extension-and-desktop.md),
 [Obsidian](docs/guide/obsidian.md) and [Voice](docs/guide/voice.md).
 
@@ -224,7 +224,7 @@ The documentation is in [`docs/`](docs/) and reads directly on GitHub:
 |---|---|
 | Overview | [Everything Pippin does](docs/features.md): every feature in one place |
 | Getting started | [Installation](docs/getting-started/installation.md) · [Your first campaign](docs/getting-started/first-campaign.md) |
-| Concepts | [How a campaign runs](docs/concepts/pipeline.md) · [Ideation](docs/concepts/ideation.md) · [Auditors](docs/concepts/auditors.md) · [Working with the human](docs/concepts/human-in-the-loop.md) · [Literature](docs/concepts/literature.md) · [Brainstorm](docs/concepts/brainstorm.md) · [Zoom out and zoom in](docs/concepts/zoom-out-zoom-in.md) · [Memory](docs/concepts/memory.md) · [Skills](docs/concepts/skills.md) |
+| Concepts | [How a campaign runs](docs/concepts/pipeline.md) · [Ideation](docs/concepts/ideation.md) · [Auditors](docs/concepts/auditors.md) · [Working with the human](docs/concepts/human-in-the-loop.md) · [Literature](docs/concepts/literature.md) · [Brainstorm](docs/concepts/brainstorm.md) · [Zoom out and zoom in](docs/concepts/zoom-out-zoom-in.md) · [Notebook](docs/concepts/memory.md) · [Skills](docs/concepts/skills.md) |
 | Guides | [Command line](docs/guide/cli.md) · [Web console](docs/guide/web-console.md) · [Results, reports and runs](docs/guide/results.md) · [Accounts and sharing](docs/guide/accounts.md) · [The feed](docs/guide/feed.md) · [Zotero](docs/guide/zotero.md) · [Extension and desktop app](docs/guide/extension-and-desktop.md) · [Obsidian](docs/guide/obsidian.md) · [Voice](docs/guide/voice.md) · [Notifications](docs/guide/notifications.md) · [GPU jobs](docs/guide/cluster-jobs.md) · [Models and costs](docs/guide/models-and-costs.md) · [Sandbox and security](docs/guide/sandbox.md) · [Troubleshooting](docs/guide/troubleshooting.md) |
 | Reference | [Configuration](docs/reference/configuration.md) · [Campaign files](docs/reference/workspace.md) · [Events](docs/reference/events.md) |
 
@@ -265,7 +265,7 @@ If you are an agent asked to use or change Pippin:
 | `aurora/` | the Python package (engine, agents, auditors, web API) |
 | `frontend/` | the web console (React) |
 | `extension/` | the browser extension (Chrome; Safari through `extension/safari/build.sh`) |
-| `desktop/` | the macOS desktop app (Tauri): the orb, the memory panel and voice |
+| `desktop/` | the macOS desktop app (Tauri): the orb, the notebook panel and voice |
 | `zotero-plugin/` | the Zotero 7 plugin |
 | `obsidian-plugin/` | the Obsidian plugin |
 | `examples/` | quickstart, an open-ended campaign, the materials case study |

@@ -1,5 +1,5 @@
 """A page the person is looking at, related to their work: which research questions a paper bears on and how, and
-which of their saved claims it touches. Looking is not saving: nothing goes into the memory until they save it.
+which of their saved claims it touches. Looking is not saving: nothing goes into the notebook until they save it.
 
 Also the daily digest: what came in (saved by hand or from what they follow), by research question.
 """
@@ -170,7 +170,7 @@ def digest(owner: str, hours: int = 24) -> dict[str, Any]:
 
 
 def digest_text(owner: str) -> str:
-    """The memory's part of the daily digest message, as text ('' when nothing came in)."""
+    """The notebook's part of the daily digest message, as text ('' when nothing came in)."""
     d = digest(owner, 24)
     lines = []
     for a in d["alerts"]:
@@ -181,4 +181,4 @@ def digest_text(owner: str) -> str:
         rows += [f"- +1 source ({u['sources']} now): {u['claim']}" for u in g["merged"]]
         rows += [f"- new: {u['claim']}" for u in g["new"]]
         lines.append(f"### {head}\n" + "\n".join(rows[:8]))
-    return ("## Your memory\n" + "\n".join(lines)) if lines else ""
+    return ("## Your notebook\n" + "\n".join(lines)) if lines else ""

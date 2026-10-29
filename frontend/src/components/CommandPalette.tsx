@@ -23,7 +23,7 @@ const PAGES: { label: string; hint: string; go: (g: PaletteGo) => void }[] = [
   { label: 'New question', hint: 'start a project from a question', go: (g) => g.newQuestion() },
   { label: 'Brainstorm', hint: 'think it through with the Mentor', go: (g) => g.page('brainstorm') },
   { label: 'Library', hint: 'papers and the feed', go: (g) => g.page('library') },
-  { label: 'Memory', hint: 'what you read and saved', go: (g) => g.page('memory') },
+  { label: 'Notebook', hint: 'what you read and saved', go: (g) => g.page('memory') },
   { label: 'Analytics', hint: 'cost and runs over time', go: (g) => g.panel('analytics') },
   { label: 'Skills', hint: 'the skill library and catalog', go: (g) => g.panel('skills') },
   { label: 'Settings', hint: 'models, budgets, notifications', go: (g) => g.panel('settings') },

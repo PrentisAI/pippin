@@ -1399,7 +1399,7 @@ export type MsgWidget =
   | { type: 'question'; kind: 'summary' | 'candidates'; state: 'waiting' | 'confirmed' | 'superseded'; version: number; rq: ResearchQuestion; card_id?: string }
 
 // ---------------------------------------------------------------------------
-// The shared memory
+// The shared notebook
 
 export type MemStance = 'challenges' | 'adds' | 'supports' | 'background' | 'tool'
 /** An idea unit as a context shows it: in a layer, with how it stands and why it is at that depth. */
@@ -1520,7 +1520,7 @@ export interface AssistantTurn {
   at: number
   /** typed | voice (their turns) */
   via?: string
-  /** What the answer rests on, from the memory. */
+  /** What the answer rests on, from the notebook. */
   items?: MemVoiceTurn['items']
   /** Buttons that open a page of the console (a path on it). */
   links?: { label: string; path: string }[]

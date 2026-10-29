@@ -1,7 +1,7 @@
 /* Pippin in Zotero 7.
  *
  * - Every paper you add is sent to your Pippin console and read in the background: its methods, findings and
- *   limitations wait for you in the item pane's Pippin section, with what your memory makes of it (its claims,
+ *   limitations wait for you in the item pane's Pippin section, with what your notebook makes of it (its claims,
  *   conflicts with what you saved, the research questions it bears on).
  * - "Sentences your saves argue with": the sentences of the paper that what you saved before challenges, each
  *   opening the PDF at its page.
@@ -147,7 +147,7 @@ Aurora = {
     }
     if (c.read_from === "abstract") body.append(el("div", "Read from the abstract only (no PDF).", "color:#667;font-size:11px"));
     if ((view.units || []).length || (view.questions || []).length) {
-      body.append(el("div", "Your memory", "margin-top:10px;font-size:11px;text-transform:uppercase;color:#556"));
+      body.append(el("div", "Your notebook", "margin-top:10px;font-size:11px;text-transform:uppercase;color:#556"));
       if ((view.questions || []).length) body.append(el("div", "Bears on " + view.questions.join(", ")));
       for (const x of view.conflicts || []) body.append(el("div", "Conflicts with what you saved: " + x.other, "color:#b45309"));
       const merged = (view.units || []).filter((u) => u.sources > 1);
@@ -166,7 +166,7 @@ Aurora = {
     const doc = body.ownerDocument;
     const box = doc.createElement("div");
     box.setAttribute("style", "margin-top:8px");
-    box.textContent = "Reading the paper against your memory…";
+    box.textContent = "Reading the paper against your notebook…";
     body.append(box);
     try {
       const d = await this.api(`/memory/dissent?paper=${encodeURIComponent(view.paper_id)}`);

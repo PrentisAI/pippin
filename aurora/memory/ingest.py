@@ -1,4 +1,4 @@
-"""Saving something into the memory: its claims taken out, each merged into the idea unit that says the same thing
+"""Saving something into the notebook: its claims taken out, each merged into the idea unit that says the same thing
 or made a unit of its own, contradictions linked, and what it bears on among the person's research questions.
 
 1. Read it (``fetch.get``) and keep a snapshot.
@@ -137,7 +137,7 @@ async def process(access: Any, models: dict[str, str], source_id: str, *, text: 
                 logger.info("checking %s for overlap failed", source_id, exc_info=True)
         return result
     except Exception as exc:
-        logger.info("saving %s into memory failed", source_id, exc_info=True)
+        logger.info("saving %s into your notebook failed", source_id, exc_info=True)
         mem_store.update_source(source_id, state="failed", error=str(exc)[:500], done_at=time.time())
         return {"error": str(exc)}
 
@@ -305,7 +305,7 @@ def summary(result: dict[str, Any], owner: str) -> str:
     if result.get("error"):
         return f"Could not save it: {result['error']}"
     if result.get("duplicate_of"):
-        return "Already in your memory."
+        return "Already in your notebook."
     if not result.get("units"):
         return "Saved; it makes no claim worth keeping on its own, so it stays as a source."
     names = {q["question_id"]: q["label"] for q in qs.current(owner)}

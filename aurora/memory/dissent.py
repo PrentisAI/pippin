@@ -1,6 +1,6 @@
 """The sentences of a paper you are reading that what you saved before argues with.
 
-The units of your memory nearest to the paper (by meaning; not those you saved from this very paper) are given to
+The units of your notebook nearest to the paper (by meaning; not those you saved from this very paper) are given to
 a model with the paper's text. It names the sentences of the paper they challenge or qualify, each copied exactly,
 and which units do. A sentence is kept only when it is found again on its page, so the reader can mark it.
 """

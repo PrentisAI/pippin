@@ -1,11 +1,11 @@
 /* Pippin in Obsidian.
  *
- * - A side view with your memory panel: what surfaces for the note you are writing (the note and your selection
+ * - A side view with your notebook panel: what surfaces for the note you are writing (the note and your selection
  *   are sent as what you are doing, kept a few hours, never stored; you can turn it off).
- * - Your notes read into your memory (off until you turn it on, and only the folders you name): what they claim is
+ * - Your notes read into your notebook (off until you turn it on, and only the folders you name): what they claim is
  *   merged with what you saved elsewhere, and a paper that disagrees with your note says so. Edited notes are read
- *   again; deleted ones leave the memory.
- * - Commands: a literature note from a paper (its methods, findings, limitations and what your memory makes of it),
+ *   again; deleted ones leave the notebook.
+ * - Commands: a literature note from a paper (its methods, findings, limitations and what your notebook makes of it),
  *   append an idea unit (claim, sources with their words, conflicts) to the note you are in, save the selection to
  *   Pippin, send this note now.
  *
@@ -43,7 +43,7 @@ class AuroraView extends ItemView {
     el.addClass("aurora-view");
     const s = this.plugin.settings;
     const url = `${s.server.replace(/\/$/, "")}/panel${s.token ? `?token=${encodeURIComponent(s.token)}` : ""}`;
-    el.createEl("iframe", { attr: { src: url, title: "Pippin memory" } });
+    el.createEl("iframe", { attr: { src: url, title: "Pippin notebook" } });
   }
 }
 
@@ -90,9 +90,9 @@ class AuroraSettings extends PluginSettingTab {
     const toggle = (name, desc, key) => new Setting(el).setName(name).setDesc(desc)
       .addToggle((t) => t.setValue(p.settings[key]).onChange(async (v) => { p.settings[key] = v; await p.saveSettings(); }));
     text("Console address", "Where your Pippin console runs, e.g. http://localhost:8200", "server");
-    text("Token", "Only when the console has accounts: console → Memory → Browser extension and desktop app → Make a token", "token", true);
+    text("Token", "Only when the console has accounts: console → Notebook → How things come in on their own → Make a token", "token", true);
     toggle("Tell Pippin what I am writing", "The open note and your selection, so the panel shows what bears on it (kept a few hours, never stored)", "reportContext");
-    toggle("Read my notes into my memory", "New and edited notes are sent to Pippin and read; deleted ones leave the memory. Off until you turn it on.", "sendNotes");
+    toggle("Read my notes into my notebook", "New and edited notes are sent to Pippin and read; deleted ones leave the notebook. Off until you turn it on.", "sendNotes");
     text("Only these folders", "Comma-separated; empty: the whole vault", "folders");
     text("Never these folders", "Comma-separated, e.g. Journal, Private", "exclude");
     text("Literature notes go in", "The folder for literature notes", "literatureFolder");
@@ -108,16 +108,16 @@ module.exports = class AuroraPlugin extends Plugin {
     this.settings = Object.assign({}, DEFAULTS, await this.loadData());
     this.pending = new Map();
     this.registerView(VIEW, (leaf) => new AuroraView(leaf, this));
-    this.addRibbonIcon("sparkles", "Pippin memory", () => this.openView());
+    this.addRibbonIcon("sparkles", "Pippin notebook", () => this.openView());
     this.addSettingTab(new AuroraSettings(this.app, this));
 
-    this.addCommand({ id: "open-panel", name: "Open the memory panel", callback: () => this.openView() });
+    this.addCommand({ id: "open-panel", name: "Open the notebook panel", callback: () => this.openView() });
     this.addCommand({ id: "literature-note", name: "Literature note from a paper (DOI, arXiv id or title)", callback: () => this.literatureNote() });
-    this.addCommand({ id: "append-unit", name: "Append an idea unit from my memory to this note",
+    this.addCommand({ id: "append-unit", name: "Append an idea unit from my notebook to this note",
       editorCallback: (editor, view) => this.appendUnit(view.file) });
     this.addCommand({ id: "save-selection", name: "Save the selection to Pippin",
       editorCallback: (editor, view) => this.saveSelection(editor.getSelection(), view.file) });
-    this.addCommand({ id: "send-note", name: "Send this note to my memory now",
+    this.addCommand({ id: "send-note", name: "Send this note to my notebook now",
       editorCallback: (editor, view) => this.sendNote(view.file, true) });
 
     // what you are writing, as context
@@ -125,7 +125,7 @@ module.exports = class AuroraPlugin extends Plugin {
     this.registerDomEvent(document, "selectionchange", () => this.reportSoon());
     this.registerDomEvent(document, "keyup", () => this.reportSoon());
 
-    // your notes, read into your memory
+    // your notes, read into your notebook
     this.registerEvent(this.app.vault.on("modify", (f) => this.noteChanged(f)));
     this.registerEvent(this.app.vault.on("create", (f) => this.noteChanged(f)));
     this.registerEvent(this.app.vault.on("delete", (f) => this.noteGone(f.path)));
@@ -181,7 +181,7 @@ module.exports = class AuroraPlugin extends Plugin {
       selection: selection.slice(0, 4000), text: around.join("\n").slice(0, 4000), via: "obsidian" } });
   }
 
-  // ------------------------------------------------------------------ your notes into your memory
+  // ------------------------------------------------------------------ your notes into your notebook
 
   wanted(path) {
     if (!path.endsWith(".md")) return false;
@@ -282,7 +282,7 @@ module.exports = class AuroraPlugin extends Plugin {
       `# ${v.title}`, "", c.one_line || "", "", "## Methods", pts("methods"), "", "## Findings", pts("findings"), "",
       "## Limitations", pts("limitations"), ""];
     if ((v.questions || []).length || (v.conflicts || []).length) {
-      out.push("## In my memory");
+      out.push("## In my notebook");
       if ((v.questions || []).length) out.push(`- Bears on ${v.questions.join(", ")}`);
       for (const x of v.conflicts || []) out.push(`- Conflicts with what I saved: ${x.other}`);
       out.push("");
@@ -293,12 +293,12 @@ module.exports = class AuroraPlugin extends Plugin {
 
   appendUnit(file) {
     if (!file) return;
-    new AskModal(this.app, "Append an idea unit", "Search your memory", async (q, modal) => {
+    new AskModal(this.app, "Append an idea unit", "Search your notebook", async (q, modal) => {
       modal.results.setText("Searching…");
       try {
         const hits = await this.api(`/memory/search?q=${encodeURIComponent(q)}`);
         modal.results.empty();
-        if (!hits.length) modal.results.setText("Nothing in your memory matches.");
+        if (!hits.length) modal.results.setText("Nothing in your notebook matches.");
         for (const h of hits) {
           const d = modal.results.createDiv("aurora-result");
           d.createDiv({ text: h.claim });

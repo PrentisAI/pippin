@@ -1,5 +1,5 @@
 /** Pippin at your side: the conversation of the desktop orb and the browser's side panel. Typed here or spoken to the
- *  orb (hold ⌥⇧Space), one thread about everything the console knows: your memory, what is in front of you, your
+ *  orb (hold ⌥⇧Space), one thread about everything the console knows: your notebook, what is in front of you, your
  *  projects. Buttons open the right page of the console when something needs it. */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
@@ -51,7 +51,7 @@ export function AssistantChat({ refreshKey = 0, onPick }: { refreshKey?: number;
         {turns && turns.length === 0 && !asking && (
           <div className="as-empty">
             <b>Ask Pippin anything, without opening the console</b>
-            <span className="lit-sub">About your projects, your memory, or what is in front of you. Type here, or hold ⌥⇧Space and speak to the orb.</span>
+            <span className="lit-sub">About your projects, your notebook, or what is in front of you. Type here, or hold ⌥⇧Space and speak to the orb.</span>
             <div className="as-starters">{STARTERS.map((s) => <button key={s} className="mem-chip" onClick={() => send(s)}>{s}</button>)}</div>
           </div>
         )}

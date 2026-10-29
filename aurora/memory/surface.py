@@ -66,7 +66,7 @@ def pdf_title(title: str) -> tuple[str, str]:
 
 async def infer_paper(owner: str, ctx: dict[str, Any]) -> dict[str, Any]:
     """In a PDF reader that is not Pippin's (Preview, Acrobat…) only the file name is known: which paper it is, if
-    it can be told. An arXiv id in the name; a paper of your Library or your memory with that title; else the
+    it can be told. An arXiv id in the name; a paper of your Library or your notebook with that title; else the
     scholarly indexes, by the title in the name (Zotero names files "Author - Year - Title")."""
     import difflib
 
@@ -178,7 +178,7 @@ async def rank(access: Any, models: dict[str, str], owner: str, ctx: dict[str, A
         try:
             fine = await _judge(access.with_model(models["memory"]), ctx, [u for _, u in top], language(owner))
         except Exception:
-            logger.info("ranking the memory for a context failed; using the embedding ranking", exc_info=True)
+            logger.info("ranking the notebook for a context failed; using the embedding ranking", exc_info=True)
     scored = []
     for r, u in top:
         f = fine.get(u["unit_id"]) or {}
@@ -321,7 +321,7 @@ def answer(owner: str, ask_id: str, text: str) -> dict[str, Any]:
         mem_store.mark(uid, owner, "answer", {"ask_id": ask_id})
     try:
         to_plan(owner, a, text)
-    except Exception:                 # brainstorms are optional for the memory
+    except Exception:                 # brainstorms are optional for the notebook
         logger.info("adding an answer to the research plan failed", exc_info=True)
     return mem_store.ask(ask_id)  # type: ignore[return-value]
 
@@ -346,7 +346,7 @@ def to_plan(owner: str, a: dict[str, Any], text: str) -> list[str]:
         if chat is None:
             continue
         ins = bs_store.add_insight(chat["chat_id"], chat["space"], owner, "evidence",
-                                   f"{text.strip()} (asked by your memory: {a['question']})", quote=text.strip(), origin="you")
+                                   f"{text.strip()} (asked by your notebook: {a['question']})", quote=text.strip(), origin="you")
         added.append(ins["insight_id"])
     return added
 
@@ -375,7 +375,7 @@ async def synthesis(access: Any, models: dict[str, str], owner: str, question_id
     out = await llm.ask(access.with_model(models["memory"]), "memory_synthesis", f"""The researcher's question: \
 {q['text']}
 {field}
-What their memory holds on it:
+What their notebook holds on it:
 {lines}
 
 Write, in {lang_of(owner)}, what this adds up to for their question: {start}where the claims agree, where they \

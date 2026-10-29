@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "name": "Pippin",
   "version": "0.1.0",
-  "description": "Every paper you add is read in the background: its methods, findings and limitations are waiting for you, with what your Pippin memory makes of it.",
+  "description": "Every paper you add is read in the background: its methods, findings and limitations are waiting for you, with what your Pippin notebook makes of it.",
   "author": "The Pippin authors",
   "icons": { "48": "icons/48.png" },
   "applications": {

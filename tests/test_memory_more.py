@@ -92,7 +92,7 @@ def test_a_claim_goes_onto_a_brainstorm_board_and_agents_can_search_the_memory(c
     uid = s["result"]["units"][0]
     idea = bs_store.add_card("user:local", "local", "idea", "Sparse attention for chat serving")
     card = client.post(f"/api/memory/units/{uid}/to-brainstorm", json={"card_id": idea["card_id"], "rel": "challenges"}).json()
-    assert card["unit_id"] == uid and card["source"].startswith("From your memory") and card["type"] == "material"
+    assert card["unit_id"] == uid and card["source"].startswith("From your notebook") and card["type"] == "material"
     assert any(lk["rel"] == "challenges" for lk in bs_store.links({card["card_id"], idea["card_id"]}))
     found = asyncio.run(ag.search_memory("local", "sparse attention speedup at batch 1"))
     assert uid in found

@@ -1,9 +1,9 @@
 """A paper read in the background, for Zotero: its methods, findings and limitations, waiting for you the next time
-you open it, together with what your memory makes of it (its claims, conflicts with what you saved, the questions
+you open it, together with what your notebook makes of it (its claims, conflicts with what you saved, the questions
 it bears on).
 
 The Zotero plugin sends each paper you add (its metadata, and its PDF when Zotero has it). The paper is saved into
-your memory like anything else, and a card is written from its text. Each line of the card says what it rests on:
+your notebook like anything else, and a card is written from its text. Each line of the card says what it rests on:
 the paper itself, or the reader's inference.
 """
 
@@ -116,7 +116,7 @@ JSON: {{"one_line": "...", "methods": [{{"text": "...", "label": "paper"}}], "fi
 
 
 def view(owner: str, entry: dict[str, Any]) -> dict[str, Any]:
-    """The card and what the memory makes of the paper: its claims, conflicts, the questions it bears on."""
+    """The card and what the notebook makes of the paper: its claims, conflicts, the questions it bears on."""
     from aurora.memory import questions as qs
     c = get(owner, entry["paper_id"]) or {"state": "none", "card": {}, "source_id": ""}
     units, conflicts, bears = [], [], {}

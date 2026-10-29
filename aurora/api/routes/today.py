@@ -56,7 +56,7 @@ async def _decisions(projects: list[dict[str, Any]]) -> tuple[list[dict[str, Any
 
 
 def _alerts(uid: str) -> list[dict[str, Any]]:
-    """What the memory flagged and has not been seen: a retraction, a new paper that overlaps your aim."""
+    """What the notebook flagged and has not been seen: a retraction, a new paper that overlaps your aim."""
     from aurora.memory.store import mem_store
     rows = mem_store.alerts(uid, since=time.time() - ALERT_DAYS * 86400, unseen=True)
     return [{"kind": "alert", "id": a["alert_id"], "alert": a["kind"], "title": a["title"], "detail": a["body"],
@@ -82,7 +82,7 @@ def _saved(uid: str) -> list[dict[str, Any]]:
     names = [s.get("title") or s.get("url") or "" for s in rows[:2]]
     more = len(rows) - len(names)
     return [{"kind": "memory", "at": rows[0]["created_at"], "tone": "",
-             "text": f"Saved into your memory: {'; '.join(n[:80] for n in names if n)}" + (f", and {more} more" if more > 0 else "")}]
+             "text": f"Saved into your notebook: {'; '.join(n[:80] for n in names if n)}" + (f", and {more} more" if more > 0 else "")}]
 
 
 def _reading(uid: str, limit: int = 3) -> list[dict[str, Any]]:

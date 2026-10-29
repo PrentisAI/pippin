@@ -1,9 +1,10 @@
-/** The Memory page: save things into your memory, say what you are reading, keep your research questions, and see
- *  what surfaces. The browser extension and the desktop app do the saving and the "reading" for you; here you can
- *  do both by hand. */
-import { useCallback, useEffect, useState } from 'react'
-import { api } from '../../api/client'
-import type { MemAudit, MemFollow, MemQuestion, MemReport, MemSource } from '../../types'
+/** The Notebook page: what you read and save, kept as claims and checked against each other. One box saves anything
+ *  (a link, some text, a file); below it is what you saved, what bears on your questions, and the week. How things
+ *  come in on their own (the browser extension, the desktop app, what you follow, your notes) is set up once, at
+ *  the bottom, folded away. */
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { api, describeError } from '../../api/client'
+import type { MemFollow, MemQuestion, MemReport, MemSource } from '../../types'
 import { MemoryPanel } from './MemoryPanel'
 
 const PLATFORM: Record<string, string> = {
@@ -13,109 +14,144 @@ const PLATFORM: Record<string, string> = {
 
 export function MemoryView() {
   const [refresh, setRefresh] = useState(0)
-  const [report, setReport] = useState(false)
-  const [audit, setAudit] = useState<string | null>(null)
-  const bump = () => setRefresh((x) => x + 1)
+  const [tab, setTab] = useState<'saved' | 'bears' | 'week'>('saved')
+  const bump = useCallback(() => setRefresh((x) => x + 1), [])
   return (
-    <div className="mem-page">
-      <aside className="mem-side">
-        <Save onSaved={bump} />
-        <Reading onSet={bump} />
+    <div className="nb">
+      <div className="nb-col">
+        <h1 className="nb-h1">Notebook</h1>
+        <p className="nb-lede">What you read and save, kept as claims and checked against each other. Pippin brings it up when you
+          read a paper, write, or ask; the browser extension and the desktop orb save into it as you go.</p>
+        <Capture onSaved={bump} />
         <Questions onChanged={bump} />
-        <Audits onOpen={setAudit} />
-        <Follows />
-        <Connect />
-        <Notes />
-        <Settings />
-      </aside>
-      <main className="mem-main">
-        {audit ? <AuditReport id={audit} onClose={() => setAudit(null)} />
-          : report ? <Report onClose={() => setReport(false)} /> : <MemoryPanel refreshKey={refresh} onReport={() => setReport(true)} />}
-      </main>
+        <div className="nb-tabs" role="tablist">
+          {([['saved', 'Saved'], ['bears', 'What bears on your questions'], ['week', 'This week']] as const).map(([k, l]) => (
+            <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>
+          ))}
+        </div>
+        {tab === 'saved' ? <Saved refreshKey={refresh} onChanged={bump} />
+          : tab === 'bears' ? <MemoryPanel refreshKey={refresh} bare />
+          : <Report />}
+        <details className="nb-setup">
+          <summary>How things come in on their own <span className="lit-sub">the extension and the orb, people you follow, your Obsidian notes, the language</span></summary>
+          <Connect />
+          <Follows />
+          <Notes />
+          <Settings />
+        </details>
+      </div>
     </div>
   )
 }
 
-function Save({ onSaved }: { onSaved: () => void }) {
-  const [url, setUrl] = useState('')
+/** One box: a link, some text, or a file dropped on it. Enter saves (Shift+Enter for a new line). */
+function Capture({ onSaved }: { onSaved: () => void }) {
   const [text, setText] = useState('')
-  const [sources, setSources] = useState<MemSource[]>([])
-  const [err, setErr] = useState<string | null>(null)
-  const [forgetting, setForgetting] = useState<string | null>(null)
-  const load = useCallback(async () => { try { setSources(await api.memory.sources(12)) } catch (e) { setErr((e as Error).message) } }, [])
-  useEffect(() => { load() }, [load])
-  const pending = sources.some((s) => s.state === 'pending')
-  useEffect(() => {
-    if (!pending) return
-    const t = setInterval(async () => { await load(); }, 1500)
-    return () => clearInterval(t)
-  }, [pending, load])
-  const [wasPending, setWasPending] = useState(false)
-  useEffect(() => { if (wasPending && !pending) onSaved(); setWasPending(pending) }, [pending, wasPending, onSaved])
+  const [busy, setBusy] = useState(false)
+  const [over, setOver] = useState(false)
+  const [msg, setMsg] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
+  const file = useRef<HTMLInputElement>(null)
+  const done = (what: string) => { setMsg({ tone: 'ok', text: `Reading ${what} and merging it with what you saved…` }); onSaved() }
   const save = async () => {
-    setErr(null)
+    const t = text.trim()
+    if (!t || busy) return
+    setBusy(true); setMsg(null)
     try {
-      const looksUrl = /^https?:\/\//.test(url.trim())
-      await api.memory.capture({ url: looksUrl ? url.trim() : '', text: looksUrl ? text : [url, text].filter(Boolean).join('\n\n'), via: 'manual' })
-      setUrl(''); setText(''); load()
-    } catch (e) { setErr((e as Error).message) }
+      const url = /^https?:\/\/\S+$/.test(t) ? t : ''
+      await api.memory.capture({ url, text: url ? '' : t, via: 'manual' })
+      setText(''); done(url ? 'the page' : 'it')
+    } catch (e) { setMsg({ tone: 'error', text: describeError(e) }) } finally { setBusy(false) }
+  }
+  const upload = async (f: File | undefined) => {
+    if (!f) return
+    setBusy(true); setMsg(null)
+    try { await api.memory.captureFile(f, 'manual'); done(f.name) } catch (e) { setMsg({ tone: 'error', text: describeError(e) }) } finally { setBusy(false) }
   }
   return (
-    <section className="mem-card">
-      <h4>Save into your memory</h4>
-      <input className="rd-in" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="A link (arXiv, a post, a page) or a few words" aria-label="Link" />
-      <textarea className="rd-in" rows={3} value={text} onChange={(e) => setText(e.target.value)} aria-label="Text"
-        placeholder="Or paste the text (for pages behind a login, until the browser extension saves them for you)" />
-      <div className="cw-row"><button className="btn-sm btn-modify" disabled={!url.trim() && !text.trim()} onClick={save}>Save</button>
-        <span className="lit-sub">It is read, and merged with what you saved before.</span></div>
-      {err && <div className="panel-message error">{err}</div>}
-      <div className="mem-saves">{sources.map((s) => (
-        <div key={s.source_id} className={`mem-save st-${s.state}`}>
-          <span className="mem-line"><b>{PLATFORM[s.platform] ?? s.platform}</b><span className="lit-sub">{s.title || s.url || 'Text'}</span></span>
-          <span className="lit-sub">{s.state === 'pending' ? 'Reading it and merging…' : s.summary}</span>
-          {s.state !== 'pending' && (forgetting === s.source_id
-            ? <span className="mem-line"><span className="lit-sub">Take it out of your memory? Claims only it made go too.</span>
-                <button className="btn-sm" onClick={async () => { await api.memory.forget(s.source_id); setForgetting(null); load(); onSaved() }}>Forget it</button>
-                <button className="link-btn" onClick={() => setForgetting(null)}>keep</button></span>
-            : <button className="link-btn mem-forget" onClick={() => setForgetting(s.source_id)}>forget</button>)}
-        </div>
-      ))}</div>
-    </section>
+    <div className={`nb-capture${over ? ' over' : ''}`}
+      onDragOver={(e) => { e.preventDefault(); setOver(true) }} onDragLeave={() => setOver(false)}
+      onDrop={(e) => { e.preventDefault(); setOver(false); const f = e.dataTransfer.files?.[0]; if (f) upload(f); else setText(e.dataTransfer.getData('text/plain')) }}>
+      <textarea rows={Math.min(8, Math.max(1, text.split('\n').length))} value={text} disabled={busy} aria-label="Save into your notebook"
+        placeholder={over ? 'Drop it to save it' : 'Paste a link or some text, or drop a PDF, to save it'}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); save() } }} />
+      <div className="nb-capture-row">
+        <button className="link-btn" onClick={() => file.current?.click()} disabled={busy}>Choose a file</button>
+        <input ref={file} type="file" hidden accept=".pdf,.md,.txt,application/pdf,text/plain"
+          onChange={(e) => { upload(e.target.files?.[0]); e.target.value = '' }} />
+        {msg && <span className={msg.tone === 'error' ? 'nb-err' : 'lit-sub'}>{msg.text}</span>}
+        <button className="nb-save" disabled={!text.trim() || busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+      </div>
+    </div>
   )
 }
 
-function Reading({ onSet }: { onSet: () => void }) {
-  const [title, setTitle] = useState('')
-  const [text, setText] = useState('')
+/** What you saved, newest first: what came of each (merged, new, a conflict), and taking one out. */
+function Saved({ refreshKey, onChanged }: { refreshKey: number; onChanged: () => void }) {
+  const [sources, setSources] = useState<MemSource[] | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const [forgetting, setForgetting] = useState<string | null>(null)
+  const load = useCallback(async () => { try { setSources(await api.memory.sources(40)) } catch (e) { setErr(describeError(e)) } }, [])
+  useEffect(() => { load() }, [load, refreshKey])
+  const pending = (sources ?? []).some((s) => s.state === 'pending')
+  useEffect(() => {
+    if (!pending) return
+    const t = setInterval(load, 1500)
+    return () => clearInterval(t)
+  }, [pending, load])
+  if (err) return <div className="panel-message error">{err}</div>
+  if (!sources) return <div className="panel-empty">Loading…</div>
+  if (!sources.length) return (
+    <div className="nb-empty">
+      <b>Nothing saved yet</b>
+      <span>Paste a paper’s link above. Pippin reads it and keeps what it claims, each claim with the sentence it comes from.
+        Save a second paper that says the same thing and the two become one claim with two sources; one that says the
+        opposite is marked as a conflict. Later, when you read a paper in Pippin, it tells you which of your saves agree or disagree.</span>
+    </div>
+  )
   return (
-    <section className="mem-card">
-      <h4>What you are reading</h4>
-      <span className="lit-sub">The browser extension and the desktop app say this on their own. By hand: a title, and the passage you are on.</span>
-      <input className="rd-in" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" aria-label="What you are reading" />
-      <textarea className="rd-in" rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="The passage" aria-label="The passage" />
-      <div className="cw-row"><button className="btn-sm lit-btn" disabled={!title.trim() && !text.trim()}
-        onClick={async () => { await api.memory.context({ app: 'Console', title, selection: text, text, via: 'console' }); onSet() }}>Use as context</button></div>
-    </section>
+    <div className="nb-saved">
+      {sources.map((s) => (
+        <article key={s.source_id} className={`nb-item st-${s.state}`}>
+          <p className="nb-item-meta">{PLATFORM[s.platform] ?? s.platform} · {new Date(s.created_at * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+            {s.state === 'pending' && ' · reading it…'}{s.state === 'failed' && ' · could not be read'}</p>
+          <p className="nb-item-title">{s.url ? <a href={s.url} target="_blank" rel="noreferrer">{s.title || s.url}</a> : s.title || 'Text'}</p>
+          {(s.summary || s.error) && <p className="nb-item-sum">{s.summary || s.error}</p>}
+          {s.state !== 'pending' && (forgetting === s.source_id
+            ? <p className="nb-item-sum">Take it out of your notebook? Claims only it made go too.{' '}
+                <button className="link-btn" onClick={async () => { await api.memory.forget(s.source_id); setForgetting(null); load(); onChanged() }}>Forget it</button>{' · '}
+                <button className="link-btn" onClick={() => setForgetting(null)}>keep</button></p>
+            : <button className="link-btn nb-forget" onClick={() => setForgetting(s.source_id)}>forget</button>)}
+        </article>
+      ))}
+    </div>
   )
 }
 
+/** Your research questions, as a line of chips: the notebook organises what you saved by them. */
 function Questions({ onChanged }: { onChanged: () => void }) {
   const [qs, setQs] = useState<MemQuestion[]>([])
+  const [adding, setAdding] = useState(false)
   const [text, setText] = useState('')
   const load = useCallback(async () => setQs(await api.memory.questions()), [])
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load().catch(() => {}) }, [load])
+  const add = async () => {
+    if (!text.trim()) return
+    await api.memory.addQuestion(text.trim()); setText(''); setAdding(false); load(); onChanged()
+  }
   return (
-    <section className="mem-card">
-      <h4>Your research questions</h4>
+    <div className="nb-qs">
+      <span className="lit-sub" title="Questions you settle with the Mentor in a brainstorm come here on their own">Your questions</span>
       {qs.map((q) => (
-        <div key={q.question_id} className="mem-line"><b>{q.label}</b><span className="mem-qtext">{q.text}</span>
-          {q.origin === 'mentor' && <span className="lit-sub">with the Mentor</span>}
-          <button className="link-btn" aria-label="Archive" onClick={async () => { await api.memory.archiveQuestion(q.question_id); load(); onChanged() }}>×</button></div>
+        <span key={q.question_id} className="nb-q" title={q.text}><b>{q.label}</b> {q.text.length > 60 ? `${q.text.slice(0, 59)}…` : q.text}
+          <button aria-label={`Archive ${q.label}`} onClick={async () => { await api.memory.archiveQuestion(q.question_id); load(); onChanged() }}>×</button></span>
       ))}
-      {!qs.length && <span className="lit-sub">None yet. Questions you settle with the Mentor come here on their own.</span>}
-      <div className="mem-line"><input className="rd-in" value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a question" aria-label="Add a question"
-        onKeyDown={async (e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && text.trim()) { await api.memory.addQuestion(text.trim()); setText(''); load(); onChanged() } }} /></div>
-    </section>
+      {adding ? (
+        <input className="nb-q-in" autoFocus value={text} placeholder="A question you are working on" aria-label="Add a question"
+          onChange={(e) => setText(e.target.value)} onBlur={() => { if (!text.trim()) setAdding(false) }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) add(); if (e.key === 'Escape') setAdding(false) }} />
+      ) : <button className="nb-q-add" onClick={() => setAdding(true)}>+ {qs.length ? 'Add' : 'Add a question'}</button>}
+    </div>
   )
 }
 
@@ -124,7 +160,7 @@ function Settings() {
   useEffect(() => { api.memory.settings().then((s) => setLang(s.language)).catch(() => {}) }, [])
   return (
     <section className="mem-card">
-      <h4>Settings</h4>
+      <h4>Language</h4>
       <label className="mem-line"><span className="lit-sub">Write explanations in</span>
         <select value={lang} onChange={async (e) => { setLang(e.target.value); await api.memory.setSettings(e.target.value) }}>
           <option value="auto">the language of what you read</option><option value="zh">Chinese</option><option value="en">English</option>
@@ -134,12 +170,11 @@ function Settings() {
   )
 }
 
-function Report({ onClose }: { onClose: () => void }) {
+function Report() {
   const [r, setR] = useState<MemReport | null>(null)
   useEffect(() => { api.memory.report(7).then(setR).catch(() => {}) }, [])
   return (
     <div className="mem-panel">
-      <div className="mem-head"><b className="mem-logo">This week</b><button className="link-btn" onClick={onClose}>← Back</button></div>
       {!r ? <div className="panel-empty">Loading…</div> : (
         <div className="mem-body">
           <span className="lit-sub">{r.sources} saved · {r.merged} merged into what you had · {r.new_units} new idea units · {r.conflicts.length} new conflicts</span>
@@ -161,7 +196,7 @@ function Report({ onClose }: { onClose: () => void }) {
 
 const VIA_LABEL = { extension: 'read in your browser', server: 'read by Pippin' }
 
-/** People, topics and threads followed: what they post comes into the memory on its own. */
+/** People, topics and threads followed: what they post comes into the notebook on its own. */
 function Follows() {
   const [fs, setFs] = useState<MemFollow[]>([])
   const [url, setUrl] = useState('')
@@ -172,7 +207,7 @@ function Follows() {
     <section className="mem-card">
       <h4>What you follow</h4>
       <span className="lit-sub">A person or topic on Zhihu, X or Xiaohongshu (read in your browser by the extension, as you are signed in),
-        a subreddit or thread, a blog’s feed. New posts come into your memory and today’s digest.</span>
+        a subreddit or thread, a blog’s feed. New posts come into your notebook and today’s digest.</span>
       {fs.map((f) => (
         <div key={f.follow_id} className="mem-follow">
           <span className="mem-line"><b>{PLATFORM[f.platform] ?? f.platform}</b><span className="mem-qtext">{f.label}</span>
@@ -233,7 +268,7 @@ function Notes() {
   return (
     <section className="mem-card">
       <h4>Your notes</h4>
-      <span className="lit-sub">Your own notes join your memory: what they claim is merged with what you saved, and a paper that disagrees
+      <span className="lit-sub">Your own notes join your notebook: what they claim is merged with what you saved, and a paper that disagrees
         with your note is shown as such. Point the console at your Obsidian vault (a folder on the machine it runs on), or install the
         Obsidian plugin, which sends notes as you write them. Pippin never writes into the vault from here.</span>
       <input className="rd-in" value={v.path} onChange={(e) => setV({ ...v, path: e.target.value })} placeholder="Vault folder, e.g. ~/Documents/Research" aria-label="Vault folder" />
@@ -247,95 +282,5 @@ function Notes() {
       </div>
       {msg && <span className="lit-sub">{msg}</span>}
     </section>
-  )
-}
-
-/** Checking a manuscript's references before you submit it. */
-function Audits({ onOpen }: { onOpen: (id: string) => void }) {
-  const [list, setList] = useState<MemAudit[]>([])
-  const [tex, setTex] = useState('')
-  const [bib, setBib] = useState('')
-  const [open, setOpen] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-  const load = useCallback(async () => setList(await api.memory.audits()), [])
-  useEffect(() => { load().catch(() => {}) }, [load])
-  const readFile = (f: File | undefined, set: (s: string) => void) => { if (f) f.text().then(set) }
-  return (
-    <section className="mem-card">
-      <h4>Check a manuscript’s references</h4>
-      <span className="lit-sub">Before you submit: whether each reference exists, was retracted, says what your sentence says it does,
-        and which key work is missing. Nothing in the manuscript is changed. From Overleaf, the extension does this in one click.</span>
-      {!open ? <div className="cw-row"><button className="btn-sm lit-btn" onClick={() => setOpen(true)}>Check one</button></div> : (
-        <>
-          <label className="lit-sub">The manuscript as a PDF <input type="file" accept=".pdf,application/pdf" onChange={async (e) => {
-            const f = e.target.files?.[0]
-            if (!f) return
-            setErr(null)
-            try {
-              const bytes = new Uint8Array(await f.arrayBuffer())
-              let bin = ''
-              for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-              const a = await api.memory.auditPdf(btoa(bin), f.name.replace(/\.pdf$/i, ''))
-              setOpen(false); load(); onOpen(a.audit_id)
-            } catch (x) { setErr((x as Error).message) }
-          }} /></label>
-          <span className="lit-sub">or its sources:</span>
-          <label className="lit-sub">The LaTeX (.tex) <input type="file" accept=".tex,.txt" onChange={(e) => readFile(e.target.files?.[0], setTex)} /></label>
-          <textarea className="rd-in" rows={3} value={tex} onChange={(e) => setTex(e.target.value)} placeholder="or paste it" aria-label="LaTeX" />
-          <label className="lit-sub">The bibliography (.bib) <input type="file" accept=".bib,.txt" onChange={(e) => readFile(e.target.files?.[0], setBib)} /></label>
-          <textarea className="rd-in" rows={3} value={bib} onChange={(e) => setBib(e.target.value)} placeholder="or paste it" aria-label="BibTeX" />
-          <div className="cw-row"><button className="btn-sm btn-modify" disabled={!tex.trim()} onClick={async () => {
-            try { const a = await api.memory.audit(tex, bib); setOpen(false); setTex(''); setBib(''); load(); onOpen(a.audit_id) } catch (e) { setErr((e as Error).message) }
-          }}>Check the references</button><button className="btn-sm lit-btn" onClick={() => setOpen(false)}>Cancel</button></div>
-          {err && <div className="panel-message error">{err}</div>}
-        </>
-      )}
-      {list.map((a) => <button key={a.audit_id} className="mem-row" onClick={() => onOpen(a.audit_id)}>
-        <span>{a.title}</span><span className="lit-sub">{a.state === 'running' ? a.step || 'running…' : a.state} · {new Date(a.created_at * 1000).toLocaleDateString()}</span></button>)}
-    </section>
-  )
-}
-
-function AuditReport({ id, onClose }: { id: string; onClose: () => void }) {
-  const [a, setA] = useState<MemAudit | null>(null)
-  useEffect(() => {
-    let gone = false
-    const tick = async () => {
-      const x = await api.memory.getAudit(id).catch(() => null)
-      if (gone) return
-      setA(x)
-      if (x && x.state === 'running') setTimeout(tick, 2500)
-    }
-    tick()
-    return () => { gone = true }
-  }, [id])
-  const r = a?.report ?? {}
-  const flagged = (r.entries ?? []).filter((e) => e.status !== 'verified' || e.retracted)
-  return (
-    <div className="mem-panel">
-      <div className="mem-head"><b className="mem-logo">{a?.title || 'References'}</b><button className="link-btn" onClick={onClose}>← Back</button></div>
-      {!a ? <div className="panel-empty">Loading…</div> : a.state === 'running' ? <div className="panel-empty">{a.step || 'Checking…'}</div>
-        : a.state === 'failed' ? <div className="panel-message error">{a.error}</div> : (
-        <div className="mem-body">
-          <span className="lit-sub">{r.counts?.entries} references · {r.counts?.verified} found in the indexes · {r.counts?.retracted} retracted ·
-            {' '}{r.counts?.miscites} citations that do not fully hold · {r.counts?.missing} key works not cited</span>
-          {(r.entries ?? []).some((e) => e.retracted) && <section className="mem-zone"><h4>Retracted</h4>
-            {(r.entries ?? []).filter((e) => e.retracted).map((e) => <div key={e.key} className="mem-row static clash"><span><b>[{e.key}]</b> {e.found_title || e.title}</span><span className="lit-sub">{e.retracted}</span></div>)}</section>}
-          {flagged.some((e) => e.status !== 'verified') && <section className="mem-zone"><h4>Not found as written</h4>
-            {flagged.filter((e) => e.status !== 'verified').map((e) => <div key={e.key} className="mem-row static"><span><b>[{e.key}]</b> {e.title}</span><span className="lit-sub">{e.status}: {e.reason}</span></div>)}</section>}
-          {(r.miscites ?? []).length > 0 && <section className="mem-zone"><h4>Citations that do not fully hold</h4>
-            {r.miscites!.map((m, i) => <div key={i} className="mem-why">
-              <span><b>[{m.key}]</b> line {m.line} · {m.verdict === 'no' ? 'not supported' : 'partly supported'}</span>
-              <span className="lit-sub">“{m.sentence}”</span><span>{m.issue}</span>
-              {m.quote && <blockquote className="pl-quote">{m.quote}</blockquote>}</div>)}</section>}
-          {(r.missing ?? []).length > 0 && <section className="mem-zone"><h4>Key work not cited</h4>
-            {r.missing!.map((m) => <div key={m.paper_id} className="mem-why"><span><b>{m.title}</b> <span className="lit-sub">{m.byline}</span></span><span>{m.why}</span>
-              <button className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={() => navigator.clipboard?.writeText(m.bibtex).catch(() => {})}>copy BibTeX</button></div>)}</section>}
-          {((r.unused ?? []).length > 0 || (r.undefined ?? []).length > 0) && <section className="mem-zone"><h4>Housekeeping</h4>
-            {(r.undefined ?? []).length > 0 && <span>Cited but not in the .bib: {r.undefined!.join(', ')}</span>}
-            {(r.unused ?? []).length > 0 && <span className="lit-sub">In the .bib but never cited: {r.unused!.join(', ')}</span>}</section>}
-        </div>
-      )}
-    </div>
   )
 }

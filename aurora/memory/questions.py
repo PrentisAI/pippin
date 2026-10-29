@@ -1,4 +1,4 @@
-"""The research questions the memory is organised by: those settled with the Mentor, and any written in directly."""
+"""The research questions the notebook is organised by: those settled with the Mentor, and any written in directly."""
 
 from __future__ import annotations
 
@@ -23,6 +23,6 @@ def current(owner: str) -> list[dict[str, Any]]:
     """The person's open questions, oldest first, labelled Q1, Q2, ..."""
     try:
         sync_mentor(owner)
-    except Exception:          # brainstorms are optional for the memory
+    except Exception:          # brainstorms are optional for the notebook
         pass
     return [{**q, "label": f"Q{i + 1}"} for i, q in enumerate(mem_store.questions(owner))]

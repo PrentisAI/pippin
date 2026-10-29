@@ -1,19 +1,19 @@
 # Pippin for Obsidian
 
-Your Pippin research memory beside your notes.
+Your Pippin research notebook beside your notes.
 
-- **Memory panel** (ribbon icon, or the command *Open the memory panel*): what surfaces for the note you are writing.
+- **Notebook panel** (ribbon icon, or the command *Open the notebook panel*): what surfaces for the note you are writing.
   The open note and your selection are sent as what you are doing (kept a few hours, never stored; turn it off in
   the settings).
-- **Your notes into your memory** (off until you turn it on, and only the folders you name): what your notes claim
+- **Your notes into your notebook** (off until you turn it on, and only the folders you name): what your notes claim
   is merged with what you saved elsewhere, and a paper that disagrees with your own note says so. Edited notes are
-  read again, deleted ones leave the memory. *Send all notes* reads the whole vault once.
+  read again, deleted ones leave the notebook. *Send all notes* reads the whole vault once.
 - **Commands**
   - *Literature note from a paper*: a DOI, arXiv id or title → a note with the paper's methods, findings and
-    limitations (each marked as stated by the paper or inferred) and what your memory makes of it.
-  - *Append an idea unit from my memory to this note*: search your memory, pick a unit, and its claim, its sources
+    limitations (each marked as stated by the paper or inferred) and what your notebook makes of it.
+  - *Append an idea unit from my notebook to this note*: search your notebook, pick a unit, and its claim, its sources
     with their own words and what it conflicts with are appended.
-  - *Save the selection to Pippin*, *Send this note to my memory now*.
+  - *Save the selection to Pippin*, *Send this note to my notebook now*.
 
 Writing into the vault happens only as far as you allowed it in Pippin (account button → **What Pippin may write**:
 *Create notes in your vault*, *Append to an existing note*). Off gives you the text to copy; *ask* asks each time;
@@ -23,8 +23,8 @@ Writing into the vault happens only as far as you allowed it in Pippin (account 
 
 No build step: copy this folder into your vault as `.obsidian/plugins/aurora-memory/` (the files `manifest.json`,
 `main.js`, `styles.css`), then **Settings → Community plugins → Pippin** (turn off restricted mode if needed). In
-the plugin's settings, set the console's address and, when the console has accounts, a token (console → Memory →
-Browser extension and desktop app → Make a token).
+the plugin's settings, set the console's address and, when the console has accounts, a token (console → Notebook →
+How things come in on their own → Make a token).
 
 If the console runs on the same machine as the vault, you can instead let the console read the vault folder itself:
-console → Memory → **Your notes**.
+console → Notebook → **Your notes**.

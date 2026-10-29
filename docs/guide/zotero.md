@@ -91,7 +91,7 @@ BibTeX.
 The sync above works through Zotero's Web API. The Zotero 7 plugin (`zotero-plugin/`) works inside Zotero itself:
 
 - **Every paper you add is read in the background.** Open it later and the item pane's **Pippin** section has its
-  methods, findings and limitations, each marked as stated by the paper or inferred, and what your memory makes of
+  methods, findings and limitations, each marked as stated by the paper or inferred, and what your notebook makes of
   it: the questions it bears on, conflicts with what you saved, claims you already had from elsewhere. Nothing is
   written into your library; **Save the card as a note** does that, only when *Write notes on Zotero items* is
   allowed, and marks it as written by Pippin.
@@ -99,9 +99,9 @@ The sync above works through Zotero's Web API. The Zotero 7 plugin (`zotero-plug
   Click one to open the PDF at its page; **Mark them in the PDF** adds orange highlights (tagged `aurora-dissent`)
   when *Send the notes you keep on a PDF as Zotero annotations* is allowed, and **Remove the marks** takes them away.
 - **In the reader**, select a sentence: **What my saves say** lists what you saved that supports or challenges it;
-  **Save to Pippin** keeps the passage in your memory. The paper and passage you are on go to Pippin as context
+  **Save to Pippin** keeps the passage in your notebook. The paper and passage you are on go to Pippin as context
   (kept a few hours, never stored; you can turn it off).
 
 Install: `zotero-plugin/build.sh` makes `dist/aurora-zotero.xpi`; in Zotero, Tools → Plugins → ⚙ → Install Plugin
-From File…. Then Settings → Pippin: the console's address and, with accounts, a token (Memory page → *Browser
+From File…. Then Settings → Pippin: the console's address and, with accounts, a token (Notebook page → *How things come in on their own* → *Browser
 extension and desktop app* → **Make a token**).
