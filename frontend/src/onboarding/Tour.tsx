@@ -7,7 +7,7 @@ import { startTour, updateOnboarding } from './store'
 export interface TourActions {
   openRun: (campaignId: string, runId: string) => void
   openPanel: (panel: string) => void
-  openPage: (page: 'brainstorm' | 'library' | 'team' | 'examples' | null) => void
+  openPage: (page: 'brainstorm' | 'library' | 'team' | 'examples' | 'analytics' | 'skills' | 'settings' | null) => void
   goHome: () => void
   /** Stream, files or jobs on the experiment's right bar. */
   setRight: (panel: string) => void
@@ -67,20 +67,18 @@ const CHAPTERS: Record<TourChapter, { title: string; steps: Step[] }> = {
         body: 'Think out loud before you run anything: a Skeptic, Methods and a Librarian answer, ideas are kept as arguments (for, against, open questions, next steps), and a good one becomes a proposal.' },
       { target: ab('Library'), title: 'Library and feed', before: (a) => a.openPage('library'),
         body: 'The papers of all your projects — the ones agents cite, checked against the indexes, and the ones you add — with your notes, synced with Zotero. Its feed shows new papers and posts from the people and topics you follow, ranked against your projects.' },
-      { target: ab('Search'), title: 'Search', before: (a) => { a.openPage(null); a.openPanel('search') },
-        body: 'Projects, runs, reports, chats and skills, with the passage that matches.' },
-      { target: ab('Analytics'), title: 'Analytics', before: (a) => a.openPanel('analytics'),
+      { target: ab('Search'), title: 'Search and ask (⌘K)', before: (a) => a.openPage(null),
+        body: 'From anywhere: ask Pippin about what is in front of you, or go to a page, project or run. It also finds projects, runs, reports, chats and skills, with the passage that matches.' },
+      { target: ab('Analytics'), title: 'Analytics', before: (a) => a.openPage('analytics'),
         body: 'What your runs cost and how they went over a week, a month or a year: cost per day and per project, the share completed, the most expensive runs.' },
-      { target: ab('Files'), title: 'Files', before: (a) => a.openPanel('projects'),
-        body: 'In a run, switches the right side to its files. A project’s own files (data you upload with + in a chat) are in its menu.' },
-      { target: ab('Skills'), title: 'Skills', before: (a) => a.openPanel('skills'),
+      { target: ab('Skills'), title: 'Skills', before: (a) => a.openPage('skills'),
         body: 'Procedures every agent can use: the ones you write, and ones learned from earlier runs and from your corrections. A correction you make once becomes a skill, so you do not make it again.' },
-      { target: ab('Settings'), title: 'Settings', before: (a) => a.openPanel('settings'),
+      { target: ab('Settings'), title: 'Settings', before: (a) => a.openPage('settings'),
         body: 'The defaults of new runs (the model of every role, the budget, how hands-on, the container), notifications with quiet hours, and GPU jobs on a SLURM cluster or a GPU machine over SSH.' },
-      { target: ab('Team'), title: 'Team', accountsOnly: true, before: (a) => a.openPanel('projects'),
+      { target: ab('Team'), title: 'Team', accountsOnly: true, before: (a) => a.openPage('team'),
         body: 'Who is in the team, groups, and the team’s rules. Projects are private until shared, with rights from viewing to deciding; each person uses their own model key.' },
-      { target: ab('Help'), title: 'Help', before: (a) => a.openPanel('projects'),
-        body: 'Ask how to do something, the getting-started checklist, these tours, the examples and the guides.' },
+      { target: ab('Help'), title: 'Help', before: (a) => { a.openPage(null); a.openPanel('projects') },
+        body: 'Ask how to do something, the getting-started checklist, these tours, the examples and the guides. It opens beside the page you are on, so you can follow it while you work; Esc closes it.' },
     ],
   },
   start: {

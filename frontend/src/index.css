@@ -235,6 +235,20 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 }
 .nav-item:hover { background: var(--bg-hover); color: var(--fg-bright); }
 .nav-item.active { background: var(--bg-active); color: var(--fg-bright); font-weight: 500; }
+/* Help: a drawer beside the page, so it is shown open without taking the page's highlight */
+.nav-item.drawer-open { color: var(--fg-bright); box-shadow: inset 2px 0 0 var(--fg-dim); }
+
+/* what used to be a side panel, as a page of its own */
+.as-page { flex: 1; min-height: 0; display: flex; justify-content: center; overflow: hidden; background: var(--bg); }
+.as-page > .skills-panel { width: 100%; max-width: 880px; min-width: 0; border-right: none; padding-top: 18px; }
+.as-page .skills-header { padding: 10px 24px; }
+.as-page .skills-list { padding-left: 12px; padding-right: 12px; }
+.help-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 420px; max-width: 100vw; z-index: 60; display: flex; background: var(--bg);
+  box-shadow: -1px 0 0 var(--border), -18px 0 44px rgba(0,0,0,.09); }
+.help-drawer > .skills-panel { width: 100%; border-right: none; }
+.help-drawer-close { position: absolute; top: 9px; right: 10px; z-index: 1; border: 0; background: transparent; color: var(--fg-muted); font-size: 14px;
+  width: 28px; height: 28px; border-radius: 7px; cursor: pointer; }
+.help-drawer-close:hover { background: var(--bg-hover); color: var(--fg-bright); }
 .nav-item svg { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .nav-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nav-key { font-size: 12px; color: var(--fg-dim); }

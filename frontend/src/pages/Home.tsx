@@ -160,9 +160,6 @@ const ChartIcon = () => (
 const SettingsIcon = () => (
   <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
 )
-const ExplorerIcon = () => (
-  <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-)
 const TeamIcon = () => (
   <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0111 0"/><path d="M16 5.2a3 3 0 010 5.6M17.5 14a5 5 0 013.5 5"/></svg>
 )
@@ -213,7 +210,9 @@ const FileIcon = () => svgIcon(<><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2
 const ClipIcon = () => svgIcon(<path d="M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9" />)
 
 /** A page that takes the main area instead of a project. */
-type MainPage = 'team' | 'library' | 'brainstorm' | 'examples' | 'memory' | null
+type MainPage = 'team' | 'library' | 'brainstorm' | 'examples' | 'memory' | 'analytics' | 'skills' | 'settings' | 'search' | null
+// what used to open beside the page and is now a page of its own
+const AS_PAGE = ['analytics', 'skills', 'settings', 'search']
 
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).map((x) => x[0]).join('').slice(0, 2).toUpperCase() || '?'
@@ -236,10 +235,10 @@ function sharedMark(c: CampaignSummary) {
 // ---------------------------------------------------------------------------
 
 interface NavProps {
-  activePanel: string
-  explorerActive: boolean
+  /** The help drawer is open (over whatever page). */
+  helpOpen: boolean
   page: MainPage
-  onTogglePanel: (panel: string) => void
+  onToggleHelp: () => void
   onOpenPage: (page: MainPage) => void
   /** Back to the start page, where a new question begins. */
   onHome: () => void
@@ -250,38 +249,42 @@ interface NavProps {
   onSearch: () => void
 }
 
-function NavItem({ icon, label, active, onClick, badge, title }: {
+function NavItem({ icon, label, active, onClick, badge, title, drawer }: {
   icon: React.ReactNode; label: string; active: boolean; onClick: () => void; badge?: React.ReactNode; title?: string
+  /** A drawer it opens is open (shown quieter than the page you are on). */
+  drawer?: boolean
 }) {
   return (
-    <button className={`nav-item${active ? ' active' : ''}`} title={title} data-nav={label} aria-current={active ? 'page' : undefined} onClick={onClick}>
+    <button className={`nav-item${active ? ' active' : ''}${drawer ? ' drawer-open' : ''}`} title={title} data-nav={label}
+      aria-current={active ? 'page' : undefined} aria-expanded={drawer} onClick={onClick}>
       {icon}<span className="nav-label">{label}</span>{badge}
     </button>
   )
 }
 
-function SidebarNav({ activePanel, page, onTogglePanel, onOpenPage, onHome, atHome, onSearch }: NavProps) {
+// Every item is a place, and one place is open at a time: the page in the main area. Search is ⌘K (a box over the
+// page, not a place) and Help a drawer beside whatever page is open, so neither stays highlighted as a page does.
+function SidebarNav({ page, onOpenPage, onHome, atHome, onSearch }: NavProps) {
   return (
     <nav className="sidebar-nav" aria-label="Main">
-      <NavItem icon={<SearchIcon />} label="Search" active={activePanel === 'search'} onClick={onSearch}
+      <NavItem icon={<SearchIcon />} label="Search" active={false} onClick={onSearch}
         title="Ask Pippin, or go to a page, project or run" badge={<span className="nav-key">⌘K</span>} />
       <NavItem icon={<HomeIcon />} label="Home" active={atHome} onClick={onHome} title="Home, where a new question begins" />
       <NavItem icon={<BulbIcon />} label="Brainstorm" active={page === 'brainstorm'} onClick={() => onOpenPage(page === 'brainstorm' ? null : 'brainstorm')} />
       <NavItem icon={<BooksIcon />} label="Library" active={page === 'library'} onClick={() => onOpenPage(page === 'library' ? null : 'library')} />
       <NavItem icon={<WaveIcon />} label="Memory" active={page === 'memory'} onClick={() => onOpenPage(page === 'memory' ? null : 'memory')} />
-      <NavItem icon={<ChartIcon />} label="Analytics" active={activePanel === 'analytics'} onClick={() => onTogglePanel('analytics')} />
+      <NavItem icon={<ChartIcon />} label="Analytics" active={page === 'analytics'} onClick={() => onOpenPage(page === 'analytics' ? null : 'analytics')} />
     </nav>
   )
 }
 
-function SidebarFoot({ activePanel, explorerActive, page, onTogglePanel, onOpenPage, helpBadge }: NavProps) {
+function SidebarFoot({ helpOpen, page, onToggleHelp, onOpenPage, helpBadge }: NavProps) {
   return (
     <div className="sidebar-foot">
-      <NavItem icon={<SkillsIcon />} label="Skills" active={activePanel === 'skills'} onClick={() => onTogglePanel('skills')} />
-      <NavItem icon={<ExplorerIcon />} label="Files" active={explorerActive} onClick={() => onTogglePanel('explorer')} title="The run’s files, beside it" />
+      <NavItem icon={<SkillsIcon />} label="Skills" active={page === 'skills'} onClick={() => onOpenPage(page === 'skills' ? null : 'skills')} />
       <NavItem icon={<TeamIcon />} label="Team" active={page === 'team'} onClick={() => onOpenPage(page === 'team' ? null : 'team')} />
-      <NavItem icon={<SettingsIcon />} label="Settings" active={activePanel === 'settings'} onClick={() => onTogglePanel('settings')} />
-      <NavItem icon={<span className="nav-q" aria-hidden="true">?</span>} label="Help" active={activePanel === 'help'} onClick={() => onTogglePanel('help')}
+      <NavItem icon={<SettingsIcon />} label="Settings" active={page === 'settings'} onClick={() => onOpenPage(page === 'settings' ? null : 'settings')} />
+      <NavItem icon={<span className="nav-q" aria-hidden="true">?</span>} label="Help" active={false} drawer={helpOpen} onClick={onToggleHelp}
         title="Help, the getting-started checklist and the tours"
         badge={helpBadge > 0 ? <span className="nav-count" aria-label={`${helpBadge} things to try`}>{helpBadge}</span> : undefined} />
       <div className="sidebar-account"><AccountButton onOpenTeam={() => onOpenPage('team')} /></div>
@@ -2564,7 +2567,8 @@ export default function Home() {
   const [activeExperimentId, setActiveExperimentId] = useState<string | null>(urlExperimentId)
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([])
   const [notice, setNotice] = useState<string | null>(null)
-  const [activePanel, setActivePanel] = useState<string>('projects')
+  // the help drawer, beside whatever page is open (the one thing that opens over a page rather than as one)
+  const [helpOpen, setHelpOpen] = useState(false)
   const [rightPanel, setRightPanel] = useState<string>('stream')
   // a page asked for in the address (the orb's buttons: /?page=library)
   // the start conversation, asked for from Today ("New question")
@@ -2600,11 +2604,23 @@ export default function Home() {
     window.addEventListener('aurora:open-brainstorm', open)
     return () => window.removeEventListener('aurora:open-brainstorm', open)
   }, [])
+  // what used to be a side panel: analytics, skills, settings and search are pages; help is the drawer
+  const openPanel = useCallback((p: string) => {
+    if (p === 'help') setHelpOpen(true)
+    else if (AS_PAGE.includes(p)) setPage(p as MainPage)
+    else setHelpOpen(false)
+  }, [])
   useEffect(() => {
-    const panel = (e: Event) => setActivePanel((e as CustomEvent<string>).detail)
+    if (!helpOpen) return
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('.cp-backdrop, .tour-pop')) setHelpOpen(false) }
+    window.addEventListener('keydown', esc)
+    return () => window.removeEventListener('keydown', esc)
+  }, [helpOpen])
+  useEffect(() => {
+    const panel = (e: Event) => openPanel((e as CustomEvent<string>).detail)
     window.addEventListener('aurora:open-panel', panel)
     return () => window.removeEventListener('aurora:open-panel', panel)
-  }, [])
+  }, [openPanel])
   const [sharing, setSharing] = useState<CampaignSummary | null>(null)
 
   const sidebarRef = useRef<HTMLDivElement>(null)
@@ -2630,7 +2646,6 @@ export default function Home() {
   const helpPanelRef = useRef<HTMLDivElement>(null)
   // the brainstorm page has its own list of spaces and conversations
   const sidebarCollapsed = false        // the sidebar is the navigation now: always there
-  const showSkills = activePanel === 'skills'
 
   // Sync URL → state on URL change
   useEffect(() => {
@@ -2655,7 +2670,6 @@ export default function Home() {
     const ask = (e: Event) => {
       const { campaignId, ref } = (e as CustomEvent<{ campaignId: string; ref: LibraryRef }>).detail
       toProject(campaignId, { ref })
-      setActivePanel((p) => p === '' ? 'projects' : p)
       selectCampaign(campaignId)
     }
     const tab = (e: Event) => {
@@ -2688,13 +2702,6 @@ export default function Home() {
     navigate(`/campaigns/${campaignId}/experiments/${runId}`, { replace: true })
   }, [navigate])
 
-  const handleTogglePanel = (panel: string) => {
-    if (panel === 'explorer') {
-      setRightPanel((prev) => (prev === 'files' ? 'stream' : 'files'))
-      return
-    }
-    setActivePanel((prev) => (prev === panel ? '' : panel))
-  }
 
   // Fetch campaigns
   const fetchCampaigns = useCallback(async () => {
@@ -2733,7 +2740,6 @@ export default function Home() {
       if (r.hidden) await updateOnboarding({ examples_hidden: false })
       await fetchCampaigns()
       setPage(null)
-      setActivePanel('projects')
       openRun(ex.campaign_id, ex.run_id)
       if (tour) setTimeout(() => startTour('run'), 300)
     } catch (e) { setNotice(`Could not open the example: ${describeError(e)}`) }
@@ -2783,12 +2789,12 @@ export default function Home() {
     if (action === 'demo') runDemo()
     else if (action === 'start') goHome()
     else if (action === 'brainstorm' || action === 'library' || action === 'team' || action === 'examples' || action === 'memory') setPage(action)
-    else if (action.startsWith('settings')) setActivePanel('settings')
+    else if (action.startsWith('settings')) setPage('settings')
     else if (action === 'refresh') fetchCampaigns()
   }
   const tourActions = {
     openRun, goHome, accounts: !!ob?.accounts,
-    openPanel: (panel: string) => setActivePanel(panel),
+    openPanel,
     openPage: (p: MainPage) => setPage(p),
     setRight: (panel: string) => setRightPanel(panel),
   }
@@ -2896,7 +2902,7 @@ export default function Home() {
   // someone with a project of their own starts on Today; a newcomer, on the start conversation
   const hasWork = campaigns.some((c) => !c.example)
   const navProps: NavProps = {
-    activePanel, explorerActive: rightPanel === 'files', onTogglePanel: handleTogglePanel, page, onOpenPage: setPage,
+    helpOpen, onToggleHelp: () => setHelpOpen((o) => !o), page, onOpenPage: setPage,
     onHome: goHome, atHome: !page && !activeCampaignId, helpBadge: ob ? ob.checklist.filter((c) => !c.done).length : 0,
     onSearch: () => setPaletteOpen(true),
   }
@@ -2905,12 +2911,12 @@ export default function Home() {
     : page === 'team' ? 'the team page' : activeCampaign ? `the project “${activeCampaign.name}”${runName ? `, its run “${runName}”` : ''}` : ''
   const paletteGo: PaletteGo = {
     page: (p) => { setStartingNew(false); setPage(p) },
-    panel: (p) => setActivePanel(p),
+    panel: openPanel,
     home: goHome,
     newQuestion: () => { goHome(); setStartingNew(true) },
     project: (cid) => { setPage(null); openProject(cid) },
     run: (cid, rid) => { setPage(null); openRun(cid, rid) },
-    skill: (name) => { setSkillQuery(name); setActivePanel('skills') },
+    skill: (name) => { setSkillQuery(name); setPage('skills') },
   }
 
   // Determine view
@@ -2965,19 +2971,6 @@ export default function Home() {
 
       <ResizeHandle targetRef={sidebarRef} side="right" />
 
-      <SkillsPanel key={skillQuery} collapsed={!showSkills} panelRef={skillsPanelRef} initialSearch={skillQuery} />
-      {showSkills && <ResizeHandle targetRef={skillsPanelRef} side="right" />}
-      <SearchPanel collapsed={activePanel !== 'search'} panelRef={searchPanelRef}
-        onOpenProject={openProject} onOpenRun={openRun}
-        onOpenSkill={(name) => { setSkillQuery(name); setActivePanel('skills') }} />
-      {activePanel === 'search' && <ResizeHandle targetRef={searchPanelRef} side="right" />}
-      <AnalyticsPanel collapsed={activePanel !== 'analytics'} panelRef={analyticsPanelRef}
-        onOpenProject={openProject} onOpenRun={openRun} />
-      {activePanel === 'analytics' && <ResizeHandle targetRef={analyticsPanelRef} side="right" />}
-      <SettingsPanel collapsed={activePanel !== 'settings'} panelRef={settingsPanelRef} />
-      {activePanel === 'settings' && <ResizeHandle targetRef={settingsPanelRef} side="right" />}
-      <HelpPanel collapsed={activePanel !== 'help'} panelRef={helpPanelRef} onAction={helpAction} />
-      {activePanel === 'help' && <ResizeHandle targetRef={helpPanelRef} side="right" />}
 
       <div className="main" style={{ position: 'relative' }}>
         <ErrorBanner message={notice} onDismiss={() => setNotice(null)} />
@@ -2992,6 +2985,13 @@ export default function Home() {
           </Suspense>
         )}
         {view === 'team' && <TeamView />}
+        {view === 'analytics' && <div className="as-page"><AnalyticsPanel collapsed={false} panelRef={analyticsPanelRef}
+          onOpenProject={(cid) => { setPage(null); openProject(cid) }} onOpenRun={(cid, rid) => { setPage(null); openRun(cid, rid) }} /></div>}
+        {view === 'skills' && <div className="as-page"><SkillsPanel key={skillQuery} collapsed={false} panelRef={skillsPanelRef} initialSearch={skillQuery} /></div>}
+        {view === 'settings' && <div className="as-page"><SettingsPanel collapsed={false} panelRef={settingsPanelRef} /></div>}
+        {view === 'search' && <div className="as-page"><SearchPanel collapsed={false} panelRef={searchPanelRef}
+          onOpenProject={(cid) => { setPage(null); openProject(cid) }} onOpenRun={(cid, rid) => { setPage(null); openRun(cid, rid) }}
+          onOpenSkill={(name) => { setSkillQuery(name); setPage('skills') }} /></div>}
         {view === 'memory' && <MemoryView />}
         {view === 'brainstorm' && <BrainstormView initialSpace={bsSpace ?? activeCampaignId}
           opening={bsOpening} onOpeningSent={() => setBsOpening(null)}
@@ -3045,6 +3045,12 @@ export default function Home() {
       </div>
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} go={paletteGo} where={where}
         campaigns={campaigns} experiments={experiments} activeCampaignId={activeCampaignId} />}
+      {helpOpen && (
+        <aside className="help-drawer" aria-label="Help">
+          <button className="help-drawer-close" aria-label="Close help (Esc)" title="Close (Esc)" onClick={() => setHelpOpen(false)}>✕</button>
+          <HelpPanel collapsed={false} panelRef={helpPanelRef} onAction={helpAction} />
+        </aside>
+      )}
       <Tour actions={tourActions} />
       <DocViewer />
     </div>
