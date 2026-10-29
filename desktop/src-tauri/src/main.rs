@@ -184,7 +184,7 @@ fn hear_now(app: &AppHandle, audio: String) -> Result<serde_json::Value, String>
     let s = state.settings.lock().unwrap().clone();
     let shot = state.shot.lock().unwrap().take().unwrap_or_default();
     let wav = base64::engine::general_purpose::STANDARD.decode(&audio).map_err(|e| e.to_string())?;
-    let mut body = serde_json::json!({ "screenshot": shot });
+    let mut body = serde_json::json!({ "screenshot": shot, "via": "voice" });
     if s.whisper_command.trim().is_empty() {
         body["audio"] = serde_json::Value::String(audio);
         body["audio_type"] = "wav".into();
@@ -195,7 +195,8 @@ fn hear_now(app: &AppHandle, audio: String) -> Result<serde_json::Value, String>
         }
         body["text"] = serde_json::Value::String(text);
     }
-    let r = client(&s).post(api(&s, "/memory/voice")).json(&body).send().map_err(|e| e.to_string())?;
+    // the same conversation as the panel's: memory, projects, what is in front
+    let r = client(&s).post(api(&s, "/assistant")).json(&body).send().map_err(|e| e.to_string())?;
     if !r.status().is_success() {
         return Err(r.text().unwrap_or_default());
     }
@@ -288,7 +289,20 @@ fn toggle_panel(app: &AppHandle, show: bool) -> Result<(), String> {
         url.push_str(&format!("&token={}", urlencoding::encode(&s.token)));
     }
     let w = WebviewWindowBuilder::new(app, "panel", WebviewUrl::External(url.parse().map_err(|e| format!("{e}"))?))
-        .title("AURORA").inner_size(460.0, 840.0).build().map_err(|e| e.to_string())?;
+        .title("AURORA").inner_size(460.0, 840.0)
+        // the panel stays the panel: a page of the console, or a source, opens in the browser
+        .on_navigation(|u| {
+            let panel = u.path() == "/panel";
+            if !panel {
+                let _ = Command::new("open").arg(u.as_str()).spawn();
+            }
+            panel
+        })
+        .on_new_window(|u, _| {
+            let _ = Command::new("open").arg(u.as_str()).spawn();
+            tauri::webview::NewWindowResponse::Deny
+        })
+        .build().map_err(|e| e.to_string())?;
     if let Ok(Some(m)) = w.current_monitor() {
         let size = m.size();
         let _ = w.set_position(PhysicalPosition::new(size.width as i32 - 520, 60));

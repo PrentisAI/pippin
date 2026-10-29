@@ -1,10 +1,18 @@
-/** The memory panel on its own page, for the entry points that show it: the browser extension's side panel and
- *  the desktop app. Drop a link, a selection or a file on it to save it; the entry point tells it when what you
- *  are reading changes (a `aurora:refresh` message). */
+/** The panel on its own page, for the entry points that show it: the browser extension's side panel and the desktop
+ *  app. It opens on the conversation with AURORA (the orb's, typed or spoken), with the memory a tab away. Drop a
+ *  link, a selection or a file on it to save it; the entry point tells it when what you are reading changes, or
+ *  when you spoke to the orb (a `aurora:refresh` message). */
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import type { MemSource } from '../../types'
+import { AssistantChat } from './AssistantChat'
 import { MemoryPanel } from './MemoryPanel'
+
+const VIEW_KEY = 'aurora_panel_view'
+
+function savedView(): 'chat' | 'memory' {
+  try { return localStorage.getItem(VIEW_KEY) === 'memory' ? 'memory' : 'chat' } catch { return 'chat' }
+}
 
 export function PanelPage() {
   const [refresh, setRefresh] = useState(0)
@@ -12,6 +20,11 @@ export function PanelPage() {
   const [toast, setToast] = useState<{ head: string; body: string } | null>(null)
   const timer = useRef<number | null>(null)
   const via = new URLSearchParams(window.location.search).get('via') || 'orb'
+  const [view, setView] = useState<'chat' | 'memory'>(savedView)
+  const show = (v: 'chat' | 'memory') => {
+    setView(v)
+    try { localStorage.setItem(VIEW_KEY, v) } catch { /* private window: not remembered */ }
+  }
 
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
@@ -56,7 +69,13 @@ export function PanelPage() {
   return (
     <div className={`mem-standalone${over ? ' over' : ''}`} onDragOver={(e) => { e.preventDefault(); setOver(true) }}
       onDragLeave={() => setOver(false)} onDrop={drop}>
-      <MemoryPanel refreshKey={refresh} />
+      <div className="as-shell">
+        <div className="as-switch" role="tablist">
+          <button role="tab" aria-selected={view === 'chat'} className={view === 'chat' ? 'on' : ''} onClick={() => show('chat')}>AURORA</button>
+          <button role="tab" aria-selected={view === 'memory'} className={view === 'memory' ? 'on' : ''} onClick={() => show('memory')}>Memory</button>
+        </div>
+        {view === 'chat' ? <div className="mem-panel"><AssistantChat refreshKey={refresh} /></div> : <MemoryPanel refreshKey={refresh} />}
+      </div>
       {over && <div className="mem-dropzone">Drop to save into your memory</div>}
       {toast && <div className="mem-toast" role="status"><b>{toast.head}</b><span>{toast.body}</span>
         <button className="link-btn" aria-label="Dismiss" onClick={() => setToast(null)}>×</button></div>}

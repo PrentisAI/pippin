@@ -11,6 +11,7 @@ import type { PdfProgress, DeepRead, IdeaVersion, MemAlert, MemVault, MemVoiceTu
   ProjectChatStatus,
   Skill,
   SkillCatalog,
+  AssistantTurn,
   StartExperimentRequest,
   StartExperimentResponse,
 } from '../types'
@@ -117,6 +118,12 @@ const put = (body: unknown): RequestInit => ({ method: 'PUT', body: JSON.stringi
 const del: RequestInit = { method: 'DELETE' }
 
 export const api = {
+  /** AURORA at your side: the conversation of the orb and the side panel. */
+  assistant: {
+    say: (text: string) => request<AssistantTurn & { reply: string }>('/assistant', post({ text, via: 'typed' })),
+    history: (limit = 60) => request<AssistantTurn[]>(`/assistant/history?limit=${limit}`),
+    clear: () => request<void>('/assistant/history', del),
+  },
   memory: {
     capture: (body: { url?: string; text?: string; title?: string; selection?: string; via?: string }) =>
       request<MemSource>('/memory/capture', post(body)),

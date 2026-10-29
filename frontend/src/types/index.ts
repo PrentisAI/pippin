@@ -1483,6 +1483,21 @@ export interface MemVault {
   path: string; folders: string[]; exclude: string[]; on: boolean; notes?: number
 }
 
+/** A turn of the conversation with AURORA at your side (the orb, the side panel). */
+export interface AssistantTurn {
+  turn_id: string
+  role: 'user' | 'assistant'
+  text: string
+  at: number
+  /** typed | voice (their turns) */
+  via?: string
+  /** What the answer rests on, from the memory. */
+  items?: MemVoiceTurn['items']
+  /** Buttons that open a page of the console (a path on it). */
+  links?: { label: string; path: string }[]
+  undo_id?: string
+}
+
 export interface MemVoiceTurn {
   turn_id: string; at: number; said: string; intent: string; speech: string; text: string; undo_id: string; waiting: boolean
   items: { n?: number; kind?: string; text?: string; unit_id?: string; claim?: string; sources?: { title: string; url: string; quote: string }[] }[]
