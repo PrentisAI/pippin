@@ -1,4 +1,4 @@
-import type { AssistantAction, ChatApp, ChatAppSettings, PdfProgress, DeepRead, IdeaVersion, MemAlert, MemVault, MemVoiceTurn, MemAudit, MemCite, MemDissent, MemDigest, MemFollow, MemAsk, MemQuestion, MemReport, MemSource, MemSurface, MemUnit, WriteLevel, WriteSettings, PlanInsight, ResearchPlan, FieldMap, FieldMapSummary, LitPaper, NotePlace, ReaderAgent, ReaderNote, ReaderView, Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { AssistantAction, ChatApp, NbClip, NbNote, NbOverview, NbRunPage, ChatAppSettings, PdfProgress, DeepRead, IdeaVersion, MemAlert, MemVault, MemVoiceTurn, MemAudit, MemCite, MemDissent, MemDigest, MemFollow, MemAsk, MemQuestion, MemReport, MemSource, MemSurface, MemUnit, WriteLevel, WriteSettings, PlanInsight, ResearchPlan, FieldMap, FieldMapSummary, LitPaper, NotePlace, ReaderAgent, ReaderNote, ReaderView, Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -122,6 +122,24 @@ export const api = {
   /** Today: what waits for you, what changed, what is worth reading. */
   today: { get: () => request<TodayView>('/today') },
   /** Pippin at your side: the conversation of the orb and the side panel. */
+  notebook: {
+    get: () => request<NbOverview>('/notebook'),
+    run: (cid: string, rid: string) => request<NbRunPage>(`/notebook/runs/${cid}/${rid}`),
+    saveRunNote: (cid: string, rid: string, html: string, text: string) =>
+      request<{ html: string; updated_at: number }>(`/notebook/runs/${cid}/${rid}/note`, put({ html, text })),
+    clips: (q: { paper?: string; campaign_id?: string; run_id?: string } = {}) =>
+      request<NbClip[]>(`/notebook/clips?${new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][])}`),
+    clip: (body: { paper_id: string; quote: string; paper_title?: string; space?: string; page_index?: number; rects?: number[][];
+      words?: string; campaign_id?: string; run_id?: string }) => request<NbClip>('/notebook/clips', post(body)),
+    changeClip: (id: string, body: { words?: string; campaign_id?: string; run_id?: string }) =>
+      request<NbClip>(`/notebook/clips/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    deleteClip: (id: string) => request<void>(`/notebook/clips/${id}`, del),
+    newNote: (body: { title?: string; html?: string; text?: string; campaign_id?: string } = {}) => request<NbNote>('/notebook/notes', post(body)),
+    note: (id: string) => request<NbNote>(`/notebook/notes/${id}`),
+    saveNote: (id: string, body: { title?: string; html?: string; text?: string; campaign_id?: string }) =>
+      request<NbNote>(`/notebook/notes/${id}`, put(body)),
+    deleteNote: (id: string) => request<void>(`/notebook/notes/${id}`, del),
+  },
   im: {
     me: () => request<{ links: { app: ChatApp; name: string; at: number }[]; ready: ChatApp[] }>('/im/me'),
     code: () => request<{ code: string; expires_in: number }>('/im/code', post()),

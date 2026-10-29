@@ -1560,3 +1560,51 @@ export interface ChatAppSettings {
   set: Record<string, boolean>
   [field: string]: string | boolean | Record<string, boolean>
 }
+
+// The notebook: a page for every run, clips from papers, your notes
+export type Verdict = 'held' | 'partly' | 'not' | 'untested'
+export interface NbRunPage {
+  run_id: string
+  campaign_id: string
+  name: string
+  status: string
+  phase: string
+  idea: { title: string; description: string }
+  hypothesis: string
+  refuted_if: string
+  why: { gap: string[]; rationale: string; alternatives: string; scores: Record<string, number> }
+  expected: string[]
+  claims: { statement: string; status: string; confidence: number | null }[]
+  results: { name: string; value: number | string; unit: string; uncertainty: number | null; description: string }[]
+  report: boolean
+  has_idea: boolean
+  /** What the researcher said when they chose the direction ('' if nothing). */
+  you_said: string
+  /** Expected against actual, judged once per run (null: nothing to judge yet, or no model key). */
+  match: { state: 'judging' | 'done' | 'failed'; stale: boolean; items?: { expected: string; actual: string; verdict: Verdict }[];
+    hypothesis?: { verdict: Verdict; why: string }; error?: string } | null
+  note: { html: string; updated_at: number } | null
+  clips: NbClip[]
+}
+export interface NbClip {
+  clip_id: string
+  paper_id: string
+  paper_title: string
+  space: string
+  page_index: number
+  rects: number[][]
+  quote: string
+  /** Your own words for it. */
+  words: string
+  campaign_id: string
+  run_id: string
+  created_at: number
+  updated_at: number
+}
+export interface NbNoteSummary { note_id: string; title: string; campaign_id: string; preview: string; created_at: number; updated_at: number }
+export interface NbNote extends NbNoteSummary { html: string; text: string; run_id: string }
+export interface NbOverview {
+  projects: { campaign_id: string; name: string; example: boolean; runs: { run_id: string; name: string; status: string; started_at: number }[] }[]
+  clips: number
+  notes: NbNoteSummary[]
+}

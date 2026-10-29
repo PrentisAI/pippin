@@ -12,16 +12,19 @@ const PLATFORM: Record<string, string> = {
   github: 'GitHub', web: 'Web', note: 'Your note', text: 'Text',
 }
 
-export function MemoryView() {
+export function MemoryView({ embedded = false }: {
+  /** Inside the Notebook, as its Saved section. */
+  embedded?: boolean
+}) {
   const [refresh, setRefresh] = useState(0)
   const [tab, setTab] = useState<'saved' | 'bears' | 'week'>('saved')
   const bump = useCallback(() => setRefresh((x) => x + 1), [])
   return (
     <div className="nb">
       <div className="nb-col">
-        <h1 className="nb-h1">Notebook</h1>
-        <p className="nb-lede">What you read and save, kept as claims and checked against each other. Pippin brings it up when you
-          read a paper, write, or ask; the browser extension and the desktop orb save into it as you go.</p>
+        <h1 className="nb-h1">{embedded ? 'Saved' : 'Notebook'}</h1>
+        <p className="nb-lede">Links, posts and files you save (here, with the browser extension or the desktop orb), kept as claims and
+          checked against each other. Pippin brings them up when you read a paper, write, or ask.</p>
         <Capture onSaved={bump} />
         <Questions onChanged={bump} />
         <div className="nb-tabs" role="tablist">

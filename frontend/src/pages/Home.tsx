@@ -18,7 +18,7 @@ import { LibraryView } from '../components/LibraryView'
 import { TodayView } from '../components/TodayView'
 import { ProjectOverview } from '../components/ProjectOverview'
 import { CommandPalette, type PaletteGo } from '../components/CommandPalette'
-import { MemoryView } from '../components/memory/MemoryView'
+import { NotebookView, openNotebook } from '../components/notebook/NotebookView'
 import { CiteProvider, CiteText } from '../components/Cite'
 import { CompareView } from '../components/results/CompareView'
 import { ReportView } from '../components/results/ReportView'
@@ -903,6 +903,8 @@ function WelcomeView({ onSend, onOpenRun, onOpenExample, onBrainstorm }: {
 // ---------------------------------------------------------------------------
 
 // What other pages hand to a project's chat: an item from the Library for its front desk, a tab to open
+// a run to open on its report (the notebook's "Its report")
+let reportFor: string | null = null
 const projectMailbox: Record<string, { refs: LibraryRef[]; tab?: string; draft?: string }> = {}
 function toProject(campaignId: string, what: { ref?: LibraryRef; tab?: string; draft?: string }) {
   const box = projectMailbox[campaignId] ??= { refs: [] }
@@ -1521,7 +1523,8 @@ function ExperimentView({
   // cluster job events: the Jobs panel appears with the first one and reloads on each
   const jobEvents = useMemo(() => events.filter((e) => e.event_type.startsWith('compute_job')).length, [events])
 
-  const [showReport, setShowReport] = useState(false)
+  // opened from the notebook's "Its report": the run opens on its report
+  const [showReport, setShowReport] = useState(() => { if (reportFor === experimentId) { reportFor = null; return true } return false })
   const [forking, setForking] = useState(false)
   const handleOpenReport = () => setShowReport(true)
 
@@ -2992,7 +2995,7 @@ export default function Home() {
         {view === 'search' && <div className="as-page"><SearchPanel collapsed={false} panelRef={searchPanelRef}
           onOpenProject={(cid) => { setPage(null); openProject(cid) }} onOpenRun={(cid, rid) => { setPage(null); openRun(cid, rid) }}
           onOpenSkill={(name) => { setSkillQuery(name); setPage('skills') }} /></div>}
-        {view === 'memory' && <MemoryView />}
+        {view === 'memory' && <NotebookView onOpenRun={(cid, rid, report) => { if (report) reportFor = rid; setPage(null); openRun(cid, rid) }} />}
         {view === 'brainstorm' && <BrainstormView initialSpace={bsSpace ?? activeCampaignId}
           opening={bsOpening} onOpeningSent={() => setBsOpening(null)}
           reader={reading && readingDocked ? reading : null} onCloseReader={() => setReading(null)} onOpenProject={(cid) => { setPage(null); selectCampaign(cid) }}
@@ -3027,6 +3030,8 @@ export default function Home() {
                 <div className="header-sub">
                   <span className="chat-target">{experimentName(experiments.find((e) => e.run_id === activeExperimentId)) || activeExperimentId}</span>
                   <span className="back-link" onClick={() => selectExperiment(null)}>{'←'} back to project</span>
+                  <span className="back-link" title="Its idea, hypothesis, expected against actual, and your notes on it"
+                    onClick={() => openNotebook({ kind: 'run', cid: activeCampaignId, rid: activeExperimentId })}>its notebook page →</span>
                 </div>
               </div>
             </div>

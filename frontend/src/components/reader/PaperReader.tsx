@@ -2,7 +2,7 @@
  *  Opened anywhere with the event `aurora:read-paper` ({ paper, space, cardId?, chatId?, from? }). */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import type { MemDissent, NotePlace, ReaderAgent, ReaderNote, ReaderView } from '../../types'
+import type { MemDissent, NbClip, NotePlace, ReaderAgent, ReaderNote, ReaderView } from '../../types'
 import { ZoteroDialog } from '../ZoteroDialog'
 import './textLayer.css'
 import { PdfView, type Picked } from './PdfView'
@@ -24,6 +24,9 @@ export interface ReadRequest {
   tab?: 'notes' | 'deep'
   /** The map of the field it was opened from (the deep read places the paper in it). */
   mapId?: string
+  /** Opened on these words (a clip): found and lit on their page (from 0; nearby pages are looked at too). */
+  quote?: string
+  page?: number
 }
 
 const ZOOMS = [0.8, 1, 1.25, 1.5, 1.75]
@@ -81,9 +84,13 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
   const [busyZ, setBusyZ] = useState(false)
   const [toast, setToast] = useState<{ text: string; undo?: () => void; key: number } | null>(null)
   const [unplaced, setUnplaced] = useState<Set<string>>(new Set())
-  const [side, setSide] = useState<'notes' | 'deep' | 'saves'>(req.tab ?? 'notes')
+  const [side, setSide] = useState<'notes' | 'deep' | 'saves' | 'clips'>(req.tab ?? 'notes')
+  // clips: passages kept word for word in the notebook, with your own words; the one being written now
+  const [clips, setClips] = useState<NbClip[]>([])
+  const [clipping, setClipping] = useState<{ text: string; place: NotePlace } | null>(null)
   const [dissent, setDissent] = useState<MemDissent | null | undefined>(undefined)
-  const [flash, setFlash] = useState<{ quote: string; page: number; nonce: number } | null>(null)
+  const [flash, setFlash] = useState<{ quote: string; page: number; nonce: number } | null>(
+    () => req.quote ? { quote: req.quote, page: req.page ?? 0, nonce: 1 } : null)
   const asked = useRef(false)
   const q = useMemo(() => ({ space: req.space, card_id: req.cardId, chat_id: req.chatId }), [req])
 
@@ -99,6 +106,11 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
     api.memory.dissent(paperId, req.space).then((d) => { if (!gone) setDissent(d) }).catch(() => { if (!gone) setDissent(null) })
     return () => { gone = true }
   }, [paperId, req.space])
+
+  const loadClips = useCallback(() => {
+    if (paperId) api.notebook.clips({ paper: paperId }).then(setClips).catch(() => {})
+  }, [paperId])
+  useEffect(() => { loadClips() }, [loadClips])
 
   // the agents read along once the paper is open (for the idea, if they mark passages on their own)
   useEffect(() => {
@@ -369,9 +381,20 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
                   return <button className="mem-margin" onClick={() => { setSide('saves'); setFlash({ quote: here[0].quote, page: here[0].page, nonce: Date.now() }) }}>
                     {n} of your saves argue with this page</button>
                 })()}
+                {clipping && (
+                  <ClipBox text={clipping.text} onCancel={() => setClipping(null)} onSave={async (words) => {
+                    try {
+                      await api.notebook.clip({ paper_id: p.paper_id, paper_title: p.title, space: view.space, quote: clipping.text,
+                        page_index: clipping.place.page_index, rects: clipping.place.rects, words, campaign_id: view.campaign_id || '' })
+                      setClipping(null); loadClips()
+                      say('Clipped into your notebook.')
+                    } catch (e) { fail(e) }
+                  }} />
+                )}
                 {picked && (
                   <SelectionMenu picked={picked} onClose={() => setPicked(null)} onHighlight={() => create('highlight')}
-                    onComment={() => create('comment')} onAsk={(a) => create('ask', a)} />
+                    onComment={() => create('comment')} onAsk={(a) => create('ask', a)}
+                    onClip={() => { setClipping({ text: picked.text, place: picked.place }); setPicked(null); window.getSelection()?.removeAllRanges() }} />
                 )}
               </>
             ) : <NoPdf paper={p} message={pdfError} />
@@ -384,8 +407,11 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
             <button role="tab" aria-selected={side === 'deep'} className={side === 'deep' ? 'on' : ''} onClick={() => setSide('deep')}>Deep read</button>
             <button role="tab" aria-selected={side === 'saves'} className={side === 'saves' ? 'on' : ''} onClick={() => setSide('saves')}
               title="What you saved before that argues with this paper">Your saves{dissent?.items.length ? <span className="rd-n warn">{dissent.items.length}</span> : null}</button>
+            <button role="tab" aria-selected={side === 'clips'} className={side === 'clips' ? 'on' : ''} onClick={() => setSide('clips')}
+              title="Passages of this paper you clipped into your notebook">Clips{clips.length ? <span className="rd-n">{clips.length}</span> : null}</button>
           </div>
-          {side === 'saves' ? <DissentPanel data={dissent} onQuote={(quote, pg) => setFlash({ quote, page: pg, nonce: Date.now() })} />
+          {side === 'clips' ? <ClipsHere clips={clips} onGo={(c) => setFlash({ quote: c.quote, page: c.page_index, nonce: Date.now() })} />
+            : side === 'saves' ? <DissentPanel data={dissent} onQuote={(quote, pg) => setFlash({ quote, page: pg, nonce: Date.now() })} />
             : side === 'notes'
             ? <NotesPanel view={view} notes={notes} filter={filter} setFilter={setFilter} focusId={focusId} unplaced={unplaced}
               onFocus={focus} onGoto={goto} actions={actions} />
@@ -398,12 +424,14 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
   )
 }
 
-function SelectionMenu({ picked, onClose, onHighlight, onComment, onAsk }: {
+function SelectionMenu({ picked, onClose, onHighlight, onComment, onAsk, onClip }: {
   picked: Picked
   onClose: () => void
   onHighlight: () => void
   onComment: () => void
   onAsk: (a: ReaderAgent) => void
+  /** Keep the words in the notebook, as they are, with what you make of them. */
+  onClip: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
@@ -424,6 +452,8 @@ function SelectionMenu({ picked, onClose, onHighlight, onComment, onAsk }: {
         <button className="rd-pb" role="menuitem" onClick={onHighlight}><span className="rd-dot c-y" />Highlight</button>
         <button className="rd-pb" role="menuitem" onClick={onComment}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" /></svg>Note</button>
+        <button className="rd-pb" role="menuitem" onClick={onClip} title="Keep these words in your notebook, with the page, and what you make of them">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M7 4h10v17l-5-3.5L7 21z" /></svg>Clip</button>
         <span className="rd-pop-sep" />
         <span className="rd-pop-ask">Ask</span>
         {AGENTS.map((a) => (
@@ -444,6 +474,43 @@ function NoPdf({ paper, message }: { paper: ReaderView['paper']; message: string
         Until then you can read the abstract below and ask the agents about the paper in the brainstorm.</span>
       {page && <a className="rd-act" href={page} target="_blank" rel="noreferrer">Open the paper’s page</a>}
       {paper.abstract && <p className="rd-abstract">{paper.abstract}</p>}
+    </div>
+  )
+}
+
+/** Writing a clip: the words as they are, and, if you like, what they mean for you. */
+function ClipBox({ text, onSave, onCancel }: { text: string; onSave: (words: string) => Promise<void>; onCancel: () => void }) {
+  const [words, setWords] = useState('')
+  const [busy, setBusy] = useState(false)
+  const go = async () => { setBusy(true); try { await onSave(words.trim()) } finally { setBusy(false) } }
+  return (
+    <div className="rd-clipbox" role="dialog" aria-label="Clip" onMouseUp={(e) => e.stopPropagation()}>
+      <div className="rd-clipbox-q">“{text.length > 280 ? `${text.slice(0, 279)}…` : text}”</div>
+      <textarea rows={2} autoFocus value={words} placeholder="In your own words: what it means for you (you can leave it)" aria-label="In your own words"
+        onChange={(e) => setWords(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); go() } if (e.key === 'Escape') { e.stopPropagation(); onCancel() } }} />
+      <div className="rd-clipbox-row">
+        <button className="rd-act keep" disabled={busy} onClick={go}>{busy ? 'Clipping…' : 'Clip'}</button>
+        <button className="rd-act" onClick={onCancel}>Cancel</button>
+        <span className="rd-sub">Kept in your notebook, with its page</span>
+      </div>
+    </div>
+  )
+}
+
+/** The clips of this paper, in page order: one opens its words on the page. */
+function ClipsHere({ clips, onGo }: { clips: NbClip[]; onGo: (c: NbClip) => void }) {
+  if (!clips.length) return <div className="rd-empty-side">Select words in the paper and choose <b>Clip</b> to keep them in your notebook,
+    word for word, with the page and what you make of them.</div>
+  return (
+    <div className="rd-clips">
+      {[...clips].sort((a, b) => a.page_index - b.page_index).map((c) => (
+        <button key={c.clip_id} className="rd-clip" onClick={() => onGo(c)}>
+          <span className="rd-sub">p. {c.page_index + 1}</span>
+          <span className="rd-clip-q">“{c.quote}”</span>
+          {c.words && <span className="rd-clip-w">{c.words}</span>}
+        </button>
+      ))}
     </div>
   )
 }
