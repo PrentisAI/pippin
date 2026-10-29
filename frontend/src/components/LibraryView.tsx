@@ -9,7 +9,7 @@ import { PaperLinks } from './LiteratureView'
 import { ZoteroDialog } from './ZoteroDialog'
 import { FirstTip } from '../onboarding/FirstTip'
 
-const KINDS: [FeedKind | 'all', string][] = [['all', 'All'], ['paper', 'Papers'], ['post', 'Posts'], ['blog', 'Blogs'], ['discussion', 'Discussions']]
+const KINDS: [FeedKind | 'all', string][] = [['all', 'All'], ['paper', 'Papers'], ['post', 'Posts'], ['blog', 'Blogs'], ['code', 'Code'], ['video', 'Videos'], ['discussion', 'Discussions']]
 const SOURCE_ORDER = ['arxiv', 'openalex', 's2', 'hf', 'bluesky', 'mastodon', 'rss', 'x', 'discussion']
 
 /** The Library: today's feed, picked for your projects; what you saved; searching the indexes. */

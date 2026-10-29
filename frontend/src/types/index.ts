@@ -844,7 +844,7 @@ export interface BsSpace {
 
 // ---------------------------------------------------------------------------- the feed
 
-export type FeedKind = 'paper' | 'post' | 'blog' | 'discussion'
+export type FeedKind = 'paper' | 'post' | 'blog' | 'code' | 'video' | 'discussion'
 
 export interface FeedFit { campaign_id: string; project: string; rel: number; why: string }
 
@@ -883,11 +883,14 @@ export interface FeedItem {
 }
 
 export interface FeedIdentity {
-  kind: 'openalex' | 's2' | 'bluesky' | 'mastodon' | 'x' | 'blog' | 'linkedin'
+  kind: 'openalex' | 's2' | 'arxiv' | 'bluesky' | 'mastodon' | 'x' | 'blog' | 'github' | 'youtube' | 'linkedin'
+    /** places to open, not follow: their homepage, Scholar …; talks and videos with them */
+    | 'link' | 'talk'
   handle: string
   url: string
   label: string
-  state: 'ok' | 'warn' | 'muted'
+  /** link: to open, not to follow */
+  state: 'ok' | 'warn' | 'muted' | 'link'
   follow: boolean
   note: string
   works?: number
@@ -899,7 +902,7 @@ export interface FeedPerson {
   initials: string
   aff: string
   ids: FeedIdentity[]
-  wants: { papers: boolean; posts: boolean; blog: boolean; about: boolean }
+  wants: { papers: boolean; posts: boolean; blog: boolean; code: boolean; videos: boolean; about: boolean }
   coauthors: string[]
   activity?: string
   fresh?: number

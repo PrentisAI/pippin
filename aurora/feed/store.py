@@ -15,15 +15,15 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-KINDS = ("paper", "post", "blog", "discussion")
-WANTS = ("papers", "posts", "blog", "about")          # what to follow of a person
+KINDS = ("paper", "post", "blog", "code", "video", "discussion")
+WANTS = ("papers", "posts", "blog", "code", "videos", "about")          # what to follow of a person
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS feed_items (
     item_id      TEXT PRIMARY KEY,
     user_id      TEXT NOT NULL,
     ukey         TEXT NOT NULL,                 -- arXiv ID, DOI or link: the same item fetched twice
-    kind         TEXT NOT NULL,                 -- paper | post | blog | discussion
+    kind         TEXT NOT NULL,                 -- paper | post | blog | code | video | discussion
     src          TEXT NOT NULL,                 -- arxiv | openalex | s2 | hf | bluesky | mastodon | rss | x | discussion
     source       TEXT NOT NULL DEFAULT '',      -- as shown: "arXiv · cs.CY", "Bluesky · @handle"
     url          TEXT NOT NULL DEFAULT '',
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS feed_people (
     name       TEXT NOT NULL,
     aff        TEXT NOT NULL DEFAULT '',
     ids        TEXT NOT NULL DEFAULT '[]',     -- identities: [{kind, handle, url, label, state, follow}, ...]
-    wants      TEXT NOT NULL DEFAULT '{}',     -- {papers, posts, blog, about}: bool
+    wants      TEXT NOT NULL DEFAULT '{}',     -- {papers, posts, blog, code, videos, about}: bool
     coauthors  TEXT NOT NULL DEFAULT '[]',
     removed    INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL,

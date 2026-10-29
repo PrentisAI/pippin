@@ -6,11 +6,14 @@ project's brainstorm or giving it to a project's front desk checks the rights th
 
 from __future__ import annotations
 
+import asyncio
+import json
 import time
 from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from aurora.auth.guard import current_user, require, rights
@@ -21,7 +24,7 @@ from aurora.feed.store import WANTS, feed_store
 
 router = APIRouter(prefix="/api/feed", tags=["feed"])
 
-KIND_LABEL = {"paper": "Paper", "post": "Post", "blog": "Blog", "discussion": "Discussion"}
+KIND_LABEL = {"paper": "Paper", "post": "Post", "blog": "Blog", "code": "Code", "video": "Video", "discussion": "Discussion"}
 
 
 def _uid() -> str:
@@ -63,6 +66,10 @@ def _open_label(it: dict[str, Any]) -> str:
         return "Open thread" if "repl" in (it["extra"] or "") else "Open"
     if it["kind"] == "blog":
         return "Read"
+    if it["kind"] == "code":
+        return "Open on GitHub"
+    if it["kind"] == "video":
+        return "Watch"
     return "See all replies"
 
 
@@ -480,6 +487,34 @@ async def find_people(body: FindBody) -> dict[str, Any]:
     return {"candidates": found}
 
 
+@router.post("/people/find/stream")
+async def find_people_stream(body: FindBody) -> StreamingResponse:
+    """The same search, told as it goes: one JSON line per step ({"step"}), then {"candidates"} or {"error"}."""
+    if not body.query.strip():
+        raise HTTPException(400, "Type a name, a profile link, an ORCID or a handle")
+    have_x_key, access = bool(svc.x_key(_uid())), svc._access_for(current_user())
+    steps: asyncio.Queue[str] = asyncio.Queue()
+
+    async def lines():
+        task = asyncio.create_task(ppl.find(sources(), body.query, have_x_key=have_x_key, access=access,
+                                            say=steps.put_nowait))
+        try:
+            while not (task.done() and steps.empty()):
+                getter = asyncio.ensure_future(steps.get())
+                await asyncio.wait({getter, task}, return_when=asyncio.FIRST_COMPLETED)
+                if getter.done():
+                    yield json.dumps({"step": getter.result()}) + "\n"
+                else:
+                    getter.cancel()
+            try:
+                yield json.dumps({"candidates": task.result()}) + "\n"
+            except SourceError as exc:
+                yield json.dumps({"error": f"Could not look them up: {exc}"}) + "\n"
+        finally:
+            task.cancel()                     # the page was closed: stop searching
+    return StreamingResponse(lines(), media_type="application/x-ndjson")
+
+
 class Candidate(BaseModel):
     candidate: dict[str, Any]
 
@@ -514,7 +549,8 @@ async def follow_person(body: FollowBody) -> dict[str, Any]:
         i = {k: i.get(k) for k in ("kind", "handle", "url", "label", "state", "follow", "note", "works") if k in i}
         if i.get("kind") == "x" and not have_x:
             i["follow"] = False
-        if i.get("kind") not in ("openalex", "s2", "bluesky", "mastodon", "x", "blog", "linkedin"):
+        if i.get("kind") not in ("openalex", "s2", "arxiv", "bluesky", "mastodon", "x", "blog", "github", "youtube",
+                                 "linkedin", "link", "talk"):
             continue
         ids.append(i)
     for p in feed_store.people(me.user_id, removed=True):       # followed before: bring them back

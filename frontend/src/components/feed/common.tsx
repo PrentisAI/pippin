@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { FeedIdentity } from '../../types'
 
 /** Ask a project's front desk about an item: the project chat opens with it attached. */
 export function askFrontDesk(campaignId: string, ref: unknown) {
@@ -73,6 +74,37 @@ export function initialsOf(name: string): string {
 }
 
 /** A followed person's place: ✓ followed, ! needs something, — cannot be followed. */
+/** The places of a person that are followed (or could be), and those only to open. */
+export function splitIds(ids: FeedIdentity[]) {
+  return {
+    follow: ids.filter((i) => i.state !== 'link'),
+    links: ids.filter((i) => i.state === 'link' && i.kind !== 'talk'),
+    talks: ids.filter((i) => i.kind === 'talk'),
+  }
+}
+
+/** Where else they are on the web, and talks and videos with them: links to open. */
+export function PlacesToOpen({ ids }: { ids: FeedIdentity[] }) {
+  const { links, talks } = splitIds(ids)
+  if (!links.length && !talks.length) return null
+  return (
+    <div className="fd-places">
+      {links.length > 0 && (
+        <div className="fd-small"><span className="lit-sub">Also on the web: </span>
+          {links.map((l, k) => <span key={l.url}>{k > 0 && ' · '}<a href={l.url} target="_blank" rel="noreferrer">{l.label}</a></span>)}
+        </div>
+      )}
+      {talks.length > 0 && (
+        <div className="fd-small"><div className="lit-sub">Talks and videos</div>
+          <ul className="fd-talks">{talks.map((t) => (
+            <li key={t.url}><a href={t.url} target="_blank" rel="noreferrer">{t.label}</a>{t.note && <span className="lit-sub"> · {t.note}</span>}</li>
+          ))}</ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function IdChip({ state, label, note }: { state: 'ok' | 'warn' | 'muted'; label: string; note?: string }) {
   return (
     <span className={`fd-idchip ${state}`} title={note || undefined}>

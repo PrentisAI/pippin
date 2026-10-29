@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, describeError } from '../../api/client'
 import type { FeedIdentity, FeedPerson, Following, PersonCandidate } from '../../types'
-import { ago, IdChip, useToast } from './common'
+import { ago, IdChip, PlacesToOpen, splitIds, useToast } from './common'
 
-const WANTS: [keyof FeedPerson['wants'], string][] = [['papers', 'Papers'], ['posts', 'Posts'], ['blog', 'Blog'], ['about', 'Discussions about their work']]
+const WANTS: [keyof FeedPerson['wants'], string][] = [['papers', 'Papers'], ['posts', 'Posts'], ['blog', 'Blog'], ['code', 'Code'], ['videos', 'Videos'], ['about', 'Discussions about their work']]
 const CATEGORY = /^[a-z-]+\.[A-Za-z-]+$|^(hep-th|hep-ph|hep-ex|hep-lat|gr-qc|quant-ph|nucl-th|nucl-ex|math-ph)$/
 
 /** The people and sources the feed follows, and the daily digest. */
@@ -50,7 +50,7 @@ export function FollowingView({ onBack, onPerson }: { onBack: () => void; onPers
                   <button className="btn-sm lit-btn" onClick={() => unfollow(p)}>Unfollow</button>
                 </div>
                 <div className="bs-row">
-                  {p.ids.map((i) => (
+                  {splitIds(p.ids).follow.map((i) => (
                     <IdentityToggle key={i.kind + (i.handle || i.url)} id={i} xKey={f.x_key}
                       onToggle={(follow) => act(() => api.feed.changePerson(p.person_id, { ids: p.ids.map((x) => x === i ? { ...x, follow } : x) }))} />
                   ))}
@@ -197,6 +197,18 @@ function Digest({ f, act }: { f: Following; act: (fn: () => Promise<unknown>, ok
   )
 }
 
+/** What the search is doing, as it does it: the steps so far, the latest one still going. */
+function SearchSteps({ steps }: { steps: string[] }) {
+  const shown = steps.length ? steps : ['Starting the search…']
+  return (
+    <ol className="fd-steps" aria-live="polite">
+      {shown.slice(-8).map((s, i, all) => (
+        <li key={steps.length - all.length + i} className={i === all.length - 1 ? 'now' : ''}>{s}</li>
+      ))}
+    </ol>
+  )
+}
+
 /** Find a person, tell namesakes apart, and choose which of their places to follow. */
 function FollowSomeone({ xKey, onFollowed }: { xKey: boolean; onFollowed: (p: FeedPerson) => void }) {
   const [step, setStep] = useState(0)
@@ -206,6 +218,7 @@ function FollowSomeone({ xKey, onFollowed }: { xKey: boolean; onFollowed: (p: Fe
   const [ids, setIds] = useState<FeedIdentity[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [steps, setSteps] = useState<string[]>([])
   const run = async (fn: () => Promise<void>) => {
     setBusy(true)
     setError(null)
@@ -213,8 +226,9 @@ function FollowSomeone({ xKey, onFollowed }: { xKey: boolean; onFollowed: (p: Fe
   }
   const find = (e: React.FormEvent) => {
     e.preventDefault()
+    setSteps([])
     run(async () => {
-      const r = await api.feed.find(q.trim())
+      const r = await api.feed.findStream(q.trim(), (s) => setSteps((all) => [...all, s]))
       if (!r.candidates.length) { setError(`Nobody found for “${q.trim()}”. Try their profile link or ORCID.`); return }
       setCands(r.candidates)
       setPick(0)
@@ -238,6 +252,7 @@ function FollowSomeone({ xKey, onFollowed }: { xKey: boolean; onFollowed: (p: Fe
           <button className="btn-sm btn-approve" style={{ alignSelf: 'flex-end' }} disabled={busy || !q.trim()}>{busy ? 'Searching the web…' : 'Find'}</button>
         </form>
       )}
+      {step === 0 && busy && <SearchSteps steps={steps} />}
       {step === 1 && (
         <>
           <div className="fd-small">{cands.length} people could be “{q.trim()}”. Which one?</div>
@@ -256,10 +271,11 @@ function FollowSomeone({ xKey, onFollowed }: { xKey: boolean; onFollowed: (p: Fe
       )}
       {step === 2 && cand && (
         <>
-          <div className="fd-small">{ids.some((i) => i.kind !== 'openalex' && i.kind !== 's2' && i.state !== 'muted')
+          <div className="fd-small">{ids.some((i) => !['openalex', 's2', 'arxiv'].includes(i.kind) && i.state !== 'muted' && i.state !== 'link')
             ? `Where ${name} publishes and posts. Follow these?` : `Only their papers were found. Add their Bluesky, Mastodon or blog later from their page.`}</div>
           <div className="fd-idlist">
             {ids.map((i, k) => {
+              if (i.state === 'link') return null
               const disabled = i.state === 'muted' || (i.kind === 'x' && !xKey)
               return (
                 <label key={i.kind + k} className="modal-check" style={{ opacity: disabled ? 0.6 : 1 }}>
@@ -270,6 +286,7 @@ function FollowSomeone({ xKey, onFollowed }: { xKey: boolean; onFollowed: (p: Fe
               )
             })}
           </div>
+          <PlacesToOpen ids={ids} />
           <div className="bs-row">
             <button className="btn-sm btn-approve" disabled={busy || !ids.some((i) => i.follow)} onClick={() => run(async () => {
               const r = await api.feed.follow(cand, ids)

@@ -72,6 +72,39 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json()
 }
 
+/** A POST whose answer comes as JSON lines, one per step: each {step} goes to *onStep*, the last line is the answer. */
+async function streamed<T>(path: string, body: unknown, onStep: (step: string) => void): Promise<T> {
+  const token = deviceToken()
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: 'POST', body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  })
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => '')
+    if (res.status === 401) window.dispatchEvent(new Event('aurora:signed-out'))
+    throw new ApiError(res.status, errorMessage(res.status, res.statusText, text))
+  }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  let last: (T & { step?: string; error?: string }) | null = null
+  for (;;) {
+    const { done, value } = await reader.read()
+    buf += decoder.decode(value, { stream: !done })
+    const lines = buf.split('\n')
+    buf = done ? '' : lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.trim()) continue
+      const msg = JSON.parse(line)
+      if (typeof msg.step === 'string') onStep(msg.step); else last = msg
+    }
+    if (done) break
+  }
+  if (!last) throw new ApiError(502, 'The search stopped before it finished. Try again.')
+  if (last.error) throw new ApiError(502, last.error)
+  return last
+}
+
 const post = (body?: unknown): RequestInit => ({
   method: 'POST',
   body: body === undefined ? undefined : JSON.stringify(body),
@@ -480,6 +513,8 @@ export const api = {
     removeXKey: () => request<Following>('/feed/x-key', del),
     testDigest: () => request<{ ok: boolean }>('/feed/digest/test', post()),
     find: (query: string) => request<{ candidates: PersonCandidate[] }>('/feed/people/find', post({ query })),
+    findStream: (query: string, onStep: (step: string) => void) =>
+      streamed<{ candidates: PersonCandidate[] }>('/feed/people/find/stream', { query }, onStep),
     identities: (candidate: PersonCandidate) => request<{ ids: FeedIdentity[] }>('/feed/people/identities', post({ candidate })),
     follow: (candidate: PersonCandidate, ids: FeedIdentity[]) => request<{ person: FeedPerson }>('/feed/people', post({ candidate, ids })),
     changePerson: (personId: string, body: { wants?: Partial<FeedPerson['wants']>; ids?: FeedIdentity[]; removed?: boolean }) =>

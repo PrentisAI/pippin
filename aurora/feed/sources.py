@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import logging
 import os
 import re
@@ -39,7 +40,8 @@ _UA = "AURORA research assistant (feed)"
 _ATOM = {"a": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
 BSKY = "https://api.bsky.app/xrpc"
 SOURCE_NAMES = {"arxiv": "arXiv", "openalex": "OpenAlex", "s2": "Semantic Scholar", "hf": "HF Daily",
-                "bluesky": "Bluesky", "mastodon": "Mastodon", "rss": "RSS", "x": "X", "discussion": "Discussions"}
+                "bluesky": "Bluesky", "mastodon": "Mastodon", "rss": "RSS", "x": "X", "discussion": "Discussions",
+                "github": "GitHub", "youtube": "YouTube"}
 
 
 class SourceError(Exception):
@@ -202,6 +204,25 @@ class Sources:
                 out.append(paper_item(p, "openalex", clip(where, 60), published_at=_ts(w.get("publication_date"))))
         return out
 
+    async def arxiv_author(self, name: str, days: int = 30, limit: int = 20) -> list[dict[str, Any]]:
+        """New arXiv papers with *name* among the authors (arXiv knows names, not people: namesakes too)."""
+        from aurora.feed.people import same_name
+        parts = name.split()
+        if not parts:
+            return []
+        query = f"au:{parts[-1]}_{parts[0]}" if len(parts) > 1 else f"au:{parts[0]}"
+        xml = await self._arxiv({"search_query": query, "sortBy": "submittedDate", "sortOrder": "descending",
+                                 "max_results": limit})
+        try:
+            entries = {clean_arxiv(e.findtext("a:id", "", _ATOM)): _ts(e.findtext("a:published", "", _ATOM))
+                       for e in ET.fromstring(xml).findall("a:entry", _ATOM)}
+        except ET.ParseError:
+            entries = {}
+        since = time.time() - days * 86400
+        return [paper_item(p, "arxiv", "arXiv", published_at=entries.get(p.arxiv_id, 0.0))
+                for p in _arxiv_papers(xml)
+                if any(same_name(a, name) for a in p.authors) and entries.get(p.arxiv_id, 0.0) >= since]
+
     async def s2_author(self, author_id: str, days: int = 30) -> list[dict[str, Any]]:
         data = await self.json(f"https://api.semanticscholar.org/graph/v1/author/{author_id}/papers",
                                {"fields": _S2_FIELDS + ",publicationDate", "limit": 50}, what="Semantic Scholar")
@@ -359,6 +380,86 @@ class Sources:
             if _is_feed(f.text):
                 return str(f.url), parse_feed(f.text, str(f.url))[0]
         raise SourceError(f"No RSS or Atom feed found at {url}")
+
+    # ------------------------------------------------------------------ code and videos
+
+    async def github_repos(self, user: str, days: int = 60) -> list[dict[str, Any]]:
+        """Repositories *user* made lately (forks left out)."""
+        rows = await self.json(f"https://api.github.com/users/{user}/repos",
+                               {"sort": "created", "direction": "desc", "per_page": 15}, what="GitHub")
+        since = time.time() - days * 86400
+        out = []
+        for r in rows if isinstance(rows, list) else []:
+            when = _ts(r.get("created_at"))
+            if r.get("fork") or when < since:
+                continue
+            stars = int(r.get("stargazers_count") or 0)
+            out.append({"ukey": f"url:{r['html_url']}", "kind": "code", "src": "github", "source": f"GitHub · {user}",
+                        "url": r["html_url"], "title": r.get("full_name") or r.get("name", ""),
+                        "summary": clip(r.get("description") or "", 900), "people": [],
+                        "extra": f"★ {stars}" if stars else "", "published_at": when})
+        return out
+
+    async def youtube_channel_id(self, url: str) -> tuple[str, str]:
+        """A YouTube channel's ID and name, from its address (/@handle, /channel/UC…, /c/…).  Raises SourceError."""
+        if m := re.search(r"/channel/(UC[\w-]{22})", url):
+            cid = m.group(1)
+        else:
+            page = (await self.get(url, what="YouTube")).text
+            m = re.search(r'"(?:externalId|channelId)":"(UC[\w-]{22})"', page) or \
+                re.search(r"channel_id=(UC[\w-]{22})", page)
+            if not m:
+                raise SourceError(f"No YouTube channel at {url}")
+            cid = m.group(1)
+        title, _ = await self.youtube(cid)
+        return cid, title
+
+    async def youtube(self, channel_id: str, limit: int = 15) -> tuple[str, list[dict[str, Any]]]:
+        """A YouTube channel's latest videos (its public feed)."""
+        title, items = await self.rss(f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}", limit)
+        for it in items:
+            it.update(kind="video", src="youtube", source=f"YouTube · {title}", extra="")
+        return title, items
+
+    async def youtube_search(self, query: str) -> list[dict[str, str]]:
+        """YouTube's own search (its results page): [{url, title, channel, about}].  Raises SourceError."""
+        r = await self.get("https://www.youtube.com/results", {"search_query": query},
+                           headers={"User-Agent": "Mozilla/5.0", "Accept-Language": "en"}, what="YouTube")
+        m = re.search(r"var ytInitialData = (\{.*?\});</script>", r.text, re.S)
+        try:
+            data = json.loads(m.group(1)) if m else {}
+        except ValueError:
+            data = {}
+        out: list[dict[str, str]] = []
+
+        def runs(x: Any) -> str:
+            return "".join(t.get("text", "") for t in (x or {}).get("runs", []))
+
+        def walk(x: Any) -> None:
+            if isinstance(x, dict):
+                if v := x.get("videoRenderer"):
+                    about = " ".join(runs(sn.get("snippetText")) for sn in v.get("detailedMetadataSnippets") or [])
+                    out.append({"url": f"https://www.youtube.com/watch?v={v.get('videoId')}", "title": runs(v.get("title")),
+                                "channel": runs(v.get("ownerText")), "about": about})
+                for y in x.values():
+                    walk(y)
+            elif isinstance(x, list):
+                for y in x:
+                    walk(y)
+        walk(data)
+        return out[:20]
+
+    async def video_title(self, url: str) -> tuple[str, str]:
+        """A video's title and channel, when it exists (YouTube and Vimeo say; other pages must answer).
+        Raises SourceError."""
+        host = urlparse(url).netloc.lower()
+        if "youtube.com" in host or "youtu.be" in host or "vimeo.com" in host:
+            api = "https://www.youtube.com/oembed" if "vimeo" not in host else "https://vimeo.com/api/oembed.json"
+            d = await self.json(api, {"url": url, "format": "json"}, what=host)
+            return str(d.get("title") or ""), str(d.get("author_name") or "")
+        r = await self.get(url, what=host)
+        t = re.search(r"<title[^>]*>(.*?)</title>", r.text, re.I | re.S)
+        return (clip(text_of(t.group(1)), 140) if t else ""), host
 
     # ------------------------------------------------------------------ discussions
 

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { api, describeError } from '../../api/client'
 import type { ScholarPage } from '../../types'
-import { ago, IdChip } from './common'
+import { ago, IdChip, PlacesToOpen, splitIds } from './common'
 
-const TABS: [string, string][] = [['all', 'All'], ['paper', 'Papers'], ['post', 'Posts'], ['blog', 'Blog'], ['about', 'About their work']]
+const TABS: [string, string][] = [['all', 'All'], ['paper', 'Papers'], ['post', 'Posts'], ['blog', 'Blog'], ['code', 'Code'], ['video', 'Videos'], ['about', 'About their work']]
 
 /** Open a project on one of its tabs (the Literature page, say). */
 export function openProjectTab(campaignId: string, tab: string) {
@@ -31,8 +31,9 @@ export function ScholarView({ personId, onBack, onFollowing, onOpenProject }: {
         <div style={{ flex: 1, minWidth: 220, display: 'flex', flexDirection: 'column', gap: 6 }}>
           <h1 style={{ margin: 0 }}>{p.name}</h1>
           {p.aff && <div className="lit-sub">{p.aff}</div>}
-          <div className="bs-row">{p.ids.map((i) => <IdChip key={i.kind + (i.handle || i.url)} state={i.state === 'ok' && !i.follow ? 'muted' : i.state}
-            label={i.url && i.state !== 'muted' ? i.label : i.label} note={i.note} />)}</div>
+          <div className="bs-row">{splitIds(p.ids).follow.map((i) => <IdChip key={i.kind + (i.handle || i.url)}
+            state={i.state === 'link' || (i.state === 'ok' && !i.follow) ? 'muted' : i.state} label={i.label} note={i.note} />)}</div>
+          <PlacesToOpen ids={p.ids} />
         </div>
         <button className="btn-sm lit-btn" onClick={onFollowing}>Edit what to follow</button>
       </div>

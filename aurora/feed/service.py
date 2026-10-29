@@ -188,6 +188,12 @@ async def _gather(user_id: str, src: Sources, cfg: dict[str, Any], derived: dict
                 jobs.append(("mastodon", src.mastodon_account(h), tie))
             elif k == "x" and w.get("posts", True) and xk:
                 jobs.append(("x", src.x_user(h, xk), tie))
+            elif k == "arxiv" and w.get("papers", True) and h:
+                jobs.append(("arxiv", src.arxiv_author(h), tie))
+            elif k == "github" and w.get("code", True) and h:
+                jobs.append(("github", src.github_repos(h), tie))
+            elif k == "youtube" and w.get("videos", True) and h:
+                jobs.append(("youtube", src.youtube(h), tie))
             elif k == "blog" and w.get("blog", True) and ident.get("url"):
                 jobs.append(("rss", src.rss(ident["url"]), {**tie, "rss": None}))
     for i, feed in enumerate(cfg["rss"]):
@@ -205,7 +211,7 @@ async def _gather(user_id: str, src: Sources, cfg: dict[str, Any], derived: dict
             if tie.get("rss") is not None:
                 cfg["rss"][tie["rss"]].update(state="error", error=msg)
             continue
-        if key == "rss":
+        if key in ("rss", "youtube"):
             title, res = res
             if tie.get("rss") is not None:
                 cfg["rss"][tie["rss"]].update(state="ok", error="", last_ok=time.time(),
@@ -445,6 +451,7 @@ def activity(user_id: str, person: dict[str, Any]) -> tuple[str, int]:
         k = "about" if r["about"] == person["person_id"] else r["kind"]
         count[k] = count.get(k, 0) + 1
     words = {"paper": ("new paper", "new papers"), "post": ("post", "posts"), "blog": ("blog post", "blog posts"),
+             "code": ("new repository", "new repositories"), "video": ("video", "videos"),
              "about": ("discussion of their work", "discussions of their work"), "discussion": ("discussion", "discussions")}
     parts = [(f"{n} " if n > 1 else "") + words[k][n > 1] for k, n in count.items() if k in words]
     return " · ".join(parts) or "nothing new this week", len(rows)

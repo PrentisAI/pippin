@@ -3049,6 +3049,10 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; }
 .fd-badge.k-post { background: var(--green-dim); color: var(--green); }
 .fd-badge.k-blog { background: var(--amber-dim); color: var(--amber); }
 .fd-badge.k-discussion { background: var(--bg-active); color: var(--fg-bright); }
+.fd-badge.k-code { background: var(--bg-active); color: var(--fg); }
+.fd-badge.k-video { background: var(--red-dim); color: var(--red); }
+.fd-places { display: flex; flex-direction: column; gap: 6px; }
+.fd-talks { margin: 2px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
 .fd-title { margin: 0; font-size: 15.5px; font-weight: 550; line-height: 1.35; color: var(--fg-bright); text-wrap: balance; }
 .fd-title a { color: inherit; text-decoration: none; }
 .fd-title a:hover { text-decoration: underline; }
@@ -4009,3 +4013,12 @@ a.home-chip { text-decoration: none; display: inline-block; }
 .lib-top .team-tabs { margin-bottom: 0; }
 .zot-held { margin: 10px 0; padding: 10px 12px; border-radius: 8px; background: var(--accent-dim); font-size: 13px; line-height: 1.5; }
 .zot-held .bs-row { margin-top: 8px; gap: 8px; flex-wrap: wrap; }
+
+/* the person search, step by step as it goes */
+.fd-steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--fg-muted); }
+.fd-steps li { padding-left: 18px; position: relative; overflow-wrap: anywhere; }
+.fd-steps li::before { content: '✓'; position: absolute; left: 0; color: var(--green); }
+.fd-steps li.now { color: var(--fg-bright); }
+.fd-steps li.now::before { content: ''; width: 9px; height: 9px; top: 4px; border: 2px solid currentColor; border-right-color: transparent;
+  border-radius: 50%; animation: spin 0.8s linear infinite; }
+

@@ -14,7 +14,7 @@ from aurora.brainstorm.store import bs_store
 from aurora.feed import people as ppl
 from aurora.feed import service as svc
 from aurora.feed import sources as src_mod
-from aurora.feed.sources import Sources, parse_feed
+from aurora.feed.sources import SourceError, Sources, parse_feed
 from aurora.feed.store import feed_store
 from aurora.literature.library import library
 
@@ -115,6 +115,25 @@ def web(request: httpx.Request) -> httpx.Response:
                                    "The fleet expansion could explain part of it."])]})
     if host == "api.bsky.app" and path.endswith("getProfile") and q.get("actor") == "mokafor.bsky.social":
         return httpx.Response(200, json={"handle": "mokafor.bsky.social", "displayName": "Maya Okafor"})
+    if host == "api.github.com" and path == "/users/akowalski":
+        return httpx.Response(200, json={"login": "akowalski", "public_repos": 12})
+    if host == "api.github.com" and path == "/users/akowalski/repos":
+        return httpx.Response(200, json=[
+            {"html_url": "https://github.com/akowalski/rebalance", "full_name": "akowalski/rebalance", "fork": False,
+             "description": "Code for the rebalancing paper", "stargazers_count": 40, "created_at": ISO},
+            {"html_url": "https://github.com/akowalski/numpy", "full_name": "akowalski/numpy", "fork": True, "created_at": ISO}])
+    if host == "www.youtube.com" and path == "/results":
+        def video(vid, title, channel, about=""):
+            return {"videoRenderer": {"videoId": vid, "title": {"runs": [{"text": title}]},
+                                      "ownerText": {"runs": [{"text": channel}]},
+                                      "detailedMetadataSnippets": [{"snippetText": {"runs": [{"text": about}]}}]}}
+        data = {"contents": [video("talk1aaaaaa", "Rebalancing bikes at scale", "Mobility Summit"),
+                             video("byname11111", "Keynote", "City Lab", "Ada Kowalski on bike-share"),
+                             video("aboutpaper1", "[Paper review] Rebalancing with uncertain demand", "Paper Club"),
+                             video("unrelated11", "Cooking pasta", "Chef")]}
+        return httpx.Response(200, text=f"<script>var ytInitialData = {json.dumps(data)};</script>")
+    if host == "www.youtube.com" and path == "/oembed" and "watch?v=talk1aaaaaa" in q.get("url", ""):
+        return httpx.Response(200, json={"title": "Rebalancing bikes at scale", "author_name": "Mobility Summit"})
     if host == "api.bsky.app" and path.endswith("searchActors"):
         return httpx.Response(200, json={"actors": []})
     if host == "hn.algolia.com" and path.endswith("/search"):
@@ -194,21 +213,64 @@ async def test_found_on_the_web_and_each_place_checked(sources):
     model = WebSearcher([
         {"name": "Ada Kowalski", "aff": "Technical University", "detail": "Bike-share rebalancing.",
          "homepage": "https://maya.example/", "openalex": "A111111", "bluesky": "@mokafor.bsky.social",
-         "mastodon": "ghost@nowhere.example", "x": "https://x.com/akowalski", "orcid": "0000-0002-1825-0097"},
+         "mastodon": "ghost@nowhere.example", "x": "https://x.com/akowalski", "orcid": "0000-0002-1825-0097",
+         "github": "https://github.com/akowalski", "scholar": "https://scholar.google.com/citations?user=abc",
+         "videos": [{"title": "A talk", "url": "https://www.youtube.com/watch?v=talk1aaaaaa"},
+                    {"title": "Made up", "url": "https://www.youtube.com/watch?v=nope0000000"}]},
         {"name": "Ada Kowalski", "aff": "Nowhere", "bluesky": "made-up.bsky.social", "openalex": "A99999999"}])
-    found = await ppl.web_find(sources, "Ada Kowalski", access, client=model)
+    said: list[str] = []
+    found = await ppl.web_find(sources, "Ada Kowalski", access, client=model, say=said.append)
     assert model.asked[0]["extra_body"]["plugins"][0]["id"] == "web"
     (ada,) = found                                  # the second: nothing it named held up
+    # each step is told as it happens: the search, who it found, each place that held up
+    assert said[0] == "Searching the web for “Ada Kowalski”…"
+    assert said[1].startswith("Found 2 people who could be “Ada Kowalski”: Ada Kowalski (Technical University)")
+    assert "Ada Kowalski (Technical University) · GitHub · akowalski · 12 repositories" in said
+    assert not any("Mastodon" in s for s in said)
     kinds = {i["kind"]: i for i in ada["ids"]}
     assert kinds["openalex"]["follow"] and ada["works"] == 38
     assert kinds["blog"]["url"] == "https://maya.example/atom.xml"
     assert kinds["bluesky"]["handle"] == "mokafor.bsky.social"
     assert "mastodon" not in kinds                  # no such account
     assert kinds["x"]["handle"] == "akowalski" and not kinds["x"]["follow"]   # no X key
+    assert kinds["arxiv"]["handle"] == "Ada Kowalski" and kinds["arxiv"]["follow"]
+    assert kinds["github"]["label"] == "GitHub · akowalski · 12 repositories"
+    links = {i["label"]: i["url"] for i in ada["ids"] if i["kind"] == "link"}
+    assert links["Google Scholar"].startswith("https://scholar.google.com") and "ORCID" in links
+    # the made-up video is not there; YouTube's own search adds one about their paper (by name: not with a namesake)
+    talks = [(i["label"], i["note"]) for i in ada["ids"] if i["kind"] == "talk"]
+    assert talks == [("Rebalancing bikes at scale", "Mobility Summit"),
+                     ("[Paper review] Rebalancing with uncertain demand", "Paper Club · about their paper")]
+    alone = await ppl._checked(sources, model.people[0], False)
+    assert ("Keynote", "City Lab") in [(i["label"], i["note"]) for i in alone["ids"] if i["kind"] == "talk"]
     assert await ppl.identities(sources, ada) == ada["ids"]
     # a model that cannot search (not OpenRouter), or no key: the links are followed instead
     assert await ppl.web_find(sources, "Ada Kowalski", ag.ModelAccess("k", "u", "gpt-x"), client=model) is None
     assert await ppl.web_find(sources, "Ada Kowalski", ag.ModelAccess("", "u", "openai/x"), client=model) is None
+
+
+async def test_new_repositories_become_items(sources):
+    (repo,) = await sources.github_repos("akowalski")             # the fork left out
+    assert repo["kind"] == "code" and repo["extra"] == "★ 40" and repo["source"] == "GitHub · akowalski"
+
+
+def test_the_search_is_told_as_it_goes(client, monkeypatch):
+    async def find(src, query, *, have_x_key=False, access=None, say=None):
+        say("Searching the web…")
+        say("Ada Kowalski · GitHub")
+        return [{"cid": "web:ada", "name": "Ada Kowalski", "ids": []}]
+    monkeypatch.setattr(ppl, "find", find)
+    r = client.post("/api/feed/people/find/stream", json={"query": "Ada"})
+    assert r.headers["content-type"].startswith("application/x-ndjson")
+    lines = [json.loads(x) for x in r.text.splitlines()]
+    assert lines[:2] == [{"step": "Searching the web…"}, {"step": "Ada Kowalski · GitHub"}]
+    assert lines[2]["candidates"][0]["name"] == "Ada Kowalski"
+
+    async def fails(src, query, **kw):
+        raise SourceError("OpenAlex is down")
+    monkeypatch.setattr(ppl, "find", fails)
+    r = client.post("/api/feed/people/find/stream", json={"query": "Ada"})
+    assert json.loads(r.text.splitlines()[-1]) == {"error": "Could not look them up: OpenAlex is down"}
 
 
 async def test_a_failed_web_search_falls_back_to_the_links(sources, monkeypatch):
