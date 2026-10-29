@@ -272,6 +272,34 @@ export interface Skill {
   history: { version: number; text: string; description?: string; updated_at: number; replaced_because?: string }[]
   /** Reaching other projects waits for a team admin: '' (not needed, or approved) | pending | rejected */
   approval?: '' | 'pending' | 'rejected'
+  /** Added from the catalog: where it comes from. */
+  source?: { catalog?: string; source_name?: string; repo?: string; commit?: string; license?: string; url?: string }
+}
+
+/** A skill others have shared, offered in the catalog. */
+export interface CatalogSkill {
+  name: string
+  source: string
+  source_name: string
+  repo: string
+  license: string
+  /** Its folder on GitHub, at the pinned commit. */
+  url: string
+  category: string
+  summary: string
+  recommended: boolean
+  needs: string
+  /** In the library already (its skill), and where it is used. */
+  skill_id: string
+  scope: string
+  /** Another skill in the library has this name. */
+  name_taken: boolean
+}
+
+export interface SkillCatalog {
+  categories: { id: string; label: string }[]
+  sources: { id: string; name: string; repo: string; url: string; license: string; about: string; commit: string }[]
+  entries: CatalogSkill[]
 }
 
 /** What the researcher did with a suggested skill (kept on the server). */

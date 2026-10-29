@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -120,6 +121,33 @@ async def skill_template_text() -> dict:
     return {"sections": [{"name": h, "what": w} for h, w in SKILL_SECTIONS], "template": skill_template()}
 
 
+@router.get("/catalog")
+async def skill_catalog() -> dict:
+    """Skills others have shared, by category, with where each comes from and whether it is in the library."""
+    from aurora.skills.catalog import listing
+    return listing(get_skill_store())
+
+
+class AddFromCatalog(BaseModel):
+    scope: str = "global"
+    projects: list[str] = []
+
+
+@router.post("/catalog/{name}", status_code=201)
+async def add_from_catalog(name: str, req: AddFromCatalog) -> DistilledSkill:
+    """Download a catalog skill (its whole folder, at the commit the catalog names) into the library."""
+    from aurora.skills.catalog import CatalogError, install
+    if req.scope not in ("global", "projects"):
+        raise HTTPException(400, "A skill from the catalog is for all projects or for the projects you choose")
+    _check_scope(req.scope, req.projects)
+    try:
+        return await install(name, get_skill_store(), scope=req.scope, projects=req.projects, **_gate(req.scope, ""))
+    except CatalogError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"Could not download it from GitHub: {exc}") from exc
+
+
 @router.get("/suggestions")
 async def suggestion_outcomes(ids: str = "") -> dict[str, dict]:
     """What was done with the given suggestions (comma-separated IDs): added or dismissed."""
@@ -199,9 +227,12 @@ async def update_skill(skill_id: str, req: SkillUpdateRequest) -> DistilledSkill
 
 @router.delete("/{skill_id}", status_code=204)
 async def delete_skill(skill_id: str) -> None:
+    from aurora.skills.catalog import remove_bundle
     store = get_skill_store()
-    if not store.delete(skill_id):
+    skill = store.get(skill_id)
+    if skill is None or not store.delete(skill_id):
         raise HTTPException(404, "Skill not found")
+    remove_bundle(skill)                # added from the catalog: its downloaded folder too
 
 
 @router.get("/experiment/{experiment_id}")
@@ -216,6 +247,8 @@ async def list_skills_for_experiment(
 @router.post("/{skill_id}/revise")
 async def revise_skill(skill_id: str, req: SkillReviseRequest) -> DistilledSkill:
     """A new version of a skill; the current one is kept in its history."""
+    if (current := get_skill_store().get(skill_id)) and current.origin == "catalog":
+        raise HTTPException(400, "A skill from the catalog stays as its authors wrote it: write your own instead")
     skill = get_skill_store().revise(skill_id, req.rule, reason=req.reason, description=req.description)
     if not skill:
         raise HTTPException(404, "Skill not found")

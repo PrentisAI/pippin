@@ -1510,6 +1510,7 @@ Be specific: cite file names and concrete observations.
 
     def _skills_note(self) -> str:
         """The skills an agent can use, for its system prompt."""
+        from aurora.skills.materializer import description_of
         skills_dir = self._workspace.root / ".claude" / "skills" if self._workspace else None
         if skills_dir is None or not skills_dir.is_dir():
             return ""
@@ -1517,8 +1518,7 @@ Be specific: cite file names and concrete observations.
         for d in sorted(skills_dir.iterdir()):
             md = d / "SKILL.md"
             if md.is_file():
-                m = re.search(r"^description:\s*(.+)$", md.read_text(errors="replace"), re.M)
-                lines.append(f"- {d.name}: {m.group(1).strip() if m else ''}")
+                lines.append(f"- {d.name}: {description_of(md.read_text(errors='replace'))}")
         if not lines:
             return ""
         return ("\n\n## Skills\nThe team's skill library (learned from earlier work and the researcher's "

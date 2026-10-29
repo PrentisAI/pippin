@@ -8,6 +8,8 @@ loader picks them up.  At teardown, materialized files are cleaned up.
 from __future__ import annotations
 
 import logging
+import re
+import shutil
 from pathlib import Path
 
 from aurora.skills.store import DistilledSkill, SkillStore
@@ -52,6 +54,9 @@ class SkillMaterializer:
         """Remove previously materialized skill files."""
         for p in self._materialized:
             try:
+                if (p.parent / "SOURCE.md").is_file():      # a whole folder from the catalog
+                    shutil.rmtree(p.parent, ignore_errors=True)
+                    continue
                 if p.exists():
                     p.unlink()
                 parent = p.parent
@@ -63,6 +68,14 @@ class SkillMaterializer:
 
     def _write_skill(self, skill: DistilledSkill) -> Path:
         skill_dir = self._skills_dir / skill.name
+        from aurora.skills.catalog import bundle_of
+        if bundle := bundle_of(skill):
+            # from the catalog: its whole folder (references, scripts, licence), as its authors wrote it
+            mark, there = bundle / "SOURCE.md", skill_dir / "SOURCE.md"
+            if not (there.is_file() and mark.is_file() and there.read_text() == mark.read_text()):
+                shutil.rmtree(skill_dir, ignore_errors=True)       # not there yet, or another version
+                shutil.copytree(bundle, skill_dir)
+            return skill_dir / "SKILL.md"
         skill_dir.mkdir(parents=True, exist_ok=True)
         skill_file = skill_dir / "SKILL.md"
 
@@ -94,3 +107,19 @@ description: {_one_line(skill.description or skill.name)}
 def _one_line(text: str) -> str:
     """Frontmatter values must stay on one line."""
     return " ".join(text.split())
+
+
+def description_of(skill_md: str) -> str:
+    """A SKILL.md's description, on one line (also when written as a folded or quoted block)."""
+    m = re.search(r"^description:[ \t]*(.*)$", skill_md, re.M)
+    if not m:
+        return ""
+    first = m.group(1).strip()
+    if first in ("", ">", ">-", "|", "|-"):
+        block = []
+        for line in skill_md[m.end():].splitlines()[1:]:
+            if line and not line[0].isspace():         # the next key
+                break
+            block.append(line.strip())
+        first = " ".join(block)
+    return _one_line(first.strip().strip('"\''))

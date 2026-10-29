@@ -4022,3 +4022,22 @@ a.home-chip { text-decoration: none; display: inline-block; }
 .fd-steps li.now::before { content: ''; width: 9px; height: 9px; top: 4px; border: 2px solid currentColor; border-right-color: transparent;
   border-radius: 50%; animation: spin 0.8s linear infinite; }
 
+
+/* the skill catalog: skills others have shared */
+.skills-new.on { background: var(--bg-hover); color: var(--fg); border-color: var(--border); }
+.skill-catalog-bar { padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; }
+.skill-catalog-bar select { width: 100%; padding: 4px 6px; border-radius: 4px; border: 1px solid var(--border);
+  background: var(--bg-surface); color: var(--fg); font-size: 12px; font-family: inherit; }
+.skill-card.catalog { cursor: default; }
+.skill-card.catalog:hover { background: none; }
+.skill-catalog-from { font-size: 10.5px; color: var(--fg-dim); display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 4px; }
+.skill-catalog-from a, .skill-catalog-note a, .skill-source a { color: var(--accent); text-decoration: none; }
+.skill-catalog-from a:hover, .skill-catalog-note a:hover, .skill-source a:hover { text-decoration: underline; }
+.skill-catalog-summary { font-size: 11.5px; color: var(--fg-muted); line-height: 1.45; }
+.skill-catalog-needs { font-size: 10.5px; color: var(--amber); margin-top: 3px; }
+.skill-catalog-added { font-size: 10.5px; color: var(--green); }
+.skill-catalog-note { padding: 14px 12px; font-size: 10.5px; color: var(--fg-dim); line-height: 1.5; }
+.skill-badge.rec { background: var(--accent-dim); color: var(--accent); }
+.skill-source { font-size: 10.5px; color: var(--fg-dim); line-height: 1.5; }
+.skill-readonly { max-height: 260px; overflow: auto; margin: 0; padding: 6px 8px; border-radius: 5px; white-space: pre-wrap;
+  background: var(--bg); border: 1px solid var(--border); font: 10.5px/1.45 'IBM Plex Mono', monospace; color: var(--fg-muted); }

@@ -53,6 +53,7 @@ import {
   type Phase,
   type Proposal,
   type Skill,
+  type SkillCatalog,
   type LibraryRef,
   type OtherProject,
   type RunEstimate,
@@ -1836,6 +1837,7 @@ const SKILL_ORIGIN_LABELS: Record<string, string> = {
   human: 'from your corrections',
   self: 'learned from runs',
   manual: 'written by hand',
+  catalog: 'from the catalog',
 }
 
 /** Standard sections a skill's text lacks (the template's headings). */
@@ -1844,7 +1846,7 @@ function missingSections(text: string, sections: string[]): string[] {
   return sections.filter((h) => !low.includes(`## ${h.toLowerCase()}`))
 }
 
-type SkillsTab = 'all' | 'human' | 'self' | 'manual'
+type SkillsTab = 'all' | 'human' | 'self' | 'manual' | 'catalog'
 
 /** The skill library: what the agents may use; skills learned from your corrections and from runs. */
 function SkillsPanel({ collapsed, panelRef, initialSearch = '' }: {
@@ -1864,6 +1866,7 @@ function SkillsPanel({ collapsed, panelRef, initialSearch = '' }: {
   const [creating, setCreating] = useState<{ name: string; description: string; text: string } | null>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [browsing, setBrowsing] = useState(false)
 
   const fetchSkills = useCallback(async () => {
     try {
@@ -1933,20 +1936,25 @@ function SkillsPanel({ collapsed, panelRef, initialSearch = '' }: {
     <div className={`skills-panel${collapsed ? ' collapsed' : ''}`} ref={panelRef}>
       <div className="skills-header">
         <div className="skills-title">
-          Skills
-          <button className="skills-new" title="Write a new skill" onClick={() => setCreating({ name: '', description: '', text: template })}>+ New</button>
+          {browsing ? 'Skill catalog' : 'Skills'}
+          <span style={{ display: 'flex', gap: 4 }}>
+            <button className={`skills-new${browsing ? ' on' : ''}`} title="Skills others have shared, to add to your library"
+              onClick={() => { setBrowsing(!browsing); setCreating(null) }}>{browsing ? '← Library' : 'Browse'}</button>
+            {!browsing && <button className="skills-new" title="Write a new skill" onClick={() => setCreating({ name: '', description: '', text: template })}>+ New</button>}
+          </span>
         </div>
-        <input className="skills-search" placeholder="Search skills..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <input className="skills-search" placeholder={browsing ? 'Search the catalog...' : 'Search skills...'} value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
-      <div className="skills-tabs">
-        {(['all', 'human', 'self', 'manual'] as const).map((t) => (
+      {browsing && <SkillCatalogView search={search} onAdded={fetchSkills} />}
+      {!browsing && <div className="skills-tabs">
+        {(['all', 'human', 'self', 'manual', 'catalog'] as const).map((t) => (
           <button key={t} className={`skills-tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
-            {t === 'all' ? 'All' : t === 'human' ? 'From you' : t === 'self' ? 'Learned' : 'Written'}
+            {t === 'all' ? 'All' : t === 'human' ? 'From you' : t === 'self' ? 'Learned' : t === 'manual' ? 'Written' : 'Added'}
           </button>
         ))}
-      </div>
+      </div>}
       {error && <div className="tl-detail tone-error" style={{ padding: '6px 12px' }}>{error}</div>}
-      <div className="skills-list">
+      {!browsing && <div className="skills-list">
         {creating && (
           <div className="skill-card expanded">
             <div className="skill-edit">
@@ -1963,7 +1971,7 @@ function SkillsPanel({ collapsed, panelRef, initialSearch = '' }: {
         )}
         {filtered.length === 0 && !creating && (
           <div style={{ padding: '24px 16px', textAlign: 'center', fontSize: 11, color: 'var(--fg-dim)' }}>
-            {search || tab !== 'all' ? 'No matching skills' : 'No skills yet. They are learned from runs and from your corrections, or write one with + New.'}
+            {search || tab !== 'all' ? 'No matching skills' : 'No skills yet. They are learned from runs and from your corrections; write one with + New, or add skills others have shared with Browse.'}
           </div>
         )}
         {filtered.map((sk) => {
@@ -1984,10 +1992,27 @@ function SkillsPanel({ collapsed, panelRef, initialSearch = '' }: {
                     {sk.approval === 'rejected' && <span className="skill-badge" title="A team admin kept it in the project it was learned in">kept in its project</span>}
                   </div>
                   <div className="skill-desc">{sk.description}</div>
-                  <div className="skill-meta">{SKILL_ORIGIN_LABELS[sk.origin] ?? sk.origin}{sk.source_experiment ? ` · ${sk.source_experiment}` : ''}</div>
+                  <div className="skill-meta">{sk.origin === 'catalog' && sk.source?.source_name
+                    ? `${sk.source.source_name} · ${sk.source.license}`
+                    : `${SKILL_ORIGIN_LABELS[sk.origin] ?? sk.origin}${sk.source_experiment ? ` · ${sk.source_experiment}` : ''}`}</div>
                 </div>
               </div>
-              {isOpen && (
+              {isOpen && sk.origin === 'catalog' && (
+                <div className="skill-edit">
+                  <div className="skill-source">
+                    From <a href={sk.source?.url} target="_blank" rel="noreferrer">{sk.source?.source_name} ↗</a>, {sk.source?.license} licence,
+                    pinned at {sk.source?.commit?.slice(0, 7)}. Kept as its authors wrote it, with its references and scripts.
+                  </div>
+                  <pre className="skill-readonly">{sk.rule}</pre>
+                  <ScopePicker value={scopeDraft} onChange={setScopeDraft} idPrefix={sk.skill_id} />
+                  <div className="skill-actions">
+                    <button className="btn-sm btn-reject" onClick={() => remove(sk)}>Remove</button>
+                    <span style={{ flex: 1 }} />
+                    {scopeChanged(sk) && <button className="btn-sm btn-approve" onClick={() => saveScope(sk)}>Save where it is used</button>}
+                  </div>
+                </div>
+              )}
+              {isOpen && sk.origin !== 'catalog' && (
                 <div className="skill-edit">
                   <input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
                   <textarea rows={16} value={draft.text} onChange={(e) => setDraft({ ...draft, text: e.target.value })} />
@@ -2022,8 +2047,85 @@ function SkillsPanel({ collapsed, panelRef, initialSearch = '' }: {
             </div>
           )
         })}
-      </div>
+      </div>}
     </div>
+  )
+}
+
+/** The catalog: skills others have shared, by category, each with its source and licence; add the ones you want. */
+function SkillCatalogView({ search, onAdded }: { search: string; onAdded: () => void }) {
+  const [catalog, setCatalog] = useState<SkillCatalog | null>(null)
+  const [category, setCategory] = useState('recommended')
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const load = useCallback(() => api.skills.catalog().then(setCatalog).catch((e) => setError(describeError(e))), [])
+  useEffect(() => { load() }, [load])
+  const change = async (name: string, what: () => Promise<unknown>) => {
+    setBusy(name)
+    setError(null)
+    try {
+      await what()
+      await load()
+      onAdded()
+    } catch (e) {
+      setError(describeError(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+  if (!catalog) return <div className="skills-list"><div className="skill-catalog-note">{error ?? 'Loading the catalog…'}</div></div>
+  const q = search.trim().toLowerCase()
+  const shown = catalog.entries.filter((e) => (q
+    ? [e.name, e.summary, e.source_name].some((x) => x.toLowerCase().includes(q))
+    : category === 'recommended' ? e.recommended : category === 'added' ? !!e.skill_id : category === 'all' || e.category === category))
+  const label = Object.fromEntries(catalog.categories.map((c) => [c.id, c.label]))
+  const added = catalog.entries.filter((e) => e.skill_id).length
+  return (
+    <>
+      <div className="skill-catalog-bar">
+        <select value={category} onChange={(e) => setCategory(e.target.value)} disabled={!!q}>
+          <option value="recommended">Recommended to start</option>
+          <option value="added">Added ({added})</option>
+          <option value="all">All ({catalog.entries.length})</option>
+          {catalog.categories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+        </select>
+      </div>
+      {error && <div className="tl-detail tone-error" style={{ padding: '6px 12px' }}>{error}</div>}
+      <div className="skills-list">
+        {shown.length === 0 && <div className="skill-catalog-note">{q ? 'Nothing in the catalog matches.' : 'None yet.'}</div>}
+        {shown.map((e) => (
+          <div key={e.name} className="skill-card catalog">
+            <div className="skill-name">{e.name}{e.recommended && <span className="skill-badge rec">recommended</span>}</div>
+            <div className="skill-catalog-from">
+              <a href={e.url} target="_blank" rel="noreferrer" title={`${e.repo}: open its folder on GitHub`}>{e.source_name} ↗</a>
+              <span>· {e.license}</span>{!q && category !== 'all' && category === e.category ? null : <span>· {label[e.category]}</span>}
+            </div>
+            <div className="skill-catalog-summary">{e.summary}</div>
+            {e.needs && <div className="skill-catalog-needs">Needs: {e.needs}</div>}
+            <div className="skill-actions" style={{ marginTop: 6 }}>
+              {e.skill_id
+                ? <>
+                    <span className="skill-catalog-added">✓ In your library{e.scope === 'projects' ? ' (some projects)' : ''}</span>
+                    <span style={{ flex: 1 }} />
+                    <button className="btn-sm" disabled={busy === e.name} onClick={() => change(e.name, () => api.skills.remove(e.skill_id))}>Remove</button>
+                  </>
+                : <>
+                    <span style={{ flex: 1 }} />
+                    <button className="btn-sm btn-approve" disabled={!!busy || e.name_taken}
+                      title={e.name_taken ? 'A skill of yours has this name' : 'Download it into your library, for all projects'}
+                      onClick={() => change(e.name, () => api.skills.addFromCatalog(e.name))}>{busy === e.name ? 'Adding…' : 'Add'}</button>
+                  </>}
+            </div>
+          </div>
+        ))}
+        <div className="skill-catalog-note">
+          Sources: {catalog.sources.map((s, i) => (
+            <span key={s.id}>{i > 0 && ' · '}<a href={s.url} target="_blank" rel="noreferrer" title={s.about}>{s.name}</a> ({s.license})</span>
+          ))}. Each skill is downloaded at a fixed commit, with its licence beside it, and is the authors' work, unchanged.
+          Some come with scripts the agents may run in the experiment's sandbox.
+        </div>
+      </div>
+    </>
   )
 }
 

@@ -3,8 +3,8 @@
 A skill is a structured specification (paper, appendix "Domain-Specific Skills"; see :data:`SKILL_SECTIONS`):
 its purpose, inputs and preconditions, tools, procedure, expected outputs, validation checks,
 failure modes, interpretation, and when to ask a human.  Skills come from the researcher's
-corrections (``origin="human"``), from the agents' own runs (``origin="self"``) or are written
-by hand (``origin="manual"``), and are revised over time (``version``, ``history``).  At
+corrections (``origin="human"``), from the agents' own runs (``origin="self"``), are written
+by hand (``origin="manual"``) or added from the skill catalog (``origin="catalog"``), and are revised over time (``version``, ``history``).  At
 runtime they are written as ``.claude/skills/<name>/SKILL.md`` so Claude Code loads them.
 """
 
@@ -53,7 +53,7 @@ SKILL_SECTIONS: list[tuple[str, str]] = [
     ("When to ask a human", "decisions the agent should not take alone"),
 ]
 
-ORIGINS = ("human", "self", "manual")
+ORIGINS = ("human", "self", "manual", "catalog")
 SCOPES = ("experiment", "campaign", "projects", "global")
 KINDS = ("procedure", "failure", "convention", "correction")
 
@@ -85,7 +85,7 @@ class DistilledSkill(BaseModel):
     created_at: float = Field(default_factory=time.time)
     updated_at: float = Field(default_factory=time.time)
     # ``rule`` holds the skill's text: Markdown in the SKILL_SECTIONS (older skills: one rule)
-    origin: str = "manual"     # human | self | manual
+    origin: str = "manual"     # human | self | manual | catalog
     kind: str = ""             # procedure | failure | convention | correction
     version: int = 1
     history: list[dict[str, Any]] = Field(default_factory=list)   # earlier versions, oldest first
@@ -94,6 +94,8 @@ class DistilledSkill(BaseModel):
     # was learned.
     approval: str = ""
     approved_by: str = ""
+    # added from the catalog: where it comes from (repository, commit, licence) and its downloaded folder
+    source: dict[str, Any] = Field(default_factory=dict)
 
 
 class SkillStore:
@@ -106,7 +108,7 @@ class SkillStore:
         self._conn.execute("PRAGMA journal_mode=WAL")
         for column in ("source_campaign TEXT DEFAULT ''", "origin TEXT DEFAULT 'manual'", "kind TEXT DEFAULT ''",
                        "version INTEGER DEFAULT 1", "history TEXT DEFAULT '[]'", "projects TEXT DEFAULT '[]'",
-                       "approval TEXT DEFAULT ''", "approved_by TEXT DEFAULT ''"):
+                       "approval TEXT DEFAULT ''", "approved_by TEXT DEFAULT ''", "source TEXT DEFAULT '{}'"):
             try:
                 self._conn.execute(f"ALTER TABLE distilled_skills ADD COLUMN {column}")
                 self._conn.commit()
@@ -127,6 +129,7 @@ class SkillStore:
         d["version"] = d.get("version") or 1
         d["approval"] = d.get("approval") or ""
         d["approved_by"] = d.get("approved_by") or ""
+        d["source"] = json.loads(d.get("source") or "{}")
         return DistilledSkill(**d)
 
     def create(self, skill: DistilledSkill) -> DistilledSkill:
@@ -138,15 +141,15 @@ class SkillStore:
             """INSERT INTO distilled_skills
                (skill_id, name, rule, description, source_phase,
                 source_experiment, source_campaign, scope, tags,
-                created_at, updated_at, origin, kind, version, history, projects, approval, approved_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                created_at, updated_at, origin, kind, version, history, projects, approval, approved_by, source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 skill.skill_id, skill.name, skill.rule, skill.description,
                 skill.source_phase, skill.source_experiment,
                 skill.source_campaign, skill.scope,
                 json.dumps(skill.tags), skill.created_at, skill.updated_at,
                 skill.origin, skill.kind, skill.version, json.dumps(skill.history),
-                json.dumps(skill.projects), skill.approval, skill.approved_by,
+                json.dumps(skill.projects), skill.approval, skill.approved_by, json.dumps(skill.source),
             ),
         )
         self._conn.commit()

@@ -10,6 +10,7 @@ import type { PdfProgress, DeepRead, IdeaVersion, MemAlert, MemVault, MemVoiceTu
   GateAction,
   ProjectChatStatus,
   Skill,
+  SkillCatalog,
   StartExperimentRequest,
   StartExperimentResponse,
 } from '../types'
@@ -627,6 +628,11 @@ export const api = {
     pending: () => request<Skill[]>('/skills/pending'),
     decide: (skillId: string, approve: boolean) => request<Skill>(`/skills/${skillId}/approval`, post({ approve })),
     template: () => request<{ sections: { name: string; what: string }[]; template: string }>('/skills/template'),
+    /** Skills others have shared, by category; whether each is in the library. */
+    catalog: () => request<SkillCatalog>('/skills/catalog'),
+    /** Download a catalog skill's folder into the library. */
+    addFromCatalog: (name: string, scope = 'global', projects: string[] = []) =>
+      request<Skill>(`/skills/catalog/${encodeURIComponent(name)}`, post({ scope, projects })),
     create: (skill: { name: string; rule: string; description?: string; scope?: string; kind?: string }) =>
       request<Skill>('/skills/', post({ origin: 'manual', scope: 'global', ...skill })),
     /** A new version of a skill; the current one goes into its history. */
