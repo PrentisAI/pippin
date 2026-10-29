@@ -108,7 +108,7 @@ export function TodayView({ onOpenRun, onNewQuestion }: {
 }
 
 /** One thing that waits for you, answered here when it can be. */
-function Need({ need, onDone, onOpenRun }: { need: TodayNeed; onDone: () => void; onOpenRun: (cid: string, rid: string) => void }) {
+export function Need({ need, onDone, onOpenRun }: { need: TodayNeed; onDone: () => void; onOpenRun: (cid: string, rid: string) => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [replying, setReplying] = useState(false)

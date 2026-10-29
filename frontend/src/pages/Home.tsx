@@ -16,6 +16,7 @@ import { TeamView } from '../components/TeamView'
 import { LiteratureView, RULE_HINTS, RULE_LABELS, RuleSelect } from '../components/LiteratureView'
 import { LibraryView } from '../components/LibraryView'
 import { TodayView } from '../components/TodayView'
+import { ProjectOverview } from '../components/ProjectOverview'
 import { CommandPalette, type PaletteGo } from '../components/CommandPalette'
 import { MemoryView } from '../components/memory/MemoryView'
 import { CiteProvider, CiteText } from '../components/Cite'
@@ -965,18 +966,21 @@ function ChatArea({
   experimentId,
   experiments,
   onSelectExperiment,
+  campaign = null,
 }: {
   campaignId: string
   experimentId: string | null
   experiments: ExperimentSummary[]
   onSelectExperiment: (expId: string | null) => void
+  /** The project, for its overview (the project's own view only). */
+  campaign?: CampaignSummary | null
 }) {
   const [messages, setMessages] = useState<ConversationMessage[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   const [pendingDecisions, setPendingDecisions] = useState<(PendingDecision & { experiment_id: string })[]>([])
-  const [activeTab, setActiveTab] = useState<string>('project')
+  const [activeTab, setActiveTab] = useState<string>(() => experimentId ?? 'overview')
   const [showSkillForm, setShowSkillForm] = useState(false)
   const [skillName, setSkillName] = useState('')
   const [skillRule, setSkillRule] = useState('')
@@ -1028,7 +1032,7 @@ function ChatArea({
 
   const fetchHistory = useCallback(async () => {
     try {
-      if (activeTab === 'literature' || activeTab === 'compare') return
+      if (activeTab === 'literature' || activeTab === 'compare' || activeTab === 'overview') return
       if (!isProjectTab) {
         const history = await api.expChat.history(campaignId, activeTab)
         setMessages(history)
@@ -1161,20 +1165,24 @@ function ChatArea({
     <div className="camp-content">
       {/* Context bar */}
       <div className="context-bar" data-tour="tabs">
+        <div className={`context-tab${activeTab === 'overview' ? ' active' : ''}`}
+          onClick={() => {
+            if (!experimentId) { setActiveTab('overview'); return }
+            // the project's own view opens on its overview (this view goes away)
+            const box = projectMailbox[campaignId] ??= { refs: [] }
+            box.tab = 'overview'
+            onSelectExperiment(null)
+          }}>
+          <span className="tab-dot" style={{ background: activeTab === 'overview' ? 'var(--accent)' : 'var(--fg-dim)' }} />
+          Overview
+          {pendingDecisions.length > 0 && <span className="tab-count">{pendingDecisions.length}</span>}
+        </div>
         <div
           className={`context-tab${isProjectTab ? ' active' : ''}`}
           onClick={() => { setActiveTab('project'); setMessages([]); onSelectExperiment(null) }}
         >
           <span className="tab-dot" style={{ background: isProjectTab ? 'var(--accent)' : 'var(--fg-dim)' }} />
           Project Chat
-          {pendingDecisions.length > 0 && (
-            <span style={{
-              fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 10,
-              background: 'var(--amber-dim)', color: 'var(--amber)', marginLeft: 2,
-            }}>
-              {pendingDecisions.length}
-            </span>
-          )}
         </div>
         {experiments.map((exp) => {
           const isActive = activeTab === exp.run_id
@@ -1212,7 +1220,10 @@ function ChatArea({
         )}
       </div>
 
-      {activeTab === 'compare' ? <CompareView campaignId={campaignId} onOpenRun={(id) => { setActiveTab(id); onSelectExperiment(id) }} />
+      {activeTab === 'overview' ? <ProjectOverview campaignId={campaignId} campaign={campaign} experiments={experiments} decisions={pendingDecisions}
+          onOpenRun={(id) => { setActiveTab(id); onSelectExperiment(id) }} onDecided={fetchStatus}
+          onTalk={() => { setActiveTab('project'); setTimeout(() => textareaRef.current?.focus(), 50) }} />
+        : activeTab === 'compare' ? <CompareView campaignId={campaignId} onOpenRun={(id) => { setActiveTab(id); onSelectExperiment(id) }} />
         : activeTab === 'literature' ? <LiteratureView campaignId={campaignId} /> : <>
       {/* Chat messages (files can be dropped here) */}
       {chatPickers.inputs}
@@ -2529,6 +2540,7 @@ function CampaignChatView({
         experimentId={null}
         experiments={experiments}
         onSelectExperiment={onSelectExperiment}
+        campaign={campaign}
       />
     </>
   )
