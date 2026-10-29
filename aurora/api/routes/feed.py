@@ -200,11 +200,10 @@ async def save_item(item_id: str, body: SaveBody) -> dict[str, Any]:
     if body.campaign_id:
         require(body.campaign_id, "edit")
         name = _projects().get(body.campaign_id, "")
-    if it["paper"]:
-        _paper_into(body.campaign_id, it)
+    paper_id = _paper_into(body.campaign_id, it) if it["paper"] else ""
     feed_store.save(_uid(), item_id, body.campaign_id)
     return {"saved": {"campaign_id": body.campaign_id, "project": name if body.campaign_id else ""},
-            "in_literature": bool(it["paper"] and body.campaign_id)}
+            "in_literature": bool(it["paper"] and body.campaign_id), "paper_id": paper_id}
 
 
 @router.delete("/items/{item_id}/save")

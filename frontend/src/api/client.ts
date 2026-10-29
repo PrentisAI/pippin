@@ -508,7 +508,7 @@ export const api = {
     saved: () => request<{ items: FeedItem[] }>('/feed/saved'),
     attachable: () => request<{ items: LibraryRef[] }>('/feed/library'),
     save: (itemId: string, campaign_id = '') =>
-      request<{ saved: { campaign_id: string; project: string }; in_literature: boolean }>(`/feed/items/${itemId}/save`, post({ campaign_id })),
+      request<{ saved: { campaign_id: string; project: string }; in_literature: boolean; paper_id: string }>(`/feed/items/${itemId}/save`, post({ campaign_id })),
     unsave: (itemId: string) => request<{ ok: boolean }>(`/feed/items/${itemId}/save`, del),
     hide: (itemId: string) => request<{ ok: boolean }>(`/feed/items/${itemId}/hide`, post()),
     unhide: (itemId: string) => request<{ ok: boolean }>(`/feed/items/${itemId}/hide`, del),

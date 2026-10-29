@@ -4,6 +4,7 @@ import type { FeedItem, FeedKind, FeedView, LibraryView as Library, LitCheck, Li
 import { ago, askFrontDesk, initialsOf, useToast } from './feed/common'
 import { FeedCard, type FeedActions } from './feed/FeedCard'
 import { FollowingView } from './feed/FollowingView'
+import { PaperTriage } from './feed/PaperTriage'
 import { ScholarView } from './feed/ScholarView'
 import { PaperLinks } from './LiteratureView'
 import { ZoteroDialog } from './ZoteroDialog'
@@ -25,6 +26,7 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
   const [error, setError] = useState<string | null>(null)
   const [zotero, setZotero] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [triage, setTriage] = useState(false)
   const [, toast, toastNode] = useToast()
 
   const loadFeed = useCallback(() => { api.feed.get().then(setFeed).catch((e) => setError(describeError(e))) }, [])
@@ -87,6 +89,9 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
   }
 
   const items = feed?.items ?? []
+  if (triage) {
+    return <div className="team-page lib-page fd-page"><PaperTriage items={items} onClose={() => { setTriage(false); loadFeed() }} onChanged={loadSaved} /></div>
+  }
   const pool = items.filter((x) => unfold || !x.folded)
   const shown = pool.filter((x) => (kind === 'all' || x.kind === kind) && (project === 'all' || x.fits.some((f) => f.campaign_id === project)))
   const folded = items.filter((x) => x.folded).length
@@ -129,6 +134,11 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
                 <b>Today, {today} · picked for your projects</b>
                 <span className="fd-mono">{feed?.refreshing ? 'gathering…' : `${shown.length} shown`}</span>
               </div>
+              {(() => {
+                const fresh = items.filter((x) => x.kind === 'paper' && !x.saved).length
+                return fresh > 0 && <button className="tr-open" onClick={() => setTriage(true)}>
+                  <span><b>Go through {fresh} new paper{fresh > 1 ? 's' : ''}, one at a time</b>Skip, keep or read each, with the keyboard or a swipe</span><span aria-hidden="true">→</span></button>
+              })()}
               <div className="fd-status">
                 {feed?.refreshing ? 'Asking your sources and ranking what is new against your projects…'
                   : feed?.last ? <>Updated {ago(feed.last)} · <button className="link-btn" onClick={() => act(async () => { await api.feed.refresh(); loadFeed() })}>Look again now</button></>

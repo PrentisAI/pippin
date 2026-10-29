@@ -7,6 +7,7 @@ import { ZoteroDialog } from '../ZoteroDialog'
 import './textLayer.css'
 import { PdfView, type Picked } from './PdfView'
 import { AGENTS, NotesPanel, avatar, inFilter, type Filter } from './NotesPanel'
+import { MarginNotes, inMargin } from './MarginNotes'
 import { DeepReadPanel } from '../review/DeepReadPanel'
 import { DissentPanel } from '../memory/DissentPanel'
 
@@ -51,7 +52,16 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
   const [error, setError] = useState<string | null>(null)
   const [pdfError, setPdfError] = useState<string | null>(null)
   const [zoom, setZoom] = useState(compact ? 0.8 : 1.25)
-  const [sideOpen, setSideOpen] = useState(!compact || req.tab === 'deep')
+  // the notes in the page's margin, beside their words (or, off, in the panel only); remembered on this browser
+  const [margin, setMargin] = useState(() => { try { return localStorage.getItem('pippin.reader.margin') !== 'off' } catch { return true } })
+  const inMarginMode = margin && !compact
+  const [sideOpen, setSideOpen] = useState((!compact && !margin) || req.tab === 'deep')
+  const toggleMargin = () => {
+    const on = !margin
+    setMargin(on)
+    setSideOpen(!on)
+    try { localStorage.setItem('pippin.reader.margin', on ? 'on' : 'off') } catch { /* a convenience only */ }
+  }
   // going full screen or back to the column: the size that fits it
   const wasFull = useRef(full)
   useEffect(() => {
@@ -267,6 +277,14 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
             title="Your notes, the agents' marks, the deep read">Notes <span className="rd-n">{notes.length}</span></button>
         )}
         {!compact && (
+          <button className={`rd-tb${margin ? ' on' : ''}`} onClick={toggleMargin} aria-pressed={margin}
+            title={margin ? 'The notes are in the margin, beside their words' : 'Show the notes in the margin, beside their words'}>Margin notes</button>
+        )}
+        {inMarginMode && (
+          <button className={`rd-tb${sideOpen ? ' on' : ''}`} onClick={() => setSideOpen(!sideOpen)} aria-expanded={sideOpen}
+            title="All the notes in a list, the deep read, and your saves">Panel <span className="rd-n">{notes.length}</span></button>
+        )}
+        {!compact && (
           <button className={`rd-tb${zpop ? ' on' : ''}`} onClick={() => setZpop(!zpop)} aria-expanded={zpop}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M5 5h14L5 19h14" /></svg>
             {zLabel}
@@ -334,7 +352,16 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
               <>
                 <PdfView url={api.reader.pdfUrl(p.paper_id, view.space)} paper={{ id: p.paper_id, space: view.space }} scale={zoom} notes={notes} focusId={focusId}
                   dimmed={dimmed} scrollTo={scrollTo} picked={picked} onPick={setPicked}
-                  onNote={(id) => { setFocusId(id); setPicked(null); setSideOpen(true); if (dimmed.has(id)) setFilter('all') }}
+                  onNote={(id) => {
+                    setFocusId(id); setPicked(null)
+                    const n = notes.find((x) => x.ann_id === id)
+                    if (!(inMarginMode && !sideOpen && n && inMargin(n))) setSideOpen(true)
+                    if (dimmed.has(id)) setFilter('all')
+                  }}
+                  margin={inMarginMode && !sideOpen ? (_i, here, v) => (
+                    <MarginNotes notes={here} top={(n) => (v[3] - Math.max(...n.rects.map((r) => r[3]))) * zoom} focusId={focusId} dimmed={dimmed}
+                      onFocus={focus} onMore={(id) => { setFocusId(id); setSide('notes'); setSideOpen(true) }} actions={actions} />
+                  ) : undefined}
                   onPlace={onPlace} onPages={setPages} onPage={setPage} onError={setPdfError} flash={flash} />
                 {(dissent?.items ?? []).some((it) => it.page === page - 1) && (() => {
                   const here = dissent!.items.filter((it) => it.page === page - 1)

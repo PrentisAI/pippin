@@ -320,7 +320,7 @@ def test_a_feed_ranked_against_projects(client):
     assert feed["people"][0]["fresh"] >= 1 and "post" in feed["people"][0]["activity"]
     # discussions around the project's papers: none until the paper is in the project
     r = client.post(f"/api/feed/items/{paper['item_id']}/save", json={"campaign_id": cid}).json()
-    assert r["in_literature"] and r["saved"]["project"]
+    assert r["in_literature"] and r["saved"]["project"] and r["paper_id"]
     lit = client.get(f"/api/campaigns/{cid}/literature").json()
     assert any(p["title"].startswith("Station-level demand") and p.get("source") == "feed" for p in lit["papers"]) or \
         any(i["source"] == "feed" for i in library.items(cid))

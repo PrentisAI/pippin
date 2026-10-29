@@ -13,7 +13,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = workerSrc
 /** Words selected on a page, and where the menu for them goes (in the scrolled content). */
 export interface Picked { text: string; place: NotePlace; x: number; y: number }
 
-type View = [number, number, number, number]
+export type View = [number, number, number, number]
 type Box = [number, number, number, number]
 
 /** A highlight's lines without overlap: the text layer's boxes are taller than the line spacing, and where two
@@ -39,7 +39,7 @@ function rgba(hex: string, a: number): string {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`
 }
 
-export function PdfView({ url, paper, scale, notes, focusId, dimmed, scrollTo, picked, onPick, onNote, onPlace, onPages, onPage, onError, flash }: {
+export function PdfView({ url, paper, scale, notes, focusId, dimmed, scrollTo, picked, onPick, onNote, onPlace, onPages, onPage, onError, flash, margin }: {
   url: string
   /** The paper and its space: how far its download is, shown while it opens. */
   paper?: { id: string; space: string }
@@ -58,6 +58,8 @@ export function PdfView({ url, paper, scale, notes, focusId, dimmed, scrollTo, p
   onPages: (n: number) => void
   onPage: (n: number) => void
   onError: (message: string) => void
+  /** What goes in a page's margin, beside it (the notes): from the page's notes, and where its box is. */
+  margin?: (index: number, notes: ReaderNote[], view: View) => React.ReactNode
   /** A passage to show for a moment (a quote in a deep read): found on its page, scrolled to, lit. */
   flash?: { quote: string; page: number; nonce: number } | null
 }) {
@@ -206,21 +208,22 @@ export function PdfView({ url, paper, scale, notes, focusId, dimmed, scrollTo, p
   }, [byPage, onNote, onPick, picked, scale, views])
 
   return (
-    <div className="rd-scroll" ref={scrollRef} onScroll={onScroll} onMouseUp={onMouseUp}>
+    <div className={`rd-scroll${margin ? ' with-margin' : ''}`} ref={scrollRef} onScroll={onScroll} onMouseUp={onMouseUp}>
       <div className="rd-hint">Select words to highlight them, write a note or ask an agent about them.</div>
       {!doc && <div className="rd-loading">{fetching?.state === 'fetching'
         ? `Downloading the PDF from where it is published${fetching.total ? `: ${(fetching.loaded / 1e6).toFixed(1)} of ${(fetching.total / 1e6).toFixed(1)} MB` : '…'}`
         : 'Opening the PDF…'}</div>}
       {doc && views.map((v, i) => (
         <PdfPage key={i} index={i} page={pages.current.get(i)!} view={v} scale={scale} root={scrollRef}
-          notes={byPage.get(i) ?? []} focusId={focusId} dimmed={dimmed} lit={lit?.page_index === i ? lit.rects : undefined} />
+          notes={byPage.get(i) ?? []} focusId={focusId} dimmed={dimmed} lit={lit?.page_index === i ? lit.rects : undefined}
+          margin={margin && margin(i, byPage.get(i) ?? [], v)} />
       ))}
       {picked && <div className="rd-anchor" style={{ left: picked.x, top: picked.y }} data-picked="" />}
     </div>
   )
 }
 
-function PdfPage({ index, page, view, scale, root, notes, focusId, dimmed, lit }: {
+function PdfPage({ index, page, view, scale, root, notes, focusId, dimmed, lit, margin }: {
   index: number
   page: PDFPageProxy
   view: View
@@ -230,6 +233,7 @@ function PdfPage({ index, page, view, scale, root, notes, focusId, dimmed, lit }
   focusId: string | null
   dimmed: Set<string>
   lit?: number[][]
+  margin?: React.ReactNode
 }) {
   const el = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -288,6 +292,7 @@ function PdfPage({ index, page, view, scale, root, notes, focusId, dimmed, lit }
       </div>
       <div className="textLayer rd-text" ref={text} />
       <div className="rd-pnum">{index + 1}</div>
+      {margin && <div className="rd-margin" style={{ left: w + 20 }}>{margin}</div>}
     </div>
   )
 }
