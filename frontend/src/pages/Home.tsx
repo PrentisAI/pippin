@@ -1168,62 +1168,17 @@ function ChatArea({
   return (
     <CiteProvider key={campaignId} campaignId={campaignId}>
     <div className="camp-content">
-      {/* Context bar */}
-      <div className="context-bar" data-tour="tabs">
-        <div className={`context-tab${activeTab === 'overview' ? ' active' : ''}`}
-          onClick={() => {
-            if (!experimentId) { setActiveTab('overview'); return }
-            // the project's own view opens on its overview (this view goes away)
-            const box = projectMailbox[campaignId] ??= { refs: [] }
-            box.tab = 'overview'
-            onSelectExperiment(null)
-          }}>
-          <span className="tab-dot" style={{ background: activeTab === 'overview' ? 'var(--accent)' : 'var(--fg-dim)' }} />
-          Overview
-          {pendingDecisions.length > 0 && <span className="tab-count">{pendingDecisions.length}</span>}
+      {/* the project's own views; a run's page has none: the sidebar goes to other runs, the header back to the project */}
+      {!experimentId && (
+        <div className="context-bar" data-tour="tabs" role="tablist">
+          {([['overview', 'Overview'], ['project', 'Chat'], ['literature', 'Literature'], ...(experiments.length > 1 ? [['compare', 'Compare']] : [])] as [string, string][]).map(([k, l]) => (
+            <button key={k} role="tab" aria-selected={activeTab === k} className={`context-tab${activeTab === k ? ' active' : ''}`}
+              onClick={() => { if (k === 'project' && activeTab !== 'project') setMessages([]); setActiveTab(k) }}>
+              {l}{k === 'overview' && pendingDecisions.length > 0 && <span className="tab-count">{pendingDecisions.length}</span>}
+            </button>
+          ))}
         </div>
-        <div
-          className={`context-tab${isProjectTab ? ' active' : ''}`}
-          onClick={() => { setActiveTab('project'); setMessages([]); onSelectExperiment(null) }}
-        >
-          <span className="tab-dot" style={{ background: isProjectTab ? 'var(--accent)' : 'var(--fg-dim)' }} />
-          Project Chat
-        </div>
-        {experiments.map((exp) => {
-          const isActive = activeTab === exp.run_id
-          return (
-            <div
-              key={exp.run_id}
-              className={`context-tab${isActive ? ' active' : ''}`}
-              onClick={() => { setActiveTab(exp.run_id); setMessages([]); onSelectExperiment(exp.run_id) }}
-            >
-              <span className="tab-dot" style={{ background: expDotColor(exp.status) }} />
-              {experimentName(exp)}
-            </div>
-          )
-        })}
-        <div className="context-tab" onClick={() => window.dispatchEvent(new CustomEvent('aurora:open-brainstorm', { detail: campaignId }))}>
-          <span className="tab-dot" style={{ background: 'var(--amber)' }} />
-          Brainstorm
-        </div>
-        <div className={`context-tab lit-tab${activeTab === 'literature' ? ' active' : ''}`} onClick={() => setActiveTab('literature')}>
-          <span className="tab-dot" style={{ background: activeTab === 'literature' ? 'var(--accent)' : 'var(--green)' }} />
-          Literature
-        </div>
-        {experiments.length > 1 && (
-          <div className={`context-tab${activeTab === 'compare' ? ' active' : ''}`}
-            onClick={() => {
-              if (!experimentId) { setActiveTab('compare'); return }
-              // the project's own chat view opens on the comparison (this view goes away)
-              const box = projectMailbox[campaignId] ??= { refs: [] }
-              box.tab = 'compare'
-              onSelectExperiment(null)
-            }}>
-            <span className="tab-dot" style={{ background: activeTab === 'compare' ? 'var(--accent)' : 'var(--fg-dim)' }} />
-            Compare
-          </div>
-        )}
-      </div>
+      )}
 
       {activeTab === 'overview' ? <ProjectOverview campaignId={campaignId} campaign={campaign} experiments={experiments} decisions={pendingDecisions}
           onOpenRun={(id) => { setActiveTab(id); onSelectExperiment(id) }} onDecided={fetchStatus}

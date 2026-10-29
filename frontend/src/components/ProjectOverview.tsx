@@ -130,6 +130,8 @@ export function ProjectOverview({ campaignId, campaign, experiments, decisions, 
         )}
 
         <button className="po-talk" onClick={onTalk}>Tell the project something, or ask about it<span>Project chat →</span></button>
+        <button className="td-link po-bs" onClick={() => window.dispatchEvent(new CustomEvent('aurora:open-brainstorm', { detail: campaignId }))}>
+          Think it through in a brainstorm before the next run</button>
       </div>
     </div>
   )

@@ -4416,6 +4416,10 @@ a.home-chip { text-decoration: none; display: inline-block; }
   color: var(--fg-dim); font: inherit; font-size: 15px; text-align: left; cursor: text; }
 .po-talk:hover { border-color: var(--fg-dim); }
 .po-talk span { margin-left: auto; font-size: 13px; color: var(--fg-muted); }
+.po-bs { align-self: flex-start; margin-top: 12px; font-size: 13.5px; color: var(--fg-muted); }
+.context-bar { scrollbar-width: none; }
+.context-bar::-webkit-scrollbar { display: none; }
+button.context-tab { font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
 .context-tab .tab-count { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 10px; background: var(--amber-dim); color: var(--amber); margin-left: 2px; }
 @media (max-width: 720px) { .po { padding: 32px 16px; } .po-runs th:nth-child(3), .po-runs td:nth-child(3) { display: none; } }
 

@@ -46,8 +46,6 @@ const CHAPTERS: Record<TourChapter, { title: string; steps: Step[] }> = {
         body: 'When an auditor escalates or a phase keeps failing, the run waits for you: approve, give an instruction, or stop. In this run screening rejected three proposals in a row and the researcher kept the latest; later the live auditor stopped the agent from copying files out of its sandbox. Notifications can bring decisions to your phone, with Approve and Stop links.' },
       { target: ['[data-tour="rightbar"]'], title: 'Stream, files, jobs',
         body: 'Switch the right side between the stream and the run’s files (its workspace, plans, transcripts, the report). When a run sends work to GPUs, a Jobs button shows each job and what its GPUs are doing.' },
-      { target: ['[data-tour="tabs"]'], title: 'The project’s tabs',
-        body: 'The project chat, one tab per run, the project’s Brainstorm and Literature, and Compare when there are several runs: setup, cost, results and conclusions side by side.' },
       { target: ['[data-tour="input"]'], title: 'Talk to a run',
         body: 'Ask the front desk anything about the run — it reads the run’s files — or, while a run goes, tell the agent what to change: it gets your message mid-step, without the run stopping.' },
       { click: '[data-tour="report-btn"]', target: ['.rep-actions'], title: 'The report',
