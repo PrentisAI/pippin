@@ -78,6 +78,8 @@ def web(request: httpx.Request) -> httpx.Response:
                 {"id": "https://openalex.org/A222", "display_name": "Ada Kowalski", "works_count": 6,
                  "last_known_institutions": [{"display_name": "Medical School"}], "ids": {}}]})
         return httpx.Response(200, json={"results": []})
+    if host == "api.openalex.org" and path == "/authors/A111111":
+        return httpx.Response(200, json={"id": "https://openalex.org/A111", "display_name": "Ada Kowalski", "works_count": 38})
     if host == "api.openalex.org" and path == "/works":
         f = q.get("filter", "")
         if "author.id:A111" in f and "from_publication_date" not in f:
@@ -111,6 +113,8 @@ def web(request: httpx.Request) -> httpx.Response:
              "record": {"text": t}, "replyCount": 3, "likeCount": 10 - i}
             for i, t in enumerate(["Were the six systems picked for clean data?", "Did they control for weather?",
                                    "The fleet expansion could explain part of it."])]})
+    if host == "api.bsky.app" and path.endswith("getProfile") and q.get("actor") == "mokafor.bsky.social":
+        return httpx.Response(200, json={"handle": "mokafor.bsky.social", "displayName": "Maya Okafor"})
     if host == "api.bsky.app" and path.endswith("searchActors"):
         return httpx.Response(200, json={"actors": []})
     if host == "hn.algolia.com" and path.endswith("/search"):
@@ -170,6 +174,54 @@ async def test_namesakes_are_told_apart_and_their_places_found(sources):
     assert kinds["x"]["state"] == "warn" and not kinds["x"]["follow"]          # no X API key
     assert kinds["blog"]["url"] == "https://maya.example/atom.xml"
     assert kinds["linkedin"]["state"] == "muted"
+
+
+class WebSearcher:
+    """A model that searched the web and found what it is given."""
+
+    def __init__(self, people):
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+        self.people, self.asked = people, []
+
+    async def create(self, **kw):
+        self.asked.append(kw)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+            content="Here: " + json.dumps({"people": self.people})))])
+
+
+async def test_found_on_the_web_and_each_place_checked(sources):
+    access = ag.ModelAccess(api_key="k", base_url="u", model="openai/some-model")
+    model = WebSearcher([
+        {"name": "Ada Kowalski", "aff": "Technical University", "detail": "Bike-share rebalancing.",
+         "homepage": "https://maya.example/", "openalex": "A111111", "bluesky": "@mokafor.bsky.social",
+         "mastodon": "ghost@nowhere.example", "x": "https://x.com/akowalski", "orcid": "0000-0002-1825-0097"},
+        {"name": "Ada Kowalski", "aff": "Nowhere", "bluesky": "made-up.bsky.social", "openalex": "A99999999"}])
+    found = await ppl.web_find(sources, "Ada Kowalski", access, client=model)
+    assert model.asked[0]["extra_body"]["plugins"][0]["id"] == "web"
+    (ada,) = found                                  # the second: nothing it named held up
+    kinds = {i["kind"]: i for i in ada["ids"]}
+    assert kinds["openalex"]["follow"] and ada["works"] == 38
+    assert kinds["blog"]["url"] == "https://maya.example/atom.xml"
+    assert kinds["bluesky"]["handle"] == "mokafor.bsky.social"
+    assert "mastodon" not in kinds                  # no such account
+    assert kinds["x"]["handle"] == "akowalski" and not kinds["x"]["follow"]   # no X key
+    assert await ppl.identities(sources, ada) == ada["ids"]
+    # a model that cannot search (not OpenRouter), or no key: the links are followed instead
+    assert await ppl.web_find(sources, "Ada Kowalski", ag.ModelAccess("k", "u", "gpt-x"), client=model) is None
+    assert await ppl.web_find(sources, "Ada Kowalski", ag.ModelAccess("", "u", "openai/x"), client=model) is None
+
+
+async def test_a_failed_web_search_falls_back_to_the_links(sources, monkeypatch):
+    class Broken:
+        chat = SimpleNamespace(completions=SimpleNamespace(create=None))
+
+        def __init__(self):
+            async def fail(**kw):
+                raise RuntimeError("down")
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=fail))
+    monkeypatch.setattr(ag, "client_factory", lambda access: Broken())
+    found = await ppl.find(sources, "Ada Kowalski", access=ag.ModelAccess("k", "u", "openai/x"))
+    assert [c["aff"] for c in found] == ["Technical University", "Medical School"]
 
 
 # ---------------------------------------------------------------------------- the feed

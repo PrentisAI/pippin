@@ -955,6 +955,7 @@ export interface PersonCandidate {
   orcid: string
   homepage?: string
   ids: FeedIdentity[]
+  checked?: boolean
 }
 
 export interface ScholarEntry {

@@ -235,16 +235,16 @@ function FollowSomeone({ xKey, onFollowed }: { xKey: boolean; onFollowed: (p: Fe
         <form className="bs-row" onSubmit={find}>
           <label className="fd-field" style={{ flex: 1, minWidth: 220 }}>Name, profile link, ORCID or handle
             <input className="fd-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ada Kowalski · 0000-0002-… · @someone.bsky.social" /></label>
-          <button className="btn-sm btn-approve" style={{ alignSelf: 'flex-end' }} disabled={busy || !q.trim()}>{busy ? 'Looking…' : 'Find'}</button>
+          <button className="btn-sm btn-approve" style={{ alignSelf: 'flex-end' }} disabled={busy || !q.trim()}>{busy ? 'Searching the web…' : 'Find'}</button>
         </form>
       )}
       {step === 1 && (
         <>
-          <div className="fd-small">{cands.length} people are called {q.trim()}. Which one?</div>
+          <div className="fd-small">{cands.length} people could be “{q.trim()}”. Which one?</div>
           {cands.map((c, i) => (
             <label key={c.cid} className={`fd-choice${pick === i ? ' picked' : ''}`}>
               <input type="radio" name="pick" checked={pick === i} onChange={() => setPick(i)} />
-              <span><span className="fd-bright">{c.name}{c.aff ? ` · ${c.aff}` : ''} · {c.works} paper{c.works === 1 ? '' : 's'}</span><br />
+              <span><span className="fd-bright">{c.name}{c.aff ? ` · ${c.aff}` : ''}{c.works || !c.checked ? ` · ${c.works} paper${c.works === 1 ? '' : 's'}` : ''}</span><br />
                 <span className="lit-sub">{c.detail || 'No recent paper listed.'}</span></span>
             </label>
           ))}

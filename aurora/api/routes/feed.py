@@ -473,7 +473,8 @@ async def find_people(body: FindBody) -> dict[str, Any]:
     if not body.query.strip():
         raise HTTPException(400, "Type a name, a profile link, an ORCID or a handle")
     try:
-        found = await ppl.find(sources(), body.query, have_x_key=bool(svc.x_key(_uid())))
+        found = await ppl.find(sources(), body.query, have_x_key=bool(svc.x_key(_uid())),
+                               access=svc._access_for(current_user()))
     except SourceError as exc:
         raise HTTPException(502, f"Could not look them up: {exc}") from exc
     return {"candidates": found}

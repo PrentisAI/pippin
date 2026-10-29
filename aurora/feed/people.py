@@ -1,6 +1,10 @@
 """Finding a person to follow, and where they publish and post.
 
-Someone is found by name (OpenAlex's authors, with affiliation, number of works, latest paper
+By name or homepage, a model searches the web for them and lists their places (homepage, blog, X, Bluesky,
+Mastodon, OpenAlex); each place it names is then checked (the blog has a feed, the Bluesky and Mastodon
+accounts exist, the OpenAlex author has their name) and what does not hold is left out.
+
+Without a model that can search, or for a handle, ORCID or profile link, someone is found by name (OpenAlex's authors, with affiliation, number of works, latest paper
 and frequent co-authors to tell namesakes apart), by ORCID, by an OpenAlex or Semantic Scholar
 profile, by a Bluesky or Mastodon handle, by an X handle, or by their homepage.  Their other
 places are then looked up: the links in their ORCID record and on their homepage (Bluesky,
@@ -76,8 +80,9 @@ async def _openalex_candidate(src: Sources, a: dict[str, Any]) -> dict[str, Any]
                              label=f"Papers · OpenAlex · {works} works", works=works)]}
 
 
-async def find(src: Sources, query: str, *, have_x_key: bool = False) -> list[dict[str, Any]]:
-    """The people *query* may mean (a name, a profile link, an ORCID or a handle)."""
+async def find(src: Sources, query: str, *, have_x_key: bool = False, access: Any = None) -> list[dict[str, Any]]:
+    """The people *query* may mean (a name, a profile link, an ORCID or a handle).  A name or a homepage is
+    searched for on the web by the model when one can search; links between their places are followed otherwise."""
     q = query.strip()
     if not q:
         return []
@@ -117,6 +122,9 @@ async def find(src: Sources, query: str, *, have_x_key: bool = False) -> list[di
     if (m := _X.search(q)) and m.group(1).lower() not in _NOT_X:
         return [{"cid": f"x:{m.group(1)}", "name": f"@{m.group(1)}", "aff": "", "works": 0, "detail": "",
                  "coauthors": [], "orcid": "", "ids": [x_identity(m.group(1), have_x_key)]}]
+    found = await web_find(src, q, access, have_x_key=have_x_key)
+    if found:
+        return found
     if re.match(r"https?://", q) or re.match(r"^[a-z0-9\-]+(\.[a-z0-9\-]+)+(/\S*)?$", q, re.I):
         url = q if q.startswith("http") else "https://" + q
         r = await src.get(url, what=urlparse(url).netloc)
@@ -189,6 +197,8 @@ def links_on(page: str, base: str) -> dict[str, list[str]]:
 async def identities(src: Sources, cand: dict[str, Any], *, have_x_key: bool = False) -> list[dict[str, Any]]:
     """Where else the person publishes and posts, ticked when it is certain."""
     ids = list(cand.get("ids") or [])
+    if cand.get("checked"):                        # found on the web, and checked already
+        return ids
     have = {i["kind"] for i in ids}
     sites: list[str] = [cand["homepage"]] if cand.get("homepage") else []
     if cand.get("orcid"):
@@ -282,3 +292,141 @@ async def identities(src: Sources, cand: dict[str, Any], *, have_x_key: bool = F
             except SourceError:
                 pass
     return ids
+
+
+# ---------------------------------------------------------------------------- found on the web
+
+WEB_PROMPT = """Find where this researcher publishes and posts online: {query}
+
+Search the web. If the words could mean several different people, list each (at most 3, the most likely first).
+For each person give only places you actually saw on a page while searching, never guessed ones:
+- homepage: their personal or lab page
+- blog: their blog, if it is not the homepage
+- x, bluesky, mastodon: their handles (mastodon as user@server)
+- openalex: their OpenAlex author ID (A followed by digits), if you saw it
+- orcid, scholar (Google Scholar profile URL), linkedin (URL)
+- aff: where they work now, in a few words (e.g. "OpenAI"); detail: one short sentence on what they are known for, to tell namesakes apart
+
+Answer with JSON only:
+{{"people": [{{"name": "", "aff": "", "detail": "", "homepage": "", "blog": "", "x": "", "bluesky": "", \
+"mastodon": "", "openalex": "", "orcid": "", "scholar": "", "linkedin": ""}}]}}
+Leave out what you did not find. If nobody fits, answer {{"people": []}}."""
+
+
+def same_name(a: str, b: str) -> bool:
+    """One name's words all in the other's ("Lilian Weng" and "Lilian L. Weng")."""
+    x, y = set(fold(a).split()), set(fold(b).split())
+    return bool(x and y) and (x <= y or y <= x)
+
+
+async def _web_ask(query: str, access: Any, client: Any) -> list[dict[str, Any]] | None:
+    import json
+    try:
+        resp = await client.chat.completions.create(
+            model=access.model, temperature=0, max_tokens=1500,
+            messages=[{"role": "user", "content": WEB_PROMPT.format(query=query)}],
+            extra_body={"plugins": [{"id": "web", "max_results": 8}]})
+        raw = resp.choices[0].message.content or ""
+        data = json.loads(re.search(r"\{.*\}", raw, re.S).group(0))  # type: ignore[union-attr]
+    except Exception:
+        return None
+    people = data.get("people") if isinstance(data, dict) else None
+    return [p for p in people if isinstance(p, dict) and str(p.get("name", "")).strip()][:3] \
+        if isinstance(people, list) else None
+
+
+def _s(p: dict[str, Any], key: str) -> str:
+    return str(p.get(key) or "").strip()
+
+
+async def _checked(src: Sources, p: dict[str, Any], have_x_key: bool) -> dict[str, Any]:
+    """What the model found, each place checked where it can be: what does not hold is left out."""
+    name = _s(p, "name")
+    ids: list[dict[str, Any]] = []
+    works = 0
+
+    async def papers() -> None:
+        nonlocal works
+        aid = (m.group(1).upper() if (m := _OA_AUTHOR.search(_s(p, "openalex"))) else "")
+        try:
+            if aid:
+                a = await src.json(f"https://api.openalex.org/authors/{aid}", what="OpenAlex")
+                rows, sure = ([a] if same_name(a.get("display_name", ""), name) else []), True
+            else:
+                data = await src.json("https://api.openalex.org/authors", {"search": name, "per_page": 5}, what="OpenAlex")
+                rows = [a for a in data.get("results") or [] if a.get("works_count") and same_name(a.get("display_name", ""), name)]
+                sure = len(rows) == 1
+            if rows:
+                a = rows[0]
+                aid = a["id"].rsplit("/", 1)[-1]
+                works = int(a.get("works_count") or 0)
+                ids.append(identity("openalex", handle=aid, url=f"https://openalex.org/{aid}",
+                                    label=f"Papers · OpenAlex · {works} works", works=works, follow=sure,
+                                    note="" if sure else "Found by name: check it is them."))
+        except SourceError:
+            pass
+
+    async def blog() -> None:
+        for site in dict.fromkeys(s for s in (_s(p, "blog"), _s(p, "homepage")) if s):
+            try:
+                url, _ = await src.discover_feed(site)
+            except SourceError:
+                continue
+            ids.append(identity("blog", url=url, handle=url, label=f"Blog · {urlparse(url).netloc}"))
+            return
+
+    async def bluesky() -> None:
+        if not (h := _s(p, "bluesky").lstrip("@")):
+            return
+        h = (m.group(1) if (m := re.search(r"bsky\.app/profile/([A-Za-z0-9.\-:]+)", h)) else h)
+        try:
+            prof = await src.json(f"{BSKY}/app.bsky.actor.getProfile", {"actor": h}, what="Bluesky")
+        except SourceError:
+            return
+        h = prof.get("handle", h)
+        ids.append(identity("bluesky", handle=h, url=f"https://bsky.app/profile/{h}", label=f"Bluesky · @{h}"))
+
+    async def mastodon() -> None:
+        h = _s(p, "mastodon").lstrip("@")
+        m = _MASTO_HANDLE.match(h) or _MASTO_URL.match(h.rstrip("/"))
+        if not m:
+            return
+        user, host = (m.group(1), m.group(2)) if _MASTO_HANDLE.match(h) else (m.group(2), m.group(1))
+        try:
+            await src.json(f"https://{host}/api/v1/accounts/lookup", {"acct": user}, what=f"Mastodon ({host})")
+        except SourceError:
+            return
+        ids.append(identity("mastodon", handle=f"{user}@{host}", url=f"https://{host}/@{user}", label=f"Mastodon · @{user}@{host}"))
+
+    await asyncio.gather(papers(), blog(), bluesky(), mastodon())
+    x = _s(p, "x").lstrip("@")
+    x = m.group(1) if (m := _X.search(x)) else x
+    if re.fullmatch(r"[A-Za-z0-9_]{1,15}", x) and x.lower() not in _NOT_X:
+        ids.append(x_identity(x, have_x_key))              # X cannot be checked without a key
+    if not any(i["kind"] == "blog" for i in ids):
+        ids.append(identity("blog", label="Blog · none found", state="muted", follow=False))
+    if (li := _s(p, "linkedin")) and "linkedin.com/" in li:
+        ids.append(identity("linkedin", url=li, label="LinkedIn · cannot be followed (no open API)", state="muted", follow=False))
+    order = ["openalex", "blog", "bluesky", "mastodon", "x", "linkedin"]
+    ids.sort(key=lambda i: order.index(i["kind"]))
+    orcid = _ORCID.search(_s(p, "orcid"))
+    return {"cid": f"web:{fold(name)}:{_s(p, 'aff')[:40]}", "name": name, "aff": _s(p, "aff"), "works": works,
+            "detail": clip(_s(p, "detail"), 200), "coauthors": [], "orcid": orcid.group(1) if orcid else "",
+            "homepage": _s(p, "homepage"), "ids": ids, "checked": True}
+
+
+async def web_find(src: Sources, query: str, access: Any, *, have_x_key: bool = False,
+                   client: Any = None) -> list[dict[str, Any]] | None:
+    """The people *query* (a name or a homepage) may mean, found by a model searching the web, every place it
+    names checked.  None when no model can search (no key, not OpenRouter) or the search failed."""
+    if access is None or not access.api_key or "/" not in access.model:   # the web plugin is OpenRouter's
+        return None
+    if client is None:
+        from aurora.brainstorm.agents import _client
+        client = _client(access)
+    people = await _web_ask(query.strip(), access, client)
+    if people is None:
+        return None
+    found = list(await asyncio.gather(*(_checked(src, p, have_x_key) for p in people)))
+    # someone with nothing that held up (only a guess by name, or nothing) is left out
+    return [c for c in found if any(i["follow"] or i["kind"] == "x" for i in c["ids"])]
