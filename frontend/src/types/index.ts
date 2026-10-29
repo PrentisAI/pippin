@@ -1483,6 +1483,35 @@ export interface MemVault {
   path: string; folders: string[]; exclude: string[]; on: boolean; notes?: number
 }
 
+/** Something that waits for a person, on the Today page. */
+export interface TodayNeed {
+  kind: 'decision' | 'alert' | 'skill'
+  id: string
+  title: string
+  detail: string
+  at: number
+  /** decision: where, and what the gate offers */
+  campaign_id?: string
+  run_id?: string
+  project?: string
+  run?: string
+  source?: string
+  options?: GateAction[]
+  /** alert: what kind, and the paper */
+  alert?: string
+  ref?: { url?: string; doi?: string; paper_id?: string }
+}
+
+/** The Today page: what waits, what changed since yesterday, what is worth reading. */
+export interface TodayView {
+  name: string
+  needs: TodayNeed[]
+  changed: { kind: 'run' | 'memory'; at: number; text: string; tone: '' | 'ok' | 'bad'; campaign_id?: string; run_id?: string }[]
+  reading: { item_id: string; title: string; url: string; why: string; project: string; label: string; source: string; is_paper: boolean }[]
+  projects: number
+  running: number
+}
+
 /** A turn of the conversation with Pippin at your side (the orb, the side panel). */
 export interface AssistantTurn {
   turn_id: string

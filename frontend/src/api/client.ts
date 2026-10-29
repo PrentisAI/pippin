@@ -12,6 +12,7 @@ import type { PdfProgress, DeepRead, IdeaVersion, MemAlert, MemVault, MemVoiceTu
   Skill,
   SkillCatalog,
   AssistantTurn,
+  TodayView,
   StartExperimentRequest,
   StartExperimentResponse,
 } from '../types'
@@ -118,6 +119,8 @@ const put = (body: unknown): RequestInit => ({ method: 'PUT', body: JSON.stringi
 const del: RequestInit = { method: 'DELETE' }
 
 export const api = {
+  /** Today: what waits for you, what changed, what is worth reading. */
+  today: { get: () => request<TodayView>('/today') },
   /** Pippin at your side: the conversation of the orb and the side panel. */
   assistant: {
     say: (text: string) => request<AssistantTurn & { reply: string }>('/assistant', post({ text, via: 'typed' })),

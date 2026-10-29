@@ -261,6 +261,7 @@ RULES: dict[tuple[str, str], str] = {
     ("GET", "/api/skills/template"): "any",
     ("GET", "/api/skills/pending"): "any",
     ("POST", "/api/skills/{skill_id}/approval"): "admin",
+    ("GET", "/api/today"): "any",
     ("POST", "/api/assistant"): "any",
     ("GET", "/api/assistant/history"): "any",
     ("DELETE", "/api/assistant/history"): "any",

@@ -56,6 +56,7 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
 
     from aurora.api.routes.accounts import access_router, auth_router, me_router, team_router
     from aurora.api.routes.assistant import router as assistant_router
+    from aurora.api.routes.today import router as today_router
     from aurora.api.routes.brainstorm import router as brainstorm_router
     from aurora.api.routes.campaigns import campaign_router, settings_router, store
     from aurora.api.routes.feed import router as feed_router
@@ -84,7 +85,7 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
     for router in (campaign_router, settings_router, skills_router, insights_router, files_router,
                    me_router, team_router, access_router, project_router, library_router,
                    zotero_router, brainstorm_router, feed_router, links_router, results_router, setup_router,
-                   onboarding_router, reader_router, review_router, memory_router, assistant_router):
+                   onboarding_router, reader_router, review_router, memory_router, assistant_router, today_router):
         app.include_router(router, dependencies=[Depends(guard)])
 
     @app.on_event("startup")

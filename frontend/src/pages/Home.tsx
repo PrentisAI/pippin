@@ -15,6 +15,7 @@ import { ShareDialog } from '../components/ShareDialog'
 import { TeamView } from '../components/TeamView'
 import { LiteratureView, RULE_HINTS, RULE_LABELS, RuleSelect } from '../components/LiteratureView'
 import { LibraryView } from '../components/LibraryView'
+import { TodayView } from '../components/TodayView'
 import { MemoryView } from '../components/memory/MemoryView'
 import { CiteProvider, CiteText } from '../components/Cite'
 import { CompareView } from '../components/results/CompareView'
@@ -2551,6 +2552,8 @@ export default function Home() {
   const [activePanel, setActivePanel] = useState<string>('projects')
   const [rightPanel, setRightPanel] = useState<string>('stream')
   // a page asked for in the address (the orb's buttons: /?page=library)
+  // the start conversation, asked for from Today ("New question")
+  const [startingNew, setStartingNew] = useState(false)
   const [page, setPage] = useState<MainPage>(() => {
     const p = new URLSearchParams(window.location.search).get('page')
     return p === 'library' || p === 'memory' || p === 'brainstorm' ? p : null
@@ -2718,6 +2721,7 @@ export default function Home() {
     } catch (e) { setNotice(`Could not start the demo: ${describeError(e)}`) }
   }, [fetchCampaigns, openRun])
   const goHome = useCallback(() => {
+    setStartingNew(false)
     setPage(null)
     setActiveCampaignId(null)
     setActiveExperimentId(null)
@@ -2862,6 +2866,8 @@ export default function Home() {
   }
 
   const activeCampaign = campaigns.find((c) => c.campaign_id === activeCampaignId) || null
+  // someone with a project of their own starts on Today; a newcomer, on the start conversation
+  const hasWork = campaigns.some((c) => !c.example)
   const navProps: NavProps = {
     activePanel, explorerActive: rightPanel === 'files', onTogglePanel: handleTogglePanel, page, onOpenPage: setPage,
     onHome: goHome, atHome: !page && !activeCampaignId, helpBadge: ob ? ob.checklist.filter((c) => !c.done).length : 0,
@@ -2954,7 +2960,10 @@ export default function Home() {
         {view === 'library' && <LibraryView onOpenProject={(cid) => { setPage(null); selectCampaign(cid) }} />}
         {view === 'examples' && <ExamplesView onOpen={(cid, run) => { setPage(null); openRun(cid, run) }} onDemo={runDemo}
           onDuplicated={async (cid, brief) => { await fetchCampaigns(); setPage(null); toProject(cid, { draft: brief, tab: 'project' }); openProject(cid) }} />}
-        {view === 'welcome' && (
+        {view === 'welcome' && hasWork && !startingNew && (
+          <TodayView onOpenRun={openRun} onNewQuestion={() => setStartingNew(true)} />
+        )}
+        {view === 'welcome' && (!hasWork || startingNew) && (
           <WelcomeView onSend={handleNewProject} onOpenRun={openRun} onOpenExample={() => openExample(true)}
             onBrainstorm={(opening) => { setBsOpening(opening); setBsSpace(null); setPage('brainstorm') }} />
         )}
