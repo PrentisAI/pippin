@@ -8,6 +8,8 @@ import './textLayer.css'
 import { PdfView, type Picked } from './PdfView'
 import { AGENTS, NotesPanel, avatar, inFilter, type Filter } from './NotesPanel'
 import { MarginNotes, inMargin } from './MarginNotes'
+import { GapNote } from './GapNote'
+import { sortIndex, type Line } from './locate'
 import { DeepReadPanel } from '../review/DeepReadPanel'
 import { DissentPanel } from '../memory/DissentPanel'
 
@@ -120,9 +122,18 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
       .then((r) => { if (r.started) load() }).catch(() => {})
   }, [view, req, load])
 
+  // Pippin reads every paper with you once (in this space), against your work, and writes notes in it
+  const readWith = useRef(false)
+  useEffect(() => {
+    if (!view || readWith.current || view.companion || !view.agents_mark || !view.pdf.available && !view.pdf.openable) return
+    readWith.current = true
+    api.reader.companion(req.paper, { space: req.space, card_id: view.idea?.kind === 'conversation' ? undefined : view.idea?.card_id, chat_id: req.chatId })
+      .then((r) => { if (r.started) load() }).catch(() => {})
+  }, [view, req, load])
+
   // in step: often while the agents are at it or notes are going to Zotero
   const busy = !!view && (view.notes.some((n) => n.status === 'saving' || n.replies.some((r) => r.pending))
-    || Object.values(view.reads).some((r) => r?.state === 'reading'))
+    || Object.values(view.reads).some((r) => r?.state === 'reading') || view.companion?.state === 'reading')
   useEffect(() => {
     const t = setInterval(load, busy ? 1500 : 8000)
     return () => clearInterval(t)
@@ -152,8 +163,20 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
     api.reader.change(annId, { place }).then(upsert).catch(() => {})
   }, [upsert])
 
+  // a gap opened under a line of the page (the + in its gutter), to write in
+  const ideaCard = view?.idea?.card_id
+  const gapAt = useCallback(async (pageIndex: number, line: Line) => {
+    try {
+      const n = await api.reader.addNote(req.paper, {
+        space: req.space, card_id: ideaCard, chat_id: req.chatId, text: line.text.trim(), page_index: pageIndex,
+        page_label: String(pageIndex + 1), rects: [line.rect], sort_index: sortIndex(pageIndex, line.offset, 0), draft: true, inline: true,
+      })
+      upsert(n); setFocusId(n.ann_id)
+    } catch (e) { fail(e) }
+  }, [req.paper, req.space, req.chatId, ideaCard, upsert, fail])
+
   // what to do with selected words
-  const create = async (kind: 'highlight' | 'comment' | 'ask', agent?: ReaderAgent) => {
+  const create = async (kind: 'highlight' | 'comment' | 'ask' | 'gap', agent?: ReaderAgent) => {
     if (!picked) return
     const p = picked
     setPicked(null)
@@ -161,7 +184,7 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
     try {
       const n = await api.reader.addNote(req.paper, {
         space: req.space, card_id: view?.idea?.card_id, chat_id: req.chatId, text: p.text, ...p.place,
-        draft: kind === 'comment', ask: agent,
+        draft: kind === 'comment' || kind === 'gap', ask: agent, inline: kind === 'gap',
       })
       upsert(n)
       setFocusId(n.ann_id)
@@ -198,6 +221,9 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
     },
     cancel: async (n: ReaderNote) => {
       try { await api.reader.remove(n.ann_id); drop(n.ann_id); setFocusId(null) } catch (e) { fail(e) }
+    },
+    write: async (n: ReaderNote, comment: string) => {
+      try { upsert(await api.reader.change(n.ann_id, { comment })) } catch (e) { fail(e) }
     },
     reply: async (n: ReaderNote, text: string) => {
       try { upsert(await api.reader.reply(n.ann_id, text)) } catch (e) { fail(e) }
@@ -256,6 +282,7 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
     : z.state === 'writes_off' ? 'Zotero · writing is off'
     : z.state !== 'ok' ? 'Zotero · notes stay here' : z.counts.saving ? 'Saving to Zotero…' : `Zotero · ${z.counts.synced} synced`
   const reading = AGENTS.filter((a) => view.reads[a.name])
+  const pippin = view.companion
   const authors = p.authors.length > 3 ? `${p.authors.slice(0, 3).map((a) => a.split(/[ ,]/).filter(Boolean).pop()).join(', ')} et al.` : p.authors.join(', ')
 
   return (
@@ -277,6 +304,14 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
           <span className="mono">{Math.round(zoom * 100)}%</span>
           <button className="rd-tb" aria-label="Zoom in" disabled={zoom >= ZOOMS[ZOOMS.length - 1]} onClick={() => setZoom(ZOOMS[Math.min(ZOOMS.length - 1, ZOOMS.indexOf(zoom) + 1)])}>+</button>
         </div>
+        {pippin && (
+          <div className="rd-presence" title={pippin.state === 'reading' ? 'Pippin is reading the paper against your work, to note what is worth thinking about'
+            : pippin.state === 'failed' ? `Pippin could not read it: ${pippin.detail}` : `Pippin read it with you: ${pippin.detail}`}>
+            <span className={`rd-live${pippin.state === 'reading' ? ' on' : ''}`} />
+            <span className="rd-faces">{avatar('Pippin', 'Pippin', true)}</span>
+            <span className="rd-sub">{pippin.state === 'reading' ? 'Pippin is reading' : pippin.state === 'failed' ? 'Pippin could not read it' : `Pippin · ${pippin.detail}`}</span>
+          </div>
+        )}
         {reading.length > 0 && (
           <div className="rd-presence" title={reading.map((a) => `${a.name}: ${view.reads[a.name]?.state === 'reading' ? 'reading' : view.reads[a.name]?.state === 'failed' ? `could not read (${view.reads[a.name]?.detail})` : view.reads[a.name]?.detail || 'done'}`).join('\n')}>
             <span className={`rd-live${reading.some((a) => view.reads[a.name]?.state === 'reading') ? ' on' : ''}`} />
@@ -370,8 +405,10 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
                     if (!(inMarginMode && !sideOpen && n && inMargin(n))) setSideOpen(true)
                     if (dimmed.has(id)) setFilter('all')
                   }}
-                  margin={inMarginMode && !sideOpen ? (_i, here, v) => (
-                    <MarginNotes notes={here} top={(n) => (v[3] - Math.max(...n.rects.map((r) => r[3]))) * zoom} focusId={focusId} dimmed={dimmed}
+                  gap={(n) => <GapNote n={n} focus={focusId === n.ann_id} onFocus={() => setFocusId(n.ann_id)} actions={actions} />}
+                  onGapAt={gapAt}
+                  margin={inMarginMode && !sideOpen ? (_i, here, v, at) => (
+                    <MarginNotes notes={here} top={(n) => at((v[3] - Math.max(...n.rects.map((r) => r[3]))) * zoom)} focusId={focusId} dimmed={dimmed}
                       onFocus={focus} onMore={(id) => { setFocusId(id); setSide('notes'); setSideOpen(true) }} actions={actions} />
                   ) : undefined}
                   onPlace={onPlace} onPages={setPages} onPage={setPage} onError={setPdfError} flash={flash} />
@@ -382,17 +419,18 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
                     {n} of your saves argue with this page</button>
                 })()}
                 {clipping && (
-                  <ClipBox text={clipping.text} onCancel={() => setClipping(null)} onSave={async (words) => {
+                  <ClipBox text={clipping.text} onCancel={() => setClipping(null)} onSave={async (words, noteId, noteTitle) => {
                     try {
                       await api.notebook.clip({ paper_id: p.paper_id, paper_title: p.title, space: view.space, quote: clipping.text,
-                        page_index: clipping.place.page_index, rects: clipping.place.rects, words, campaign_id: view.campaign_id || '' })
+                        page_index: clipping.place.page_index, rects: clipping.place.rects, words, campaign_id: view.campaign_id || '',
+                        note_id: noteId || undefined })
                       setClipping(null); loadClips()
-                      say('Clipped into your notebook.')
+                      say(noteId ? `Clipped, and put into ${noteId === 'new' ? 'a new note' : `“${noteTitle || 'Untitled'}”`}, as it is printed.` : 'Clipped into your notebook.')
                     } catch (e) { fail(e) }
                   }} />
                 )}
                 {picked && (
-                  <SelectionMenu picked={picked} onClose={() => setPicked(null)} onHighlight={() => create('highlight')}
+                  <SelectionMenu picked={picked} onClose={() => setPicked(null)} onHighlight={() => create('highlight')} onGap={() => create('gap')}
                     onComment={() => create('comment')} onAsk={(a) => create('ask', a)}
                     onClip={() => { setClipping({ text: picked.text, place: picked.place }); setPicked(null); window.getSelection()?.removeAllRanges() }} />
                 )}
@@ -424,10 +462,12 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
   )
 }
 
-function SelectionMenu({ picked, onClose, onHighlight, onComment, onAsk, onClip }: {
+function SelectionMenu({ picked, onClose, onHighlight, onGap, onComment, onAsk, onClip }: {
   picked: Picked
   onClose: () => void
   onHighlight: () => void
+  /** Open the page under these words and write there. */
+  onGap: () => void
   onComment: () => void
   onAsk: (a: ReaderAgent) => void
   /** Keep the words in the notebook, as they are, with what you make of them. */
@@ -452,6 +492,8 @@ function SelectionMenu({ picked, onClose, onHighlight, onComment, onAsk, onClip 
         <button className="rd-pb" role="menuitem" onClick={onHighlight}><span className="rd-dot c-y" />Highlight</button>
         <button className="rd-pb" role="menuitem" onClick={onComment}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" /></svg>Note</button>
+        <button className="rd-pb" role="menuitem" onClick={onGap} title="Open the page under these words and write there, at any length">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 6h16M4 18h16M12 9v6M9 12h6" /></svg>Write here</button>
         <button className="rd-pb" role="menuitem" onClick={onClip} title="Keep these words in your notebook, with the page, and what you make of them">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M7 4h10v17l-5-3.5L7 21z" /></svg>Clip</button>
         <span className="rd-pop-sep" />
@@ -478,11 +520,25 @@ function NoPdf({ paper, message }: { paper: ReaderView['paper']; message: string
   )
 }
 
-/** Writing a clip: the words as they are, and, if you like, what they mean for you. */
-function ClipBox({ text, onSave, onCancel }: { text: string; onSave: (words: string) => Promise<void>; onCancel: () => void }) {
+const INTO = 'pippin.clip.into'
+
+/** Writing a clip: the words as they are, and, if you like, what they mean for you; and, if you like, the note it
+ *  goes into as a piece of the page, beside pieces of other papers (the note last chosen is chosen again). */
+function ClipBox({ text, onSave, onCancel }: { text: string; onSave: (words: string, noteId: string, noteTitle: string) => Promise<void>; onCancel: () => void }) {
   const [words, setWords] = useState('')
   const [busy, setBusy] = useState(false)
-  const go = async () => { setBusy(true); try { await onSave(words.trim()) } finally { setBusy(false) } }
+  const [notes, setNotes] = useState<{ note_id: string; title: string }[]>([])
+  const [into, setInto] = useState(() => { try { return localStorage.getItem(INTO) ?? '' } catch { return '' } })
+  useEffect(() => { api.notebook.get().then((d) => setNotes(d.notes)).catch(() => {}) }, [])
+  const known = into === '' || into === 'new' || notes.some((n) => n.note_id === into)
+  const go = async () => {
+    setBusy(true)
+    const target = known ? into : ''
+    try {
+      await onSave(words.trim(), target, notes.find((n) => n.note_id === target)?.title ?? '')
+      try { localStorage.setItem(INTO, target === 'new' ? '' : target) } catch { /* a convenience only */ }
+    } finally { setBusy(false) }
+  }
   return (
     <div className="rd-clipbox" role="dialog" aria-label="Clip" onMouseUp={(e) => e.stopPropagation()}>
       <div className="rd-clipbox-q">“{text.length > 280 ? `${text.slice(0, 279)}…` : text}”</div>
@@ -492,7 +548,12 @@ function ClipBox({ text, onSave, onCancel }: { text: string; onSave: (words: str
       <div className="rd-clipbox-row">
         <button className="rd-act keep" disabled={busy} onClick={go}>{busy ? 'Clipping…' : 'Clip'}</button>
         <button className="rd-act" onClick={onCancel}>Cancel</button>
-        <span className="rd-sub">Kept in your notebook, with its page</span>
+        <select className="rd-clip-into" value={known ? into : ''} onChange={(e) => setInto(e.target.value)} aria-label="Also put it into a note"
+          title="The note gets the passage as it is printed, with your words under it">
+          <option value="">Only in your clips</option>
+          <option value="new">Also into a new note</option>
+          {notes.map((n) => <option key={n.note_id} value={n.note_id}>Also into “{n.title || 'Untitled'}”</option>)}
+        </select>
       </div>
     </div>
   )

@@ -7,7 +7,11 @@ export const AGENTS: { name: ReaderAgent; ini: string; cls: string; role: string
   { name: 'Skeptic', ini: 'Sk', cls: 'o', role: 'looks for what would break the idea' },
   { name: 'Methods', ini: 'Me', cls: 'p', role: 'turns it into a test' },
 ]
-const AGENT = Object.fromEntries(AGENTS.map((a) => [a.name, a]))
+/** Pippin reads every paper with you, against your work, and writes notes worth thinking about. */
+export const PIPPIN = { name: 'Pippin' as const, ini: 'Pi', cls: 'g', role: 'reads with you and notes what is worth thinking about' }
+const AGENT: Record<string, { ini: string; cls: string; role: string }> = Object.fromEntries([...AGENTS, PIPPIN].map((a) => [a.name, a]))
+/** What a note of Pippin's is. */
+export const KIND: Record<string, string> = { orient: 'Read it for', question: 'A question for you', connect: 'Meets your work', challenge: 'Worth doubting' }
 
 export function avatar(who: string, name: string, small = false) {
   const a = AGENT[who]
@@ -21,7 +25,7 @@ const STATUS: Record<ReaderNote['status'], string> = {
   error: 'Not in Zotero', draft: 'Not saved yet', shared: 'Shared',
 }
 
-export type Filter = 'all' | 'you' | 'shared' | ReaderAgent
+export type Filter = 'all' | 'you' | 'shared' | ReaderAgent | 'Pippin'
 
 export function inFilter(n: ReaderNote, f: Filter): boolean {
   if (f === 'all') return true
@@ -57,6 +61,7 @@ export function NotesPanel({ view, notes, filter, setFilter, focusId, unplaced, 
   const others = notes.some((n) => !n.mine)
   const filters: { f: Filter; label: string; dot?: string }[] = [
     { f: 'all', label: 'All' }, { f: 'you', label: 'You', dot: 'y' },
+    ...(notes.some((n) => n.author === 'Pippin') ? [{ f: 'Pippin' as Filter, label: 'Pippin', dot: PIPPIN.cls }] : []),
     ...AGENTS.map((a) => ({ f: a.name as Filter, label: a.name, dot: a.cls })),
     ...(others ? [{ f: 'shared' as Filter, label: 'Shared with you' }] : []),
   ]

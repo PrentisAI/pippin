@@ -1,10 +1,12 @@
 /** Writing at length: headings, lists, quotes, code, saved as you type (a second after you stop). A clip can be
- *  put in where the cursor is, as a quote with where it comes from. */
+ *  put in where the cursor is: the piece of the page it was cut from, with your words under it; pieces can be
+ *  moved by their handle and set side by side. */
 import { useEffect, useRef, useState } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import type { NbClip } from '../../types'
+import { PaperPiece, pieceHtml } from './Piece'
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -30,7 +32,7 @@ export function Editor({ html, onSave, placeholder, clips = [], autofocus = fals
   const save = useRef(onSave)
   useEffect(() => { save.current = onSave }, [onSave])
   const editor = useEditor({
-    extensions: [StarterKit, Placeholder.configure({ placeholder })],
+    extensions: [StarterKit, Placeholder.configure({ placeholder }), PaperPiece],
     content: html || '',
     autofocus: autofocus ? 'end' : false,
     onUpdate: ({ editor: ed }) => {
@@ -62,12 +64,12 @@ export function Editor({ html, onSave, placeholder, clips = [], autofocus = fals
         {b('</>', editor.isActive('codeBlock'), () => editor.chain().focus().toggleCodeBlock().run(), 'Code')}
         {clips.length > 0 && (
           <span className="nbe-pick">
-            <button type="button" onMouseDown={(e) => { e.preventDefault(); setPicking(!picking) }} aria-expanded={picking}>Insert a clip</button>
+            <button type="button" onMouseDown={(e) => { e.preventDefault(); setPicking(!picking) }} aria-expanded={picking}>Put in a clip</button>
             {picking && (
               <div className="nbe-menu" role="menu">
                 {clips.slice(0, 30).map((c) => (
                   <button key={c.clip_id} role="menuitem" onMouseDown={(e) => {
-                    e.preventDefault(); setPicking(false); editor.chain().focus().insertContent(clipHtml(c)).run()
+                    e.preventDefault(); setPicking(false); editor.chain().focus().insertContent(c.rects.length ? pieceHtml(c) : clipHtml(c)).run()
                   }}>
                     <span>“{c.quote.length > 90 ? `${c.quote.slice(0, 89)}…` : c.quote}”</span>
                     <span className="lit-sub">{c.paper_title || c.paper_id} · p. {c.page_index + 1}</span>

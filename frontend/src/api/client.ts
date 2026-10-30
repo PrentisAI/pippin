@@ -130,7 +130,7 @@ export const api = {
     clips: (q: { paper?: string; campaign_id?: string; run_id?: string } = {}) =>
       request<NbClip[]>(`/notebook/clips?${new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][])}`),
     clip: (body: { paper_id: string; quote: string; paper_title?: string; space?: string; page_index?: number; rects?: number[][];
-      words?: string; campaign_id?: string; run_id?: string }) => request<NbClip>('/notebook/clips', post(body)),
+      words?: string; campaign_id?: string; run_id?: string; note_id?: string }) => request<NbClip & { note_id?: string }>('/notebook/clips', post(body)),
     changeClip: (id: string, body: { words?: string; campaign_id?: string; run_id?: string }) =>
       request<NbClip>(`/notebook/clips/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     deleteClip: (id: string) => request<void>(`/notebook/clips/${id}`, del),
@@ -450,7 +450,7 @@ export const api = {
       request<PdfProgress>(`/reader/papers/${encodeURIComponent(paper)}/prefetch?space=${encodeURIComponent(space)}`, post()),
     pdfProgress: (paper: string, space: string) =>
       request<PdfProgress>(`/reader/papers/${encodeURIComponent(paper)}/pdf/progress?space=${encodeURIComponent(space)}`),
-    addNote: (paper: string, body: { space: string; card_id?: string; chat_id?: string; text: string; comment?: string; draft?: boolean; ask?: ReaderAgent } & NotePlace) =>
+    addNote: (paper: string, body: { space: string; card_id?: string; chat_id?: string; text: string; comment?: string; draft?: boolean; ask?: ReaderAgent; inline?: boolean } & NotePlace) =>
       request<ReaderNote>(`/reader/papers/${encodeURIComponent(paper)}/notes`, post(body)),
     change: (annId: string, body: { comment?: string; keep?: boolean; shared?: boolean; place?: NotePlace }) =>
       request<ReaderNote>(`/reader/notes/${annId}`, { method: 'PATCH', body: JSON.stringify(body) }),
@@ -459,6 +459,11 @@ export const api = {
     reply: (annId: string, text: string) => request<ReaderNote>(`/reader/notes/${annId}/replies`, post({ text })),
     readAlong: (paper: string, body: { space: string; card_id?: string; chat_id?: string }) =>
       request<{ started: boolean; why?: string }>(`/reader/papers/${encodeURIComponent(paper)}/read-along`, post(body)),
+    /** Pippin reads the paper with you, against your work, and writes notes in it (once per paper and space). */
+    companion: (paper: string, body: { space: string; card_id?: string; chat_id?: string }) =>
+      request<{ started: boolean; why?: string }>(`/reader/papers/${encodeURIComponent(paper)}/companion`, post(body)),
+    /** The figure Pippin made for a passage: a page for a sandboxed frame. */
+    figureUrl: (annId: string) => `${BASE_URL}/reader/notes/${annId}/figure`,
     settings: (agents_mark: boolean) => request<{ agents_mark: boolean }>('/reader/settings', { method: 'PUT', body: JSON.stringify({ agents_mark }) }),
     toZotero: (paper: string, space: string) => request<ReaderView['zotero']>(`/reader/papers/${encodeURIComponent(paper)}/zotero`, post({ space })),
     sync: () => request<{ ok: boolean }>('/reader/sync', post()),
@@ -491,6 +496,8 @@ export const api = {
     ideaToBrainstorm: (id: string) => request<{ card_id: string; links: number }>(`/review/reads/${id}/idea`, post()),
   },
   brainstorm: {
+    /** A figure an agent drew in a conversation: a page for a sandboxed frame. */
+    figureUrl: (figId: string) => `${BASE_URL}/brainstorm/figures/${figId}`,
     spaces: () => request<{ space: string; name: string; project: boolean; can_write: boolean }[]>('/brainstorm/spaces'),
     space: (space: string) => request<BsSpace>(`/brainstorm/spaces/${encodeURIComponent(space)}`),
     newChat: (space: string, title = '') => request<BsChat>(`/brainstorm/spaces/${encodeURIComponent(space)}/chats`, post({ title })),

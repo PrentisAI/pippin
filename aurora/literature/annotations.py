@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 STATES = ("kept", "suggested", "draft")
-AGENT_COLORS = {"Librarian": "#2ea8e5", "Skeptic": "#f19837", "Methods": "#a28ae5"}
+AGENT_COLORS = {"Librarian": "#2ea8e5", "Skeptic": "#f19837", "Methods": "#a28ae5", "Pippin": "#5fb236"}
 OWN_COLOR = "#ffd400"
 RELATIONS = ("supports", "challenges", "asks about", "builds on")
 
@@ -56,6 +56,9 @@ CREATE TABLE IF NOT EXISTS lit_annotations (
     dirty          INTEGER NOT NULL DEFAULT 0,  -- changed since Zotero last had it
     sync_error     TEXT NOT NULL DEFAULT '',
     deleted_at     REAL,                        -- deleted; Zotero is told a little later (Undo until then)
+    inline         INTEGER NOT NULL DEFAULT 0,  -- opens a gap in the page under its words, and is written there
+    kind           TEXT NOT NULL DEFAULT '',    -- Pippin's notes: orient | question | connect | challenge | figure
+    figure         TEXT NOT NULL DEFAULT '',    -- a figure Pippin made for the passage (a whole HTML page)
     created_at     REAL NOT NULL,
     updated_at     REAL NOT NULL
 );
@@ -84,7 +87,10 @@ CREATE TABLE IF NOT EXISTS lit_ann_reads (       -- an agent reading a paper alo
 """
 
 _FIELDS = ("text", "comment", "color", "page_index", "page_label", "rects", "sort_index", "state", "shared",
-           "card_id", "rel", "zotero_lib", "zotero_key", "zotero_version", "dirty", "sync_error", "deleted_at")
+           "card_id", "rel", "zotero_lib", "zotero_key", "zotero_version", "dirty", "sync_error", "deleted_at",
+           "inline", "kind", "figure")
+# columns added after the table was first made: (name, definition)
+_ADDED = (("inline", "INTEGER NOT NULL DEFAULT 0"), ("kind", "TEXT NOT NULL DEFAULT ''"), ("figure", "TEXT NOT NULL DEFAULT ''"))
 
 
 def color_of(author: str) -> str:
@@ -100,6 +106,10 @@ class AnnotationStore:
         self._conn = sqlite3.connect(str(Path(data_dir) / "aurora.db"), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        have = {r[1] for r in self._conn.execute("PRAGMA table_info(lit_annotations)")}
+        for name, definition in _ADDED:
+            if name not in have:
+                self._conn.execute(f"ALTER TABLE lit_annotations ADD COLUMN {name} {definition}")
         self._conn.commit()
         self._lock = threading.RLock()
 
@@ -120,7 +130,7 @@ class AnnotationStore:
     def _row(r: dict[str, Any]) -> dict[str, Any]:
         if "rects" in r:
             r["rects"] = json.loads(r["rects"] or "[]")
-        for k in ("shared", "dirty", "pending"):
+        for k in ("shared", "dirty", "pending", "inline"):
             if k in r:
                 r[k] = bool(r[k])
         return r
@@ -131,16 +141,18 @@ class AnnotationStore:
             comment: str = "", page_index: int = 0, page_label: str = "", rects: list[list[float]] | None = None,
             sort_index: str = "", space: str = "", card_id: str = "", rel: str = "", chat_id: str = "",
             source: str = "aurora", color: str = "", zotero_lib: str = "", zotero_key: str = "",
-            zotero_version: int = 0, shared: bool = False) -> dict[str, Any]:
+            zotero_version: int = 0, shared: bool = False, inline: bool = False, kind: str = "",
+            figure: str = "") -> dict[str, Any]:
         ann_id = "a_" + uuid.uuid4().hex[:12]
         now = time.time()
         self._x("INSERT INTO lit_annotations (ann_id, owner, paper_id, author, state, text, comment, color, page_index, "
                 "page_label, rects, sort_index, space, shared, card_id, rel, chat_id, source, zotero_lib, zotero_key, "
-                "zotero_version, dirty, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (ann_id, owner, paper_id, author, state if state in STATES else "kept", text[:4000], comment[:8000],
+                "zotero_version, dirty, inline, kind, figure, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (ann_id, owner, paper_id, author, state if state in STATES else "kept", text[:4000], comment[:20000],
                  color or color_of(author), int(page_index), page_label, json.dumps(rects or []), sort_index, space,
                  int(shared), card_id, rel if rel in RELATIONS else "", chat_id, source, zotero_lib, zotero_key,
-                 zotero_version, int(state == "kept" and source == "aurora"), now, now))
+                 zotero_version, int(state == "kept" and source == "aurora"), int(inline), kind, figure[:200_000], now, now))
         return self.get(ann_id)  # type: ignore[return-value]
 
     def get(self, ann_id: str) -> dict[str, Any] | None:

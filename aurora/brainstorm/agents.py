@@ -16,6 +16,7 @@ nothing on the board; its protocol and what it keeps are in ``mentor.py``.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -33,6 +34,7 @@ AGENTS: dict[str, dict[str, str]] = {
     "Mentor": {"initials": "MT", "role": "helps you think it through, by asking"},
 }
 ACTIVITY = ("off", "moderate", "high")
+_background: set[asyncio.Task] = set()       # figures being drawn after the turn
 MAX_ROUNDS = 6
 
 _COMMON = """\
@@ -157,6 +159,19 @@ _TOOLS_ALL = [
          "drafts": {"type": "array", "items": {"type": "string"},
                     "description": "two or three drafts, each self-contained, one to four sentences"}},
          "required": ["drafts"]}},
+    {"name": "show_figure", "description": "Draw a small interactive figure under your answer, when trying something "
+                                           "out would make your point much clearer than words: how a quantity changes "
+                                           "with a setting, a trade-off, a toy simulation of the idea, numbers easier "
+                                           "to compare by moving them. Use it rarely, only when it helps the researcher "
+                                           "think, never for what a sentence says as well. It is drawn after your "
+                                           "answer (it takes a minute); do not describe it at length.",
+     "parameters": {"type": "object", "properties": {
+         "about": {"type": "string", "description": "a title of a few words"},
+         "brief": {"type": "string", "description": "what to show, what the researcher can change, what it should "
+                                                    "make visible"},
+         "numbers": {"type": "string", "description": "the real numbers to use and where they come from (a paper's "
+                                                      "key, a run); empty for a toy example"}},
+         "required": ["about", "brief"]}},
     {"name": "set_assessment", "description": "Set the one-sentence assessment of where an idea stands.",
      "parameters": {"type": "object", "properties": {
          "card_id": {"type": "string"}, "text": {"type": "string"}}, "required": ["card_id", "text"]}},
@@ -259,6 +274,8 @@ class BoardTools:
     def __init__(self, board: Board, agent: str, turn: Turn) -> None:
         self.board, self.agent, self.turn = board, agent, turn
         self.known_papers: dict[str, str] = {}      # key -> paper_id the agent saw
+        self.access: ModelAccess | None = None      # for what is made after the turn (a figure)
+        self.figured = False
 
     def _idea(self, card_id: str) -> dict[str, Any]:
         card = next((c for c in self.board.cards if c["card_id"] == card_id), None)
@@ -351,6 +368,8 @@ class BoardTools:
             return await self._review_tool(name, args)
         if name == "draft_versions":
             return self._drafts(args)
+        if name == "show_figure":
+            return self._figure(args)
         if name == "set_assessment":
             idea = self._idea(str(args.get("card_id")))
             bs_store.update_card(idea["card_id"], stand=str(args.get("text", ""))[:600])
@@ -395,6 +414,41 @@ class BoardTools:
         self.turn.step("Writing drafts")
         return {"ok": True, "note": "The drafts are in the conversation; the researcher edits, takes one, or asks for "
                                     "another round. Do not repeat them in your answer."}
+
+    def _figure(self, args: dict[str, Any]) -> Any:
+        """A figure under the answer: posted now as being drawn, drawn in the background (it takes a minute)."""
+        about = " ".join(str(args.get("about", "")).split())[:200]
+        brief = str(args.get("brief", "")).strip()[:3000]
+        if not brief:
+            return {"error": "say what the figure shows and what can be changed"}
+        if self.figured:
+            return {"error": "one figure per answer"}
+        if self.access is None or not self.access.api_key:
+            return {"error": "no model to draw with"}
+        self.figured = True
+        b, access = self.board, self.access
+        msg = bs_store.add_message(b.chat["chat_id"], self.agent, about or "A figure", kind="action",
+                                   widget={"type": "figure", "state": "drawing", "about": about})
+
+        async def go() -> None:
+            from aurora.figures import draw, figures
+            try:
+                html = await draw(access, about=about, brief=brief, numbers=str(args.get("numbers", ""))[:3000])
+            except Exception:
+                logger.info("drawing a figure failed", exc_info=True)
+                html = ""
+            if html:
+                fig = figures.add(b.viewer, html, space=b.space, chat_id=b.chat["chat_id"], about=about)
+                w = {"type": "figure", "state": "ready", "about": about, "fig_id": fig["fig_id"]}
+            else:
+                w = {"type": "figure", "state": "failed", "about": about}
+            bs_store.update_message(msg["msg_id"], widget=w)
+
+        task = asyncio.create_task(go())
+        _background.add(task)
+        task.add_done_callback(_background.discard)
+        self.turn.step("Drawing a figure")
+        return {"ok": True, "note": "It is being drawn under your answer. Say in a few words what to try in it."}
 
     async def _review_tool(self, name: str, args: dict[str, Any]) -> Any:
         """Zoom out and zoom in from the conversation: proposals the researcher starts, revisions of the map."""
@@ -499,14 +553,14 @@ class BoardTools:
 ROLE_TOOLS = {
     # every agent may write down the researcher's idea when it is not on the board yet
     "Skeptic": {"add_question", "add_evidence", "add_idea", "set_assessment", "read_paper", "annotate", "revise_map",
-                "draft_versions", "search_memory"},
+                "draft_versions", "search_memory", "show_figure"},
     "Methods": {"add_next_step", "add_question", "add_idea", "set_assessment", "read_paper", "annotate", "revise_map",
-                "draft_versions"},
+                "draft_versions", "show_figure"},
     "Librarian": {"search_papers", "add_evidence", "add_question", "add_idea", "read_paper", "annotate", "map_field",
-                  "deep_read", "revise_map", "draft_versions", "search_memory"},
+                  "deep_read", "revise_map", "draft_versions", "search_memory", "show_figure"},
     # a counterpoint, a piece of knowledge or an analogy from the literature, checked in the paper itself when the
-    # abstract does not say; drafts only when asked, visibly
-    "Mentor": {"search_papers", "read_paper", "draft_versions"},
+    # abstract does not say; drafts only when asked, visibly; a figure to try something out
+    "Mentor": {"search_papers", "read_paper", "draft_versions", "show_figure"},
 }
 
 
@@ -553,6 +607,7 @@ async def answer(agent: str, board: Board, history: list[dict[str, Any]], questi
     msg = bs_store.add_message(board.chat["chat_id"], agent, "", steps=["Thinking"], pending=True)
     turn = Turn(msg["msg_id"], steps=["Thinking"])
     tools = BoardTools(board, agent, turn)
+    tools.access = access
     if not access.api_key:
         bs_store.update_message(msg["msg_id"], text=f"No API key is set: {access.missing}", pending=False)
         return bs_store.message(msg["msg_id"])  # type: ignore[return-value]

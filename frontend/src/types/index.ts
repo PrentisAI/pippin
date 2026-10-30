@@ -1186,8 +1186,8 @@ export interface ReaderReply {
 export interface ReaderNote {
   ann_id: string
   paper_id: string
-  /** '' : the person; else the agent who wrote it. */
-  author: '' | ReaderAgent
+  /** '' : the person; else the agent who wrote it (Pippin: its notes on reading the paper with you). */
+  author: '' | ReaderAgent | 'Pippin'
   mine: boolean
   owner_name: string
   author_name: string
@@ -1204,6 +1204,12 @@ export interface ReaderNote {
   space: string
   card_id: string
   rel: '' | 'supports' | 'challenges' | 'asks about' | 'builds on'
+  /** Written in a gap opened in the page under its words, rather than in the margin. */
+  inline: boolean
+  /** Pippin's notes: what kind of note it is. */
+  kind: '' | 'orient' | 'question' | 'connect' | 'challenge'
+  /** Pippin made a figure to try the passage out (shown in a gap under it). */
+  figure: boolean
   idea_text: string
   source: 'aurora' | 'zotero'
   status: 'suggested' | 'draft' | 'synced' | 'saving' | 'local' | 'error' | 'shared'
@@ -1224,6 +1230,8 @@ export interface ReaderView {
   /** What the agents read for: an idea, or (none written down yet) the conversation's own words. */
   idea: { card_id: string; text: string; kind?: 'idea' | 'conversation' } | null
   reads: Partial<Record<ReaderAgent, { state: 'reading' | 'done' | 'failed'; detail: string }>>
+  /** Pippin reading the paper against your work (once per paper and space). */
+  companion: { state: 'reading' | 'done' | 'failed'; detail: string } | null
   agents_mark: boolean
   can_share: boolean
   zotero: {
@@ -1397,6 +1405,8 @@ export type MsgWidget =
       state: 'waiting' | 'taken' | 'superseded' | 'answered'; taken?: number; origin?: 'you' | 'ai' | 'edited'; share?: number; text?: string; action?: string }
   | { type: 'choice'; versions: string[]; card_id: string; state: 'waiting' | 'chosen' | 'superseded'; chosen?: number }
   | { type: 'question'; kind: 'summary' | 'candidates'; state: 'waiting' | 'confirmed' | 'superseded'; version: number; rq: ResearchQuestion; card_id?: string }
+  /** A figure an agent drew to try something out: being drawn, then shown (``fig_id``). */
+  | { type: 'figure'; state: 'drawing' | 'ready' | 'failed'; about: string; fig_id?: string }
 
 // ---------------------------------------------------------------------------
 // The shared notebook

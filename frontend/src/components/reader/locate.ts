@@ -125,3 +125,32 @@ export async function textOffset(page: PDFPageProxy, quote: string): Promise<num
   const a = t.at[i]
   return t.offsets[a.item] + a.char
 }
+
+/** A line of a page: its words, where they are (PDF points), and its bottom (where a gap under it opens). */
+export interface Line { text: string; rect: Rect; y: number; offset: number }
+
+const linesCache = new WeakMap<PDFPageProxy, Promise<Line[]>>()
+
+/** The page's lines of text, top to bottom. */
+export function pageLines(page: PDFPageProxy): Promise<Line[]> {
+  let p = linesCache.get(page)
+  if (!p) {
+    p = folded(page).then((t) => {
+      const lines: Line[] = []
+      t.items.forEach((it, i) => {
+        if (!it.str.trim()) return
+        const r = itemRect(it, 0, Math.max(1, Array.from(it.str).length))
+        const h = r[3] - r[1]
+        const same = lines.find((l) => Math.abs(l.rect[1] - r[1]) < h * 0.5 && Math.abs(l.rect[3] - r[3]) < h * 0.5)
+        if (same) {
+          same.text += (r[0] > same.rect[2] ? ' ' : '') + it.str
+          same.rect = [Math.min(same.rect[0], r[0]), Math.min(same.rect[1], r[1]), Math.max(same.rect[2], r[2]), Math.max(same.rect[3], r[3])]
+          same.y = same.rect[1]
+        } else lines.push({ text: it.str, rect: r, y: r[1], offset: t.offsets[i] })
+      })
+      return lines.filter((l) => l.text.trim().length > 1).sort((a, b) => b.rect[3] - a.rect[3])
+    })
+    linesCache.set(page, p)
+  }
+  return p
+}

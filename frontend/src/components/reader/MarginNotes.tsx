@@ -4,7 +4,7 @@
  *  on the page only. */
 import { useState } from 'react'
 import type { ReaderNote } from '../../types'
-import { avatar } from './NotesPanel'
+import { KIND, avatar } from './NotesPanel'
 
 const REL: Record<string, string> = { supports: 'Supports', challenges: 'Challenges', 'asks about': 'Asks about', 'builds on': 'Builds on' }
 // room a note takes before the next one may start (px); the one in focus opens over those under it
@@ -20,7 +20,7 @@ export interface MarginActions {
 
 /** Whether a note has something to say in the margin. */
 export function inMargin(n: ReaderNote): boolean {
-  return n.rects.length > 0 && (!!n.comment.trim() || n.state === 'draft' || !!n.author)
+  return n.rects.length > 0 && !n.inline && (!!n.comment.trim() || n.state === 'draft' || !!n.author)
 }
 
 export function MarginNotes({ notes, top, focusId, dimmed, onFocus, onMore, actions }: {
@@ -60,7 +60,7 @@ function MarginNote({ n, y, focus, dim, onFocus, onMore, actions }: {
     <aside className={`rd-mn${focus || draft ? ' focus' : ''}${dim ? ' dim' : ''}${sug ? ' sug' : ''}`} style={{ top: y, ['--mn' as string]: n.color }}
       onMouseUp={(e) => e.stopPropagation()} onClick={() => { if (!focus) onFocus() }}>
       <div className="rd-mn-who">{avatar(n.author, n.author_name || n.owner_name, true)}<span>{who}</span>
-        {n.rel && <span className="rd-mn-rel">{REL[n.rel] ?? n.rel}</span>}
+        {n.kind ? <span className="rd-mn-rel">{KIND[n.kind] ?? ''}</span> : n.rel && <span className="rd-mn-rel">{REL[n.rel] ?? n.rel}</span>}
         {n.replies.length > 0 && <span className="rd-mn-n">{n.replies.length} repl{n.replies.length === 1 ? 'y' : 'ies'}</span>}
       </div>
       {draft ? (

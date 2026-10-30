@@ -522,6 +522,25 @@ async def new_chat(space: str, body: NewChat) -> dict[str, Any]:
 # Conversations
 
 
+@router.get("/figures/{fig_id}")
+async def get_figure(fig_id: str) -> Any:
+    """A figure an agent drew in a conversation you can see: a page for a sandboxed frame, allowed only its own script."""
+    from fastapi.responses import HTMLResponse
+
+    from aurora.figures import TELL, figures
+    f = figures.get(fig_id)
+    if f is None:
+        raise HTTPException(404, "No such figure")
+    if f["chat_id"]:
+        _chat(f["chat_id"])
+    elif f["owner"] != _uid():
+        raise HTTPException(404, "No such figure")
+    return HTMLResponse(f["html"] + TELL, headers={
+        "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+                                   "img-src data: blob:; font-src data:; sandbox allow-scripts",
+        "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
+
+
 @router.get("/chats/{chat_id}")
 async def get_chat(chat_id: str) -> dict[str, Any]:
     ch, _ = _chat(chat_id)

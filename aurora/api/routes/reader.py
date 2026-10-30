@@ -7,6 +7,9 @@
 * notes: create, change (keep an agent's suggestion, share with the project, place it on the page),
   delete (with Undo for a few seconds), reply (``@Skeptic`` and the agent answers);
 * ``POST /api/reader/papers/{paper}/read-along``: the agents read the paper for the idea and mark passages;
+* ``POST /api/reader/papers/{paper}/companion``: Pippin reads the paper against your work and writes notes worth
+  thinking about, with a figure to play with where trying beats reading (see :mod:`aurora.literature.companion`);
+* ``GET  /api/reader/notes/{note}/figure``: that figure, as a page for a sandboxed frame;
 * ``POST /api/reader/papers/{paper}/zotero``: put the paper and its PDF into your Zotero.
 
 Notes are private to the person who made them; a note shared with a project is seen by its members.
@@ -21,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 from aurora.auth.guard import current_user, require, rights, visible
@@ -178,6 +181,7 @@ def _note_view(a: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
         "state": a["state"], "text": a["text"], "comment": a["comment"], "color": a["color"],
         "page_index": a["page_index"], "page_label": a["page_label"], "rects": a["rects"], "sort_index": a["sort_index"],
         "shared": a["shared"], "space": a["space"], "card_id": a["card_id"], "rel": a["rel"],
+        "inline": bool(a.get("inline")), "kind": a.get("kind") or "", "figure": bool(a.get("figure")),
         "idea_text": card["text"] if card else "", "source": a["source"], "status": status, "why": why,
         "created_at": a["created_at"], "updated_at": a["updated_at"],
         "replies": [{**r, "who_name": _name(r["who"]), "agent": r["who"] in AGENT_COLORS} for r in a.get("replies", [])],
@@ -192,6 +196,7 @@ def _view(entry: dict[str, Any], space: str, campaign_id: str, idea: dict[str, A
     target = notes_target(uid, pid)
     notes = [_note_view(a, target) for a in annotations.for_paper(pid, uid, space)]
     reads = annotations.reads(uid, pid, space, idea["card_id"]) if idea else {}
+    companion = annotations.reads(uid, pid, space, COMPANION).get("Pippin")
     pdf = _pdf(pid, campaign_id)
     link = zotero_store.link(uid)
     return {
@@ -200,6 +205,7 @@ def _view(entry: dict[str, Any], space: str, campaign_id: str, idea: dict[str, A
         "notes": notes,
         "idea": {"card_id": idea["card_id"], "text": idea["text"], "kind": idea.get("kind", "idea")} if idea else None,
         "reads": {a: {"state": r["state"], "detail": r["detail"]} for a, r in reads.items()},
+        "companion": {"state": companion["state"], "detail": companion["detail"]} if companion else None,
         "agents_mark": bool(auth_store.get_pref(uid, "reader_agents_mark", True)),
         "can_share": bool(campaign_id) and "comment" in rights(current_user(), campaign_id),
         "zotero": {**target, "connected": link is not None,
@@ -367,6 +373,84 @@ async def read_along(ident: str, body: ReadAlong) -> dict[str, Any]:
     return {"started": True}
 
 
+# Pippin reads every paper once per space, against what the researcher is working on (not for one idea)
+COMPANION = "pippin"
+
+
+class Companion(BaseModel):
+    space: str = ""
+    card_id: str = ""
+    chat_id: str = ""
+
+
+@router.post("/papers/{ident}/companion")
+async def companion_read(ident: str, body: Companion) -> dict[str, Any]:
+    """Pippin reads the paper with you and writes notes in its margin (once per paper and space)."""
+    from aurora.auth.store import auth_store
+    from aurora.literature import companion
+    entry = _paper(ident)
+    key, cid = _space(body.space)
+    uid, pid = _uid(), entry["paper_id"]
+    if not auth_store.get_pref(uid, "reader_agents_mark", True):
+        return {"started": False, "why": "The agents mark passages only when you ask"}
+    if annotations.reads(uid, pid, key, COMPANION):
+        return {"started": False, "why": "Pippin has read it here"}
+    pdf = _pdf(pid, cid) or await reading.fetch_open_pdf(pid)
+    if pdf is None:
+        return {"started": False, "why": "There is no PDF to read"}
+    access = _access(cid)
+    if not access.api_key:
+        return {"started": False, "why": f"No API key is set: {access.missing}"}
+    idea = _read_for(key, body.card_id, body.chat_id)
+    annotations.set_read(uid, pid, key, COMPANION, "Pippin", "reading")
+
+    async def go() -> None:
+        try:
+            pages = reading.page_texts(pdf)
+            if not any(p.strip() for p in pages):
+                annotations.set_read(uid, pid, key, COMPANION, "Pippin", "failed", "The PDF has no text to read")
+                return
+            context = companion.context_of(uid, cid, idea["text"] if idea else "")
+            already = [a["text"] for a in annotations.for_paper(pid, uid, key)]
+            notes = await companion.read(key=entry["key"], title=entry["paper"].title, pages=pages, context=context,
+                                         access=access, already=already)
+            for n in notes:
+                a = annotations.add(uid, pid, author="Pippin", state="suggested", text=n["quote"], comment=n["note"],
+                                    page_index=n["page_index"], page_label=str(n["page_index"] + 1), space=key,
+                                    rel=n["rel"], kind=n["kind"], chat_id=idea["chat_id"] if idea else "")
+                if n["figure_brief"]:
+                    try:
+                        html = await companion.figure(key=entry["key"], title=entry["paper"].title, quote=n["quote"],
+                                                      page_index=n["page_index"], page_text=pages[n["page_index"]],
+                                                      brief=n["figure_brief"], access=access)
+                    except Exception:
+                        logger.info("Pippin's figure for %s failed", pid, exc_info=True)
+                        html = ""
+                    if html:
+                        annotations.update(a["ann_id"], touch=False, figure=html, inline=True)
+            annotations.set_read(uid, pid, key, COMPANION, "Pippin", "done",
+                                 f"{len(notes)} note{'s' if len(notes) != 1 else ''}")
+        except Exception as exc:
+            logger.warning("Pippin reading %s failed", pid, exc_info=True)
+            annotations.set_read(uid, pid, key, COMPANION, "Pippin", "failed", str(exc)[:200])
+
+    _spawn(go())
+    return {"started": True}
+
+
+@router.get("/notes/{ann_id}/figure")
+async def note_figure(ann_id: str) -> HTMLResponse:
+    """The figure Pippin made for a passage: a page shown in a sandboxed frame, allowed nothing but its own script."""
+    a, _ = _seen(ann_id)
+    if not a.get("figure"):
+        raise HTTPException(404, "This note has no figure")
+    from aurora.figures import TELL           # the frame's height follows the figure's
+    return HTMLResponse(a["figure"] + TELL, headers={
+        "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+                                   "img-src data: blob:; font-src data:; sandbox allow-scripts",
+        "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
+
+
 # ---------------------------------------------------------------------------
 # Notes
 
@@ -383,6 +467,7 @@ class NewNote(BaseModel):
     sort_index: str = ""
     draft: bool = False
     ask: str = ""            # an agent to ask about the passage
+    inline: bool = False     # open a gap in the page under the words, and write the note there
 
 
 def _mentioned(text: str) -> list[str]:
@@ -404,7 +489,7 @@ async def add_note(ident: str, body: NewNote) -> dict[str, Any]:
     a = annotations.add(_uid(), entry["paper_id"], state="draft" if body.draft else "kept", text=" ".join(body.text.split()),
                         comment=comment, page_index=body.page_index, page_label=body.page_label, rects=body.rects,
                         sort_index=body.sort_index, space=key, card_id=idea["card_id"] if idea else "",
-                        chat_id=body.chat_id)
+                        chat_id=body.chat_id, inline=body.inline)
     if not body.draft:
         for agent in dict.fromkeys([body.ask] if body.ask else _mentioned(comment)):
             _ask(a["ann_id"], agent, cid)

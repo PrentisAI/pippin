@@ -142,7 +142,8 @@ async def talk(agent: str, *, key: str, title: str, passage: str, page_index: in
     """An agent's answer in the conversation on a passage. ``thread``: (speaker, text), the latest last."""
     if not access.api_key:
         return f"No API key is set: {access.missing}"
-    system = _TALK.format(name=agent, role=ag.AGENTS[agent]["role"], key=key, title=title, page=page_index + 1,
+    role = ag.AGENTS[agent]["role"] if agent in ag.AGENTS else "read the paper with the researcher and point out what is worth thinking about"
+    system = _TALK.format(name=agent, role=role, key=key, title=title, page=page_index + 1,
                           passage=passage, around=_around(page_text, passage) or "(the page has no text layer)",
                           idea=f"The researcher's idea: {idea}\n\n" if idea else "")
     messages: list[dict[str, Any]] = [{"role": "system", "content": system}]

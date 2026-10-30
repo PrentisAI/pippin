@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any
 
@@ -102,6 +103,16 @@ class NewClip(BaseModel):
     words: str = ""
     campaign_id: str = ""
     run_id: str = ""
+    note_id: str = ""        # also put it into this note of yours ("new": a new note), at its end
+
+
+def piece_html(c: dict[str, Any]) -> str:
+    """A clip as it goes into a note: the piece of its page (drawn by the editor) with the clipper's words, then room to write."""
+    from html import escape
+    attrs = {"paper": c["paper_id"], "space": c["space"] or "global", "page": str(c["page_index"]),
+             "rects": json.dumps(c["rects"]), "quote": c["quote"], "title": c["paper_title"] or c["paper_id"],
+             "words": c["words"]}
+    return '<div data-piece="" ' + " ".join(f'data-{k}="{escape(v, quote=True)}"' for k, v in attrs.items()) + "></div><p></p>"
 
 
 def _for(campaign_id: str) -> None:
@@ -126,6 +137,14 @@ async def add_clip(body: NewClip) -> dict[str, Any]:
     c = nb_store.add_clip(_me(), paper_id=body.paper_id, quote=body.quote.strip()[:6000], paper_title=body.paper_title[:300],
                           space=body.space, page_index=body.page_index, rects=body.rects[:200], words=body.words.strip()[:6000],
                           campaign_id=body.campaign_id, run_id=body.run_id)
+    if body.note_id:
+        n = (nb_store.add_note(_me(), title=f"From {c['paper_title'] or c['paper_id']}"[:200]) if body.note_id == "new"
+             else nb_store.note(body.note_id))
+        if n is None or n["owner"] != _me():
+            raise HTTPException(404, "No such note")
+        nb_store.save_note(n["note_id"], html=(n["html"] or "") + piece_html(c),
+                           text=((n["text"] or "") + f"\n“{c['quote']}”\n{c['words']}").strip())
+        c = {**c, "note_id": n["note_id"]}
     try:
         from aurora.api.routes.memory import _access
         from aurora.memory import ingest
