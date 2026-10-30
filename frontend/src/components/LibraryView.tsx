@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, describeError } from '../api/client'
-import type { FeedItem, FeedKind, FeedView, LibraryView as Library, LitCheck, LitSearch } from '../types'
+import type { FeedItem, FeedKind, FeedView, Following, LibraryView as Library, LitCheck, LitSearch } from '../types'
 import { ago, askFrontDesk, initialsOf, useToast } from './feed/common'
 import { FeedCard, type FeedActions } from './feed/FeedCard'
 import { FollowingView } from './feed/FollowingView'
@@ -16,7 +16,7 @@ const SOURCE_ORDER = ['arxiv', 'openalex', 's2', 'hf', 'bluesky', 'mastodon', 'r
 
 /** The Library: today's feed, picked for your projects; what you saved; searching the indexes. */
 export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: string) => void }) {
-  const [sub, setSub] = useState<null | 'following' | { person: string }>(null)
+  const [sub, setSub] = useState<null | 'following' | { person: string } | { find: string }>(null)
   const [tab, setTab] = useState<'feed' | 'saved' | 'search' | 'refs'>('feed')
   const [feed, setFeed] = useState<FeedView | null>(null)
   const [lib, setLib] = useState<Library | null>(null)
@@ -30,7 +30,11 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
   const [triage, setTriage] = useState(false)
   const [, toast, toastNode] = useToast()
 
-  const loadFeed = useCallback(() => { api.feed.get().then(setFeed).catch((e) => setError(describeError(e))) }, [])
+  const [following, setFollowing] = useState<Following | null>(null)
+  const loadFeed = useCallback(() => {
+    api.feed.get().then(setFeed).catch((e) => setError(describeError(e)))
+    api.feed.following().then(setFollowing).catch(() => {})
+  }, [])
   const loadSaved = useCallback(() => {
     api.library.get().then(setLib).catch((e) => setError(describeError(e)))
     api.feed.saved().then((r) => setSaved(r.items)).catch(() => {})
@@ -81,10 +85,11 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
     onPerson: (pid) => setSub({ person: pid }),
   }
 
-  if (sub === 'following') {
-    return <FollowingView onBack={() => { setSub(null); loadFeed() }} onPerson={(pid) => setSub({ person: pid })} />
+  if (sub === 'following' || (sub && 'find' in sub)) {
+    return <FollowingView onBack={() => { setSub(null); loadFeed() }} onPerson={(pid) => setSub({ person: pid })}
+      find={sub !== 'following' ? sub.find : ''} />
   }
-  if (sub && typeof sub === 'object') {
+  if (sub && 'person' in sub) {
     return <ScholarView personId={sub.person} onBack={() => { setSub(null); loadFeed() }} onFollowing={() => setSub('following')}
       onOpenProject={onOpenProject} />
   }
@@ -112,7 +117,6 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
       <div className="lib-head">
         <h1>Library</h1>
         <div className="bs-row">
-          <button className="btn-sm lit-btn" onClick={() => setSub('following')}>Sources and people</button>
           <button className="btn-sm lit-btn" onClick={() => setAdding(true)}>Add a paper</button>
           <button className="btn-sm lit-btn" onClick={() => setZotero(true)}>Zotero</button>
         </div>
@@ -137,6 +141,15 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
                 <b>Today, {today} · picked for your projects</b>
                 <span className="fd-mono">{feed?.refreshing ? 'gathering…' : `${shown.length} shown`}</span>
               </div>
+              <FeedFollows f={following} onChange={() => setSub('following')} onFind={(q) => setSub({ find: q })}
+                onTopic={(t) => act(async () => {
+                  const f = following
+                  if (!f) return
+                  const arxiv = /^[a-z-]+\.[A-Za-z-]+$/.test(t)
+                  setFollowing(await api.feed.settings(arxiv ? { topics: [...f.topics, t] } : { keywords: [...f.keywords, t] }))
+                  toast({ text: `Following “${t}”. What is new on it comes into the feed at the next look.`, action: ['Look now', () => act(async () => { await api.feed.refresh(); loadFeed() })] })
+                })}
+                onFeed={(url) => act(async () => { setFollowing(await api.feed.addRss(url)); toast({ text: 'Following the feed.' }) })} />
               {(() => {
                 const fresh = items.filter((x) => x.kind === 'paper' && !x.saved).length
                 return fresh > 0 && <button className="tr-open" onClick={() => setTriage(true)}>
@@ -372,5 +385,48 @@ function AddToLibrary({ onClose, onAdded }: { onClose: () => void; onAdded: () =
         </div>
       </form>
     </div>
+  )
+}
+
+/** What the feed follows, in a line at its top, with a box to follow more: what comes in depends on it. */
+function FeedFollows({ f, onChange, onFind, onTopic, onFeed }: {
+  f: Following | null
+  onChange: () => void
+  onFind: (who: string) => void
+  onTopic: (topic: string) => void
+  onFeed: (url: string) => void
+}) {
+  const [q, setQ] = useState('')
+  if (!f) return null
+  const v = q.trim()
+  const url = /^https?:\/\//.test(v)
+  const parts = [
+    f.people.length ? `${f.people.length} ${f.people.length === 1 ? 'person' : 'people'}` : '',
+    f.topics.length + f.keywords.length ? `${f.topics.length + f.keywords.length} topic${f.topics.length + f.keywords.length === 1 ? '' : 's'}` : '',
+    f.from_objectives ? 'your projects’ objectives' : '',
+    [f.hf ? 'HF Daily Papers' : '', f.rss.length ? `${f.rss.length} feed${f.rss.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and '),
+  ].filter(Boolean)
+  const go = (what: 'person' | 'topic') => {
+    if (!v) return
+    setQ('')
+    if (url) onFeed(v); else if (what === 'person') onFind(v); else onTopic(v)
+  }
+  return (
+    <section className="fd-follows" aria-label="What your feed follows">
+      <div className="fd-follows-line">
+        <span><b>Your feed follows</b> {parts.length ? parts.join(', ') : 'nothing yet'}.
+          {' '}What comes in below is picked from them.</span>
+        <button className="link-btn" onClick={onChange}>See and change all</button>
+      </div>
+      <form className="fd-follows-add" onSubmit={(e) => { e.preventDefault(); go('person') }}>
+        <input className="fd-input" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Follow a person, a topic or a feed"
+          placeholder="Follow someone (a name, ORCID or profile link), a topic, or a blog’s feed" />
+        {url ? <button className="btn-sm btn-approve" disabled={!v}>Follow this feed</button> : <>
+          <button className="btn-sm btn-approve" disabled={!v} title="Their papers, posts, blog and what others say about their work">Find this person</button>
+          <button type="button" className="btn-sm lit-btn" disabled={!v} onClick={() => go('topic')}
+            title="Words or an arXiv category (cs.CL): new work on it, ranked against your projects">Follow as a topic</button>
+        </>}
+      </form>
+    </section>
   )
 }

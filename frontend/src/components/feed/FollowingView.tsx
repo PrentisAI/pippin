@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, describeError } from '../../api/client'
 import type { FeedIdentity, FeedPerson, Following, PersonCandidate } from '../../types'
 import { ago, IdChip, PlacesToOpen, splitIds, useToast } from './common'
@@ -7,7 +7,12 @@ const WANTS: [keyof FeedPerson['wants'], string][] = [['papers', 'Papers'], ['po
 const CATEGORY = /^[a-z-]+\.[A-Za-z-]+$|^(hep-th|hep-ph|hep-ex|hep-lat|gr-qc|quant-ph|nucl-th|nucl-ex|math-ph)$/
 
 /** The people and sources the feed follows, and the daily digest. */
-export function FollowingView({ onBack, onPerson }: { onBack: () => void; onPerson: (personId: string) => void }) {
+export function FollowingView({ onBack, onPerson, find = '' }: {
+  onBack: () => void
+  onPerson: (personId: string) => void
+  /** Someone to look for straight away (typed into the feed's Follow box). */
+  find?: string
+}) {
   const [f, setF] = useState<Following | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [, toast, toastNode] = useToast()
@@ -63,7 +68,7 @@ export function FollowingView({ onBack, onPerson }: { onBack: () => void; onPers
                 </div>
               </div>
             ))}
-            <FollowSomeone xKey={f.x_key} onFollowed={(p) => { load(); toast({ text: `Following ${p.name}. Their new work shows up in the feed as it comes in.` }) }} />
+            <FollowSomeone xKey={f.x_key} find={find} onFollowed={(p) => { load(); toast({ text: `Following ${p.name}. Their new work shows up in the feed as it comes in.` }) }} />
           </section>
         </div>
 
@@ -210,9 +215,10 @@ function SearchSteps({ steps }: { steps: string[] }) {
 }
 
 /** Find a person, tell namesakes apart, and choose which of their places to follow. */
-function FollowSomeone({ xKey, onFollowed }: { xKey: boolean; onFollowed: (p: FeedPerson) => void }) {
+function FollowSomeone({ xKey, find: first = '', onFollowed }: { xKey: boolean; find?: string; onFollowed: (p: FeedPerson) => void }) {
   const [step, setStep] = useState(0)
-  const [q, setQ] = useState('')
+  const [q, setQ] = useState(first)
+  const box = useRef<HTMLDivElement>(null)
   const [cands, setCands] = useState<PersonCandidate[]>([])
   const [pick, setPick] = useState(0)
   const [ids, setIds] = useState<FeedIdentity[]>([])
@@ -224,17 +230,26 @@ function FollowSomeone({ xKey, onFollowed }: { xKey: boolean; onFollowed: (p: Fe
     setError(null)
     try { await fn() } catch (e) { setError(describeError(e)) } finally { setBusy(false) }
   }
-  const find = (e: React.FormEvent) => {
-    e.preventDefault()
+  const search = (who: string) => {
     setSteps([])
     run(async () => {
-      const r = await api.feed.findStream(q.trim(), (s) => setSteps((all) => [...all, s]))
-      if (!r.candidates.length) { setError(`Nobody found for “${q.trim()}”. Try their profile link or ORCID.`); return }
+      const r = await api.feed.findStream(who, (s) => setSteps((all) => [...all, s]))
+      if (!r.candidates.length) { setError(`Nobody found for “${who}”. Try their profile link or ORCID.`); return }
       setCands(r.candidates)
       setPick(0)
       if (r.candidates.length === 1) await places(r.candidates[0]); else setStep(1)
     })
   }
+  const find = (e: React.FormEvent) => { e.preventDefault(); search(q.trim()) }
+  // asked for from the feed: look for them straight away, here in view
+  const asked = useRef(false)
+  useEffect(() => {
+    if (!first.trim() || asked.current) return
+    asked.current = true
+    box.current?.scrollIntoView({ block: 'center' })
+    search(first.trim())
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [first])
   const places = async (c: PersonCandidate) => {
     const r = await api.feed.identities(c)
     setIds(r.ids)
@@ -243,7 +258,7 @@ function FollowSomeone({ xKey, onFollowed }: { xKey: boolean; onFollowed: (p: Fe
   const cand = cands[pick]
   const name = cand?.name || q
   return (
-    <div className="fd-follow">
+    <div className="fd-follow" ref={box}>
       <h3>Follow someone</h3>
       {step === 0 && (
         <form className="bs-row" onSubmit={find}>

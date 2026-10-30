@@ -4514,3 +4514,11 @@ button.context-tab { font: inherit; font-size: 13px; font-weight: 500; cursor: p
   background: transparent; padding: 7px 10px 8px; font-family: var(--font-read); font-size: 15px; line-height: 1.55; color: var(--fg); }
 .nbp-words:focus { outline: none; }
 .nbp-words::placeholder { color: var(--fg-dim); }
+
+/* ── The feed: what it follows, at its top ── */
+.fd-follows { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; margin: 0 0 14px; border-radius: 12px;
+  background: var(--bg-raised); box-shadow: 0 0 0 1px var(--border-subtle); }
+.fd-follows-line { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; justify-content: space-between; font-size: 14px; color: var(--fg-muted); }
+.fd-follows-line b { color: var(--fg); font-weight: 600; }
+.fd-follows-add { display: flex; gap: 8px; flex-wrap: wrap; }
+.fd-follows-add .fd-input { flex: 1; min-width: 240px; }
