@@ -77,6 +77,18 @@ def _pdf(paper_id: str, campaign_id: str) -> Path | None:
     return reading.find_pdf(paper_id, _uid(), campaign_id, _projects())
 
 
+async def _texts(entry: dict[str, Any], campaign_id: str) -> list[str] | None:
+    """What the agents read of it: a paper's PDF page by page (its open copy fetched the first time), or a page's
+    snapshot (taken now if it has none); None when there is nothing to read."""
+    if entry["paper"].is_page:
+        from aurora.literature import pages
+        if not pages.texts(entry["paper_id"]):
+            await pages.fill(entry["paper_id"])
+        return pages.texts(entry["paper_id"]) or None
+    pdf = _pdf(entry["paper_id"], campaign_id) or await reading.fetch_open_pdf(entry["paper_id"])
+    return reading.page_texts(pdf) if pdf else None
+
+
 def _name(user_id: str) -> str:
     if user_id in AGENT_COLORS:
         return user_id
@@ -197,11 +209,13 @@ def _view(entry: dict[str, Any], space: str, campaign_id: str, idea: dict[str, A
     notes = [_note_view(a, target) for a in annotations.for_paper(pid, uid, space)]
     reads = annotations.reads(uid, pid, space, idea["card_id"]) if idea else {}
     companion = annotations.reads(uid, pid, space, COMPANION).get("Pippin")
-    pdf = _pdf(pid, campaign_id)
+    page = entry["paper"].is_page
+    pdf = None if page else _pdf(pid, campaign_id)
     link = zotero_store.link(uid)
     return {
         "paper": paper_view(entry), "space": space, "campaign_id": campaign_id,
-        "pdf": {"available": pdf is not None, "openable": bool(reading.open_url(entry["paper"]))},
+        "pdf": {"available": pdf is not None, "openable": not page and bool(reading.open_url(entry["paper"]))},
+        "page": {"url": entry["paper"].url} if page else None,
         "notes": notes,
         "idea": {"card_id": idea["card_id"], "text": idea["text"], "kind": idea.get("kind", "idea")} if idea else None,
         "reads": {a: {"state": r["state"], "detail": r["detail"]} for a, r in reads.items()},
@@ -255,6 +269,22 @@ async def get_pdf(ident: str, space: str = "") -> FileResponse:
                         content_disposition_type="inline")
 
 
+@router.get("/papers/{ident}/page")
+async def get_page(ident: str) -> dict[str, Any]:
+    """A page kept in the Library, as it was saved: its readable HTML and its text (taken now if it has none)."""
+    from aurora.literature import pages
+    entry = _paper(ident)
+    if not entry["paper"].is_page:
+        raise HTTPException(400, "This is a paper: open its PDF")
+    snap = pages.snapshot(entry["paper_id"])
+    if snap is None and await pages.fill(entry["paper_id"]):
+        snap = pages.snapshot(entry["paper_id"])
+    if snap is None:
+        raise HTTPException(404, "The page could not be fetched; open it on the web, or save it again from the "
+                                 "browser extension, which reads it as you see it")
+    return {**snap, "url": entry["paper"].url}
+
+
 # ---------------------------------------------------------------------------
 # Agents: answering on a passage, reading along
 
@@ -277,7 +307,6 @@ def _ask(ann_id: str, agent: str, campaign_id: str) -> None:
         return
     reply = annotations.add_reply(ann_id, agent, pending=True)
     access = _access(campaign_id)
-    pdf = _pdf(a["paper_id"], campaign_id)
     owner_name = "The researcher"
 
     async def go() -> None:
@@ -287,7 +316,7 @@ def _ask(ann_id: str, agent: str, campaign_id: str) -> None:
             if note is None or entry is None:
                 annotations.finish_reply(reply["reply_id"], "The note is gone.")
                 return
-            pages = reading.page_texts(pdf) if pdf else []
+            pages = await _texts(entry, campaign_id) or []
             card = bs_store.card(note["card_id"]) if note["card_id"] else None
             thread = [(owner_name if not note["author"] else note["author"], note["comment"])] if note["comment"] else []
             thread += [(r["who"] if r["who"] in AGENT_COLORS else owner_name, r["text"])
@@ -336,9 +365,9 @@ async def read_along(ident: str, body: ReadAlong) -> dict[str, Any]:
         return {"started": False, "why": "The agents mark passages only when you ask"}
     if annotations.reads(uid, pid, key, idea["card_id"]):
         return {"started": False, "why": "They have read it for this idea"}
-    pdf = _pdf(pid, cid) or await reading.fetch_open_pdf(pid)
-    if pdf is None:
-        return {"started": False, "why": "There is no PDF to read"}
+    pages = await _texts(entry, cid)
+    if pages is None:
+        return {"started": False, "why": "There is nothing to read: no PDF, or the page could not be fetched"}
     access = _access(cid)
     if not access.api_key:
         return {"started": False, "why": f"No API key is set: {access.missing}"}
@@ -348,7 +377,6 @@ async def read_along(ident: str, body: ReadAlong) -> dict[str, Any]:
 
     async def go() -> None:
         from aurora.brainstorm.reading import read_along as agent_reads
-        pages = reading.page_texts(pdf)
         for agent in AGENT_ORDER:
             if not any(p.strip() for p in pages):
                 annotations.set_read(uid, pid, key, idea["card_id"], agent, "failed", "The PDF has no text to read")
@@ -395,9 +423,9 @@ async def companion_read(ident: str, body: Companion) -> dict[str, Any]:
         return {"started": False, "why": "The agents mark passages only when you ask"}
     if annotations.reads(uid, pid, key, COMPANION):
         return {"started": False, "why": "Pippin has read it here"}
-    pdf = _pdf(pid, cid) or await reading.fetch_open_pdf(pid)
-    if pdf is None:
-        return {"started": False, "why": "There is no PDF to read"}
+    pages = await _texts(entry, cid)
+    if pages is None:
+        return {"started": False, "why": "There is nothing to read: no PDF, or the page could not be fetched"}
     access = _access(cid)
     if not access.api_key:
         return {"started": False, "why": f"No API key is set: {access.missing}"}
@@ -406,9 +434,8 @@ async def companion_read(ident: str, body: Companion) -> dict[str, Any]:
 
     async def go() -> None:
         try:
-            pages = reading.page_texts(pdf)
             if not any(p.strip() for p in pages):
-                annotations.set_read(uid, pid, key, COMPANION, "Pippin", "failed", "The PDF has no text to read")
+                annotations.set_read(uid, pid, key, COMPANION, "Pippin", "failed", "There is no text to read")
                 return
             context = companion.context_of(uid, cid, idea["text"] if idea else "")
             already = [a["text"] for a in annotations.for_paper(pid, uid, key)]

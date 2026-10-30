@@ -9,6 +9,7 @@ import { ReferenceCheck } from './ReferenceCheck'
 import { ScholarView } from './feed/ScholarView'
 import { PaperLinks } from './LiteratureView'
 import { ZoteroDialog } from './ZoteroDialog'
+import { readPaper } from './reader/open'
 import { FirstTip } from '../onboarding/FirstTip'
 
 const KINDS: [FeedKind | 'all', string][] = [['all', 'All'], ['paper', 'Papers'], ['post', 'Posts'], ['blog', 'Blogs'], ['code', 'Code'], ['video', 'Videos'], ['discussion', 'Discussions']]
@@ -20,7 +21,6 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
   const [tab, setTab] = useState<'feed' | 'saved' | 'search' | 'refs'>('feed')
   const [feed, setFeed] = useState<FeedView | null>(null)
   const [lib, setLib] = useState<Library | null>(null)
-  const [saved, setSaved] = useState<FeedItem[]>([])
   const [kind, setKind] = useState<FeedKind | 'all'>('all')
   const [project, setProject] = useState('all')
   const [unfold, setUnfold] = useState(false)
@@ -37,7 +37,6 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
   }, [])
   const loadSaved = useCallback(() => {
     api.library.get().then(setLib).catch((e) => setError(describeError(e)))
-    api.feed.saved().then((r) => setSaved(r.items)).catch(() => {})
   }, [])
   useEffect(() => { loadFeed(); loadSaved() }, [loadFeed, loadSaved])
   // while the sources are being asked, look again every few seconds
@@ -102,8 +101,7 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
   const shown = pool.filter((x) => (kind === 'all' || x.kind === kind) && (project === 'all' || x.fits.some((f) => f.campaign_id === project)))
   const folded = items.filter((x) => x.folded).length
   const inFeed = (feed?.projects ?? []).filter((p) => items.some((x) => x.fits.some((f) => f.campaign_id === p.campaign_id)))
-  const savedOther = saved.filter((x) => !x.is_paper)
-  const savedCount = (lib?.papers.length ?? 0) + savedOther.length
+  const savedCount = lib?.papers.length ?? 0
   const today = feed ? new Date(feed.date * 1000).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }) : ''
 
   return (
@@ -117,7 +115,7 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
       <div className="lib-head">
         <h1>Library</h1>
         <div className="bs-row">
-          <button className="btn-sm lit-btn" onClick={() => setAdding(true)}>Add a paper</button>
+          <button className="btn-sm lit-btn" onClick={() => setAdding(true)}>Add a paper or page</button>
           <button className="btn-sm lit-btn" onClick={() => setZotero(true)}>Zotero</button>
         </div>
       </div>
@@ -187,9 +185,7 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
           )}
 
           {tab === 'saved' && (
-            <SavedTab lib={lib} saved={savedOther} onOpenProject={onOpenProject}
-              onRemoveItem={(it) => act(async () => { await api.feed.unsave(it.item_id); loadSaved(); loadFeed() })}
-              onChanged={loadSaved} />
+            <SavedTab lib={lib} onOpenProject={onOpenProject} onChanged={loadSaved} />
           )}
           {tab === 'search' && <SearchTab lib={lib} onChanged={loadSaved} />}
           {tab === 'refs' && <ReferenceCheck />}
@@ -231,40 +227,44 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
   )
 }
 
-function SavedTab({ lib, saved, onOpenProject, onRemoveItem, onChanged }: {
-  lib: Library | null; saved: FeedItem[]; onOpenProject: (cid: string) => void; onRemoveItem: (it: FeedItem) => void; onChanged: () => void
-}) {
+const KIND_LABEL: Record<string, string> = { page: 'Page', blog: 'Blog', post: 'Post', code: 'Code', video: 'Video', discussion: 'Discussion' }
+
+/** Everything you keep: papers, and pages (blogs, posts, code, any page) with the snapshot taken when they were saved;
+ *  each opens in Pippin's reader. */
+function SavedTab({ lib, onOpenProject, onChanged }: { lib: Library | null; onOpenProject: (cid: string) => void; onChanged: () => void }) {
   const [project, setProject] = useState('all')
+  const [kind, setKind] = useState<'all' | 'papers' | 'pages'>('all')
   if (!lib) return <div className="lit-sub">Loading…</div>
-  const papers = lib.papers.filter((p) => project === 'all' || (project === 'mine' ? p.mine : p.projects.some((x) => x.campaign_id === project)))
+  const isPage = (p: Library['papers'][number]) => !!p.kind && p.kind !== 'paper'
+  const pages = lib.papers.filter(isPage).length
+  const papers = lib.papers.filter((p) => (project === 'all' || (project === 'mine' ? p.mine : p.projects.some((x) => x.campaign_id === project)))
+    && (kind === 'all' || (kind === 'pages') === isPage(p)))
   const save = async (paperId: string, campaignId: string) => { await api.library.save(paperId, campaignId); onChanged() }
   return (
     <>
-      <div className="team-note">Papers saved to a project also appear on that project’s Literature page.</div>
-      {saved.length > 0 && (
-        <div className="lib-list">
-          <div className="bs-eyebrow">Posts, blogs and discussions you saved</div>
-          {saved.map((it) => (
-            <article key={it.item_id} className="lib-card fd-saved">
-              <div className="bs-row" style={{ justifyContent: 'space-between' }}>
-                <span><span className={`fd-badge k-${it.kind}`}>{it.label}</span> <a className="lit-title" href={it.url} target="_blank" rel="noreferrer">{it.title}</a></span>
-                <span className="lit-sub">{it.saved?.campaign_id ? it.saved.project : 'Saved for later'} · <button className="link-btn" onClick={() => onRemoveItem(it)}>Remove</button></span>
-              </div>
-              <div className="lit-sub">{it.source}</div>
-            </article>
-          ))}
-        </div>
-      )}
+      <div className="team-note">Papers and pages saved to a project also appear on that project’s Literature page. A page is kept as it was when you saved it, to read and annotate here.</div>
       <div className="lit-chips" role="group" aria-label="Project" style={{ marginTop: 12 }}>
-        {[['all', 'All papers'], ['mine', 'Only mine'], ...lib.projects.filter((p) => lib.papers.some((x) => x.projects.some((y) => y.campaign_id === p.campaign_id))).map((p) => [p.campaign_id, p.name])].map(([k, l]) => (
+        {[['all', 'Everything'], ['mine', 'Only mine'], ...lib.projects.filter((p) => lib.papers.some((x) => x.projects.some((y) => y.campaign_id === p.campaign_id))).map((p) => [p.campaign_id, p.name])].map(([k, l]) => (
           <button key={k} className={`lit-chip${project === k ? ' on' : ''}`} aria-pressed={project === k} onClick={() => setProject(k)}>{l}</button>
         ))}
       </div>
+      {pages > 0 && (
+        <div className="lit-chips" role="group" aria-label="Kind">
+          {([['all', 'Papers and pages'], ['papers', 'Papers'], ['pages', `Pages · ${pages}`]] as const).map(([k, l]) => (
+            <button key={k} className={`lit-chip${kind === k ? ' on' : ''}`} aria-pressed={kind === k} onClick={() => setKind(k)}>{l}</button>
+          ))}
+        </div>
+      )}
       <div className="lib-list">
         {papers.map((p) => (
           <article key={p.paper_id} className="lib-card">
-            <div className="lit-title">{p.title}</div>
-            <div className="lit-sub">{p.byline}{p.cites_per_year != null && ` · ${p.cites_per_year} cit/yr`} · <span className="lit-key">{p.key}</span> <PaperLinks p={p} /></div>
+            <div className="lib-title-row">
+              {isPage(p) && <span className={`fd-badge k-${p.kind}`}>{KIND_LABEL[p.kind ?? 'page'] ?? 'Page'}</span>}
+              <button className="lit-title lib-open" onClick={() => readPaper({ paper: p.paper_id, space: 'global', from: 'Library' })}
+                title="Read it in Pippin">{p.title}</button>
+            </div>
+            <div className="lit-sub">{isPage(p) ? [p.authors[0], p.site, p.published?.slice(0, 10)].filter(Boolean).join(' · ') : p.byline}
+              {p.cites_per_year != null && ` · ${p.cites_per_year} cit/yr`} · <span className="lit-key">{p.key}</span> <PaperLinks p={p} /></div>
             <div className="lib-tags">
               {p.mine && <span className="lit-tag">yours</span>}
               {p.in_zotero && <span className="lit-zot" title="In your Zotero">Z ✓</span>}
@@ -274,7 +274,7 @@ function SavedTab({ lib, saved, onOpenProject, onRemoveItem, onChanged }: {
             </div>
           </article>
         ))}
-        {!papers.length && <div className="lit-empty">No papers here yet. Search above, add one by DOI or arXiv ID with “Add a paper”, bring a collection in with “Zotero”, or let the agents bring papers into your projects.</div>}
+        {!papers.length && <div className="lit-empty">Nothing here yet. Search above, add a paper by DOI or arXiv ID with “Add a paper”, save a page from the browser extension or the feed, bring a collection in with “Zotero”, or let the agents bring papers into your projects.</div>}
       </div>
     </>
   )
@@ -371,11 +371,11 @@ function AddToLibrary({ onClose, onAdded }: { onClose: () => void; onAdded: () =
   }
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <form className="modal lit-modal" role="dialog" aria-modal="true" aria-label="Add a paper" onMouseDown={(e) => e.stopPropagation()} onSubmit={add}>
-        <div className="modal-title">Add a paper to your library</div>
+      <form className="modal lit-modal" role="dialog" aria-modal="true" aria-label="Add a paper or a page" onMouseDown={(e) => e.stopPropagation()} onSubmit={add}>
+        <div className="modal-title">Add a paper or a page to your library</div>
         <div className="modal-body">
-          <input autoFocus placeholder="A DOI, an arXiv ID or link, or the title" aria-label="Paper" value={text} onChange={(e) => setText(e.target.value)} />
-          <div className="modal-hint">It is checked in OpenAlex, Crossref, arXiv and Semantic Scholar first; only a paper that is found goes in.</div>
+          <input autoFocus placeholder="A DOI, an arXiv ID, a paper’s title, or any page’s link" aria-label="Paper or page" value={text} onChange={(e) => setText(e.target.value)} />
+          <div className="modal-hint">A paper is checked in OpenAlex, Crossref, arXiv and Semantic Scholar first. Any other link (a blog, a post, a README) is kept as a page, as it is now, to read and annotate here.</div>
           {check && check.status !== 'verified' && <div className="modal-error">Not added: {check.reason || 'no index has a paper like this'}.</div>}
           {error && <div className="modal-error">{error}</div>}
         </div>

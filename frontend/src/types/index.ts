@@ -637,6 +637,11 @@ export interface LitPaper {
   /** The indexes it was found in. */
   found_in: string[]
   byline: string
+  /** paper, or a page kept in the Library (a blog, a post, code, a video, a discussion, any page). */
+  kind?: 'paper' | 'page' | 'blog' | 'post' | 'code' | 'video' | 'discussion'
+  /** A page's site and date, as it gives them. */
+  site?: string
+  published?: string
 }
 
 /** A paper in a project's literature. */
@@ -1226,6 +1231,8 @@ export interface ReaderView {
   space: string
   campaign_id: string
   pdf: { available: boolean; openable: boolean }
+  /** A page kept in the Library: read from its snapshot (its address, to open it on the web). */
+  page?: { url: string } | null
   notes: ReaderNote[]
   /** What the agents read for: an idea, or (none written down yet) the conversation's own words. */
   idea: { card_id: string; text: string; kind?: 'idea' | 'conversation' } | null

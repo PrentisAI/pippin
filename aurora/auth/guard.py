@@ -322,6 +322,7 @@ RULES: dict[tuple[str, str], str] = {
     # the paper reader: notes are their owner's; a project's papers and shared notes are checked inside
     ("GET", "/api/reader/papers/{ident}"): "any",
     ("GET", "/api/reader/papers/{ident}/pdf"): "any",
+    ("GET", "/api/reader/papers/{ident}/page"): "any",
     ("POST", "/api/reader/papers/{ident}/prefetch"): "any",
     ("GET", "/api/reader/papers/{ident}/pdf/progress"): "any",
     ("POST", "/api/reader/papers/{ident}/notes"): "any",

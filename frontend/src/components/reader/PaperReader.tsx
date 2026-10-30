@@ -1,7 +1,7 @@
 /** Reading a paper with the agents: the PDF on the left, the notes beside it, Zotero in step.
  *  Opened anywhere with the event `aurora:read-paper` ({ paper, space, cardId?, chatId?, from? }). */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api } from '../../api/client'
+import { api, describeError } from '../../api/client'
 import type { MemDissent, NbClip, NotePlace, ReaderAgent, ReaderNote, ReaderView } from '../../types'
 import { ZoteroDialog } from '../ZoteroDialog'
 import './textLayer.css'
@@ -9,6 +9,7 @@ import { PdfView, type Picked } from './PdfView'
 import { AGENTS, NotesPanel, avatar, inFilter, type Filter } from './NotesPanel'
 import { MarginNotes, inMargin } from './MarginNotes'
 import { GapNote } from './GapNote'
+import { HtmlView } from './HtmlView'
 import { sortIndex, type Line } from './locate'
 import { DeepReadPanel } from '../review/DeepReadPanel'
 import { DissentPanel } from '../memory/DissentPanel'
@@ -109,6 +110,16 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
     return () => { gone = true }
   }, [paperId, req.space])
 
+  // a page kept in the Library: its snapshot, read in a column
+  const isPage = !!view?.page
+  const [snap, setSnap] = useState<{ html: string; url: string } | null>(null)
+  useEffect(() => {
+    if (!isPage || !paperId) return
+    let gone = false
+    api.reader.page(paperId).then((p) => { if (!gone) setSnap(p) }).catch((e) => { if (!gone) setPdfError(describeError(e)) })
+    return () => { gone = true }
+  }, [isPage, paperId])
+
   const loadClips = useCallback(() => {
     if (paperId) api.notebook.clips({ paper: paperId }).then(setClips).catch(() => {})
   }, [paperId])
@@ -116,7 +127,7 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
 
   // the agents read along once the paper is open (for the idea, if they mark passages on their own)
   useEffect(() => {
-    if (!view || asked.current || !view.idea || !view.agents_mark || !view.pdf.available && !view.pdf.openable) return
+    if (!view || asked.current || !view.idea || !view.agents_mark || !view.page && !view.pdf.available && !view.pdf.openable) return
     asked.current = true
     api.reader.readAlong(req.paper, { space: req.space, card_id: view.idea.kind === 'conversation' ? undefined : view.idea.card_id, chat_id: req.chatId })
       .then((r) => { if (r.started) load() }).catch(() => {})
@@ -125,7 +136,7 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
   // Pippin reads every paper with you once (in this space), against your work, and writes notes in it
   const readWith = useRef(false)
   useEffect(() => {
-    if (!view || readWith.current || view.companion || !view.agents_mark || !view.pdf.available && !view.pdf.openable) return
+    if (!view || readWith.current || view.companion || !view.agents_mark || !view.page && !view.pdf.available && !view.pdf.openable) return
     readWith.current = true
     api.reader.companion(req.paper, { space: req.space, card_id: view.idea?.kind === 'conversation' ? undefined : view.idea?.card_id, chat_id: req.chatId })
       .then((r) => { if (r.started) load() }).catch(() => {})
@@ -170,6 +181,17 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
       const n = await api.reader.addNote(req.paper, {
         space: req.space, card_id: ideaCard, chat_id: req.chatId, text: line.text.trim(), page_index: pageIndex,
         page_label: String(pageIndex + 1), rects: [line.rect], sort_index: sortIndex(pageIndex, line.offset, 0), draft: true, inline: true,
+      })
+      upsert(n); setFocusId(n.ann_id)
+    } catch (e) { fail(e) }
+  }, [req.paper, req.space, req.chatId, ideaCard, upsert, fail])
+
+  // a gap opened after a paragraph of a page, anchored on its last words
+  const gapInPage = useCallback(async (words: string, offset: number) => {
+    try {
+      const n = await api.reader.addNote(req.paper, {
+        space: req.space, card_id: ideaCard, chat_id: req.chatId, text: words, page_index: 0, page_label: '', rects: [],
+        sort_index: `web|${String(offset).padStart(8, '0')}`, draft: true, inline: true,
       })
       upsert(n); setFocusId(n.ann_id)
     } catch (e) { fail(e) }
@@ -394,10 +416,25 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
 
       <div className={`rd-body${compact ? ' stacked' : ''}`}>
         <main className="rd-main" aria-label="Paper">
-          {view.pdf.available || view.pdf.openable ? (
+          {view.page || view.pdf.available || view.pdf.openable ? (
             !pdfError ? (
               <>
-                <PdfView url={api.reader.pdfUrl(p.paper_id, view.space)} paper={{ id: p.paper_id, space: view.space }} scale={zoom} notes={notes} focusId={focusId}
+                {view.page ? (snap ? (
+                  <HtmlView html={snap.html} scale={zoom} notes={notes} focusId={focusId} dimmed={dimmed} scrollTo={scrollTo}
+                    picked={picked} onPick={setPicked} flash={flash}
+                    onNote={(id) => {
+                      setFocusId(id); setPicked(null)
+                      const n = notes.find((x) => x.ann_id === id)
+                      if (!(inMarginMode && !sideOpen && n && !n.inline)) setSideOpen(true)
+                      if (dimmed.has(id)) setFilter('all')
+                    }}
+                    gap={(n) => <GapNote n={n} focus={focusId === n.ann_id} onFocus={() => setFocusId(n.ann_id)} actions={actions} />}
+                    onGapAt={gapInPage}
+                    margin={inMarginMode && !sideOpen ? (top, placed) => (
+                      <MarginNotes notes={notes} placed={placed} top={top} focusId={focusId} dimmed={dimmed}
+                        onFocus={focus} onMore={(id) => { setFocusId(id); setSide('notes'); setSideOpen(true) }} actions={actions} />
+                    ) : undefined} />
+                ) : <div className="rd-loading">Opening the page…</div>) : <PdfView url={api.reader.pdfUrl(p.paper_id, view.space)} paper={{ id: p.paper_id, space: view.space }} scale={zoom} notes={notes} focusId={focusId}
                   dimmed={dimmed} scrollTo={scrollTo} picked={picked} onPick={setPicked}
                   onNote={(id) => {
                     setFocusId(id); setPicked(null)
@@ -411,7 +448,7 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
                     <MarginNotes notes={here} top={(n) => at((v[3] - Math.max(...n.rects.map((r) => r[3]))) * zoom)} focusId={focusId} dimmed={dimmed}
                       onFocus={focus} onMore={(id) => { setFocusId(id); setSide('notes'); setSideOpen(true) }} actions={actions} />
                   ) : undefined}
-                  onPlace={onPlace} onPages={setPages} onPage={setPage} onError={setPdfError} flash={flash} />
+                  onPlace={onPlace} onPages={setPages} onPage={setPage} onError={setPdfError} flash={flash} />}
                 {(dissent?.items ?? []).some((it) => it.page === page - 1) && (() => {
                   const here = dissent!.items.filter((it) => it.page === page - 1)
                   const n = new Set(here.flatMap((it) => it.units.map((u) => u.unit_id))).size

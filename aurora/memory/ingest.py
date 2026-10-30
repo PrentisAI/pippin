@@ -120,9 +120,20 @@ async def process(access: Any, models: dict[str, str], source_id: str, *, text: 
                                     digest=fetch.digest(got.text))
             return result
         mem_store.save_snapshot(source_id, got.text, got.html)
+        paper_id = got.paper_id
+        if not paper_id and src["url"].startswith(("http://", "https://")) and got.platform not in ("note", "text"):
+            # a page (a post, a blog, a README) is kept in the Library too, with its snapshot, to read and annotate
+            from aurora.literature import pages
+            try:
+                paper_id = pages.save_page(owner, url=src["url"], title=got.title or src["title"],
+                                           kind=pages.KIND_OF_PLATFORM.get(got.platform, "page"), author=got.author,
+                                           published=got.published, text=got.text, html=got.html,
+                                           added_by=src["via"])["paper_id"]
+            except Exception:
+                logger.info("keeping %s in the Library failed", src["url"], exc_info=True)
         mem_store.update_source(source_id, platform=got.platform if got.platform != "text" else src["platform"],
                                 title=got.title or src["title"], author=got.author, published=got.published,
-                                paper_id=got.paper_id, digest=fetch.digest(got.text))
+                                paper_id=paper_id, digest=fetch.digest(got.text))
         claims = await extract(access.with_model(models["memory"]), got, src["selection"])
         result = await settle(access, models, owner, source_id, claims)
         mem_store.update_source(source_id, state="done", result=result, done_at=time.time(),

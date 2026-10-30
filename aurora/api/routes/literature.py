@@ -65,7 +65,7 @@ def paper_view(entry: dict[str, Any]) -> dict[str, Any]:
             "year": p.year, "venue": p.venue, "doi": p.doi, "arxiv_id": p.arxiv_id, "url": p.url,
             "pdf_url": p.pdf_url, "abstract": clean_text(p.abstract), "cited_by": p.cited_by,
             "cites_per_year": p.cites_per_year(), "found_in": [INDEX_NAMES.get(i, i) for i in p.found_in],
-            "byline": p.byline()}
+            "byline": p.byline(), "kind": p.kind, "site": p.site, "published": p.published}
 
 
 def _uses_by(campaign_id: str) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
@@ -493,7 +493,9 @@ async def export_bibtex(campaign_id: str) -> PlainTextResponse:
 @library_router.get("")
 async def get_library() -> dict[str, Any]:
     from aurora.api.routes.campaigns import _ensure_campaign, store
+    from aurora.literature import pages
     me = current_user()
+    pages.adopt_saved(me.user_id)         # pages saved before they were Library entries come in, once
     projects = {}
     for cid in visible(me, [row["campaign_id"] for row in store.list_campaigns()]):
         try:
@@ -558,6 +560,16 @@ async def add_to_library(body: AddBody) -> dict[str, Any]:
                     year=body.year, doi=body.doi, arxiv_id=body.arxiv_id, text=body.text)
     me = current_user()
     result = await ProjectLiterature("").add(ref, by=_who(), owner=me.user_id)
+    url = body.text.strip()
+    if not result.verified and re.match(r"https?://\S+$", url):
+        # not a paper the indexes know: a page, kept as it is now
+        from aurora.literature import pages
+        html, final = await pages.fetch_html(url)
+        if not html:
+            raise HTTPException(400, "The page could not be fetched. Save it from the browser extension, which reads "
+                                     "it as you see it (also behind a login).")
+        entry = pages.save_page(me.user_id, url=final or url, html=html, added_by=_who())
+        return {"check": result.to_dict(), "added": True, "page": True, "key": entry["key"], "paper_id": entry["paper_id"]}
     return {"check": result.to_dict(), "added": result.verified,
             "key": library.upsert_paper(result.paper)["key"] if result.paper else ""}
 

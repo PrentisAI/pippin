@@ -23,6 +23,7 @@ from aurora.feed.sources import SOURCE_NAMES, SourceError, sources
 from aurora.feed.store import WANTS, feed_store
 
 router = APIRouter(prefix="/api/feed", tags=["feed"])
+_background: set[asyncio.Task] = set()      # snapshots of saved pages being taken
 
 KIND_LABEL = {"paper": "Paper", "post": "Post", "blog": "Blog", "code": "Code", "video": "Video", "discussion": "Discussion"}
 
@@ -189,6 +190,21 @@ def _paper_into(campaign_id: str, it: dict[str, Any], source: str = "feed") -> s
     return entry["paper_id"]
 
 
+def _page_into(campaign_id: str, it: dict[str, Any]) -> str:
+    """Keep a feed item that is not a paper (a post, a blog, code) in the Library as a page; its snapshot is taken
+    in the background. Its Library ID ('' when it has no address)."""
+    from aurora.literature import pages
+    if not str(it.get("url", "")).startswith(("http://", "https://")):
+        return ""
+    entry = pages.save_page(_uid(), url=it["url"], title=it["title"], kind=it["kind"] if it["kind"] in pages.KINDS else "page",
+                            site=it.get("source", "").split(" · ")[0], text=it.get("summary", ""), campaign_id=campaign_id,
+                            source="feed", added_by=_who())
+    task = asyncio.create_task(pages.fill(entry["paper_id"]))
+    _background.add(task)
+    task.add_done_callback(_background.discard)
+    return entry["paper_id"]
+
+
 class SaveBody(BaseModel):
     campaign_id: str = ""            # '' : save for later (papers go to your own library)
 
@@ -200,7 +216,7 @@ async def save_item(item_id: str, body: SaveBody) -> dict[str, Any]:
     if body.campaign_id:
         require(body.campaign_id, "edit")
         name = _projects().get(body.campaign_id, "")
-    paper_id = _paper_into(body.campaign_id, it) if it["paper"] else ""
+    paper_id = _paper_into(body.campaign_id, it) if it["paper"] else _page_into(body.campaign_id, it)
     feed_store.save(_uid(), item_id, body.campaign_id)
     return {"saved": {"campaign_id": body.campaign_id, "project": name if body.campaign_id else ""},
             "in_literature": bool(it["paper"] and body.campaign_id), "paper_id": paper_id}
@@ -208,8 +224,13 @@ async def save_item(item_id: str, body: SaveBody) -> dict[str, Any]:
 
 @router.delete("/items/{item_id}/save")
 async def unsave_item(item_id: str) -> dict[str, Any]:
-    _item(item_id)
+    it = _item(item_id)
+    was = feed_store.saves(_uid()).get(item_id)
     feed_store.unsave(_uid(), item_id)
+    if was is not None and not it["paper"] and str(it.get("url", "")).startswith("http"):
+        from aurora.literature.library import library
+        from aurora.literature.pages import page_id      # the page goes from where this save put it
+        library.remove_item(was["campaign_id"], page_id(it["url"]), owner="" if was["campaign_id"] else _uid())
     return {"ok": True}
 
 

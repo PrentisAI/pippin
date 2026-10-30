@@ -444,6 +444,8 @@ export const api = {
   reader: {
     get: (paper: string, q: { space?: string; card_id?: string; chat_id?: string }) =>
       request<ReaderView>(`/reader/papers/${encodeURIComponent(paper)}?${new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][])}`),
+    /** A page kept in the Library, as it was saved: its readable HTML and text. */
+    page: (paper: string) => request<{ html: string; text: string; url: string }>(`/reader/papers/${encodeURIComponent(paper)}/page`),
     pdfUrl: (paper: string, space: string) => `${BASE_URL}/reader/papers/${encodeURIComponent(paper)}/pdf?space=${encodeURIComponent(space)}`,
     /** Start fetching the paper's open PDF now, so it is there when it is opened. */
     prefetch: (paper: string, space: string) =>

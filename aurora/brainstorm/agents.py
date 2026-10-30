@@ -511,6 +511,14 @@ class BoardTools:
         known = library.known_to(b.literature.campaign_id) if b.literature is not None else set()
         if entry["paper_id"] not in known and entry["key"] not in self.known_papers:
             raise ValueError(f"[{entry['key']}] is not a paper from the literature or your searches")
+        if entry["paper"].is_page:                 # a page kept in the Library: its snapshot
+            from aurora.literature import pages
+            if not pages.texts(entry["paper_id"]):
+                self.turn.step(f"Fetching the page [{entry['key']}]")
+                await pages.fill(entry["paper_id"])
+            if not pages.texts(entry["paper_id"]):
+                raise ValueError(f"the page [{entry['key']}] could not be fetched; work from what you know of it")
+            return entry, pages.texts(entry["paper_id"])
         campaign_id = "" if b.space.startswith("user:") else b.space
         pdf = find_pdf(entry["paper_id"], b.viewer, campaign_id)
         if pdf is None:

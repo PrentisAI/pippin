@@ -114,7 +114,11 @@ def same_person(a: str, b: str) -> bool:
 
 @dataclass
 class Paper:
-    """What the indexes agree a paper is. Every Paper comes from an index, never from a model."""
+    """What the indexes agree a paper is. Every Paper comes from an index, never from a model.
+
+    A web page kept in the Library (a blog post, a thread, a README) is a record too, of another ``kind``: what the
+    page itself says it is (its title, author, site, date), with a snapshot of its text (see
+    :mod:`aurora.literature.pages`)."""
 
     title: str
     authors: list[str] = field(default_factory=list)
@@ -131,6 +135,9 @@ class Paper:
     found_in: list[str] = field(default_factory=list)     # crossref | openalex | arxiv | semantic_scholar
     arxiv_version: int = 0          # the latest version on arXiv (0: unknown)
     arxiv_comment: str = ""         # the authors' comment on it (often what changed)
+    kind: str = "paper"             # paper | page | blog | post | code | video | discussion
+    site: str = ""                  # a page's site ("Lil'Log", "GitHub")
+    published: str = ""             # a page's date, as it gives it
 
     @property
     def first_author(self) -> str:
@@ -152,8 +159,14 @@ class Paper:
         who = ", ".join(n for n in names if n) + (" et al." if len(self.authors) > 3 else "")
         return " · ".join(x for x in (who, str(self.year or ""), self.venue) if x)
 
+    @property
+    def is_page(self) -> bool:
+        return self.kind != "paper"
+
     def same_work(self, other: Paper) -> bool:
         """The same paper seen in two indexes (or a preprint and its published version)."""
+        if self.is_page or other.is_page:
+            return self.is_page and other.is_page and bool(self.url) and self.url == other.url
         if self.doi and other.doi and self.doi == other.doi:
             return True
         if self.arxiv_id and other.arxiv_id and self.arxiv_id == other.arxiv_id:
@@ -163,7 +176,7 @@ class Paper:
 
     def merge(self, other: Paper) -> None:
         """Fill what this record lacks from another record of the same work."""
-        for name in ("doi", "arxiv_id", "openalex_id", "s2_id", "url", "pdf_url", "abstract", "venue"):
+        for name in ("doi", "arxiv_id", "openalex_id", "s2_id", "url", "pdf_url", "abstract", "venue", "site", "published"):
             if not getattr(self, name) and getattr(other, name):
                 setattr(self, name, getattr(other, name))
         if not self.authors and other.authors:

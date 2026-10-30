@@ -19,12 +19,14 @@ export interface MarginActions {
 }
 
 /** Whether a note has something to say in the margin. */
-export function inMargin(n: ReaderNote): boolean {
-  return n.rects.length > 0 && !n.inline && (!!n.comment.trim() || n.state === 'draft' || !!n.author)
+export function inMargin(n: ReaderNote, placed = n.rects.length > 0): boolean {
+  return placed && !n.inline && (!!n.comment.trim() || n.state === 'draft' || !!n.author)
 }
 
-export function MarginNotes({ notes, top, focusId, dimmed, onFocus, onMore, actions }: {
+export function MarginNotes({ notes, top, focusId, dimmed, onFocus, onMore, actions, placed }: {
   notes: ReaderNote[]
+  /** Notes found on the page, when that is not known from their rectangles (a web page's). */
+  placed?: Set<string>
   /** Where a note's words start on the page (px from its top). */
   top: (n: ReaderNote) => number
   focusId: string | null
@@ -34,14 +36,14 @@ export function MarginNotes({ notes, top, focusId, dimmed, onFocus, onMore, acti
   onMore: (annId: string) => void
   actions: MarginActions
 }) {
-  const placed = notes.filter(inMargin).map((n) => ({ n, at: top(n) })).sort((a, b) => a.at - b.at)
+  const shown = notes.filter((n) => inMargin(n, placed ? placed.has(n.ann_id) : n.rects.length > 0)).map((n) => ({ n, at: top(n) })).sort((a, b) => a.at - b.at)
     .reduce<{ n: ReaderNote; y: number }[]>((out, { n, at }) => {
       const prev = out[out.length - 1]
       return [...out, { n, y: Math.max(at, prev ? prev.y + ROOM + GAP : 0) }]
     }, [])
   return (
     <>
-      {placed.map(({ n, y }) => (
+      {shown.map(({ n, y }) => (
         <MarginNote key={n.ann_id} n={n} y={y} focus={n.ann_id === focusId} dim={dimmed.has(n.ann_id)}
           onFocus={() => onFocus(n.ann_id)} onMore={() => onMore(n.ann_id)} actions={actions} />
       ))}

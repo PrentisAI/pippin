@@ -118,6 +118,9 @@ IMPORT_RULES = ("all", "cited", "none")
 
 
 def _paper_id(p: Paper) -> str:
+    if p.is_page:
+        from aurora.literature.pages import page_id
+        return page_id(p.url)
     basis = p.doi or (f"arxiv:{p.arxiv_id}" if p.arxiv_id else f"{fold(p.title)}|{p.year or ''}")
     return "p_" + hashlib.sha1(basis.encode()).hexdigest()[:12]
 
@@ -165,6 +168,9 @@ class LibraryStore:
     # ------------------------------------------------------------------ papers
 
     def _find(self, p: Paper) -> dict[str, Any] | None:
+        if p.is_page:                       # a page is its address
+            rows = self._all("SELECT * FROM lit_papers WHERE paper_id=?", (_paper_id(p),))
+            return rows[0] if rows else None
         rows: list[dict[str, Any]] = []
         if p.doi:
             rows += self._all("SELECT * FROM lit_papers WHERE doi=?", (p.doi,))
