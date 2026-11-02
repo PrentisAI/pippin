@@ -1544,6 +1544,18 @@ export interface AssistantTurn {
   undo_id?: string
   /** What Pippin proposed to do, done only when they confirm. */
   actions?: AssistantAction[]
+  /** Asked about the page open in the browser (the side panel). */
+  page?: { url: string; title: string; selection: string }
+  /** The answer, kept as a note on that page. */
+  kept?: KeptPage & { ann_id: string; quote: string }
+}
+
+/** A page (or a paper's page) kept in the Library from the browser. */
+export interface KeptPage {
+  paper_id: string
+  key: string
+  title: string
+  is_page: boolean
 }
 
 /** A proposal of Pippin's: answer a run's decision, tell a run or a project something, stop a run. */

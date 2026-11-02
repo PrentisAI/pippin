@@ -2536,7 +2536,12 @@ export default function Home() {
     return p === 'library' || p === 'memory' || p === 'brainstorm' ? p : null
   })
   // a paper open in the reader, over whatever page it was opened from
-  const [reading, setReading] = useState<ReadRequest | null>(null)
+  const [reading, setReading] = useState<ReadRequest | null>(() => {
+    // a paper or page asked for in the address (the browser's side panel: /?read=<id>&quote=<words>)
+    const q = new URLSearchParams(window.location.search)
+    const paper = q.get('read')
+    return paper ? { paper, space: 'global', quote: q.get('quote') || undefined, page: Number(q.get('page')) || 0 } : null
+  })
   // opened on the brainstorm page, the reader sits in its right column (and can go full screen)
   const [readingDocked, setReadingDocked] = useState(false)
   const pageNow = useRef<MainPage>(null)

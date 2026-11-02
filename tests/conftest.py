@@ -42,6 +42,8 @@ def isolated_home(tmp_path, monkeypatch):
     write_log.reset()
     mem_store.reset()
     nb_store.reset()
+    from aurora.memory import onpage
+    onpage.reset()
     figures.reset()
     indexes.clear_cache()
     # no network for the feed either: tests that need sources bring their own

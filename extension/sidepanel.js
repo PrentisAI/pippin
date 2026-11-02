@@ -9,8 +9,48 @@ chrome.runtime.sendMessage({ type: 'aurora:panel-url' }).then(({ url }) => {
   frame.addEventListener('error', () => { msg.hidden = false; msg.textContent = `Cannot reach Pippin at ${url}. Check the address in the extension’s options.` })
 })
 
-chrome.runtime.onMessage.addListener((m) => {
+chrome.runtime.onMessage.addListener((m, sender) => {
   if (m.type === 'aurora:refresh' && frame.contentWindow) frame.contentWindow.postMessage({ type: 'aurora:refresh' }, '*')
+  if (m.type === 'aurora:ask') tellPage(true)
+  if (m.type === 'aurora:selection' && sender.tab && sender.tab.active) tellPage(false)
+})
+
+// The page in front, for asking Pippin about it: what it says as you see it and the words you selected. The Pippin
+// frame asks for it when a question is sent; it is told (without the text) when the page or the selection changes.
+// Never for the sites you excluded in the options, nor the browser's own pages.
+const origin = () => { try { return new URL(frame.src).origin } catch { return '*' } }
+
+function excludedHost(url, list) {
+  try {
+    const host = new URL(url).hostname
+    return String(list || '').split(/[\s,]+/).filter(Boolean).some((h) => host === h || host.endsWith('.' + h))
+  } catch { return true }
+}
+
+async function pageNow() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+  if (!tab || !/^https?:/.test(tab.url || '')) return null
+  const { excluded = '' } = await chrome.storage.sync.get('excluded')
+  if (excludedHost(tab.url, excluded)) return null
+  let page = null
+  try { page = await chrome.tabs.sendMessage(tab.id, { type: 'aurora:page' }) } catch { page = null }   // the PDF viewer
+  return page || { url: tab.url, title: tab.title || '', text: '', selection: '' }
+}
+
+let telling = null
+function tellPage(ask) {
+  clearTimeout(telling)
+  telling = setTimeout(async () => {
+    if (!frame.contentWindow) return
+    const page = await pageNow().catch(() => null)
+    frame.contentWindow.postMessage({ type: 'aurora:page-changed', page: page && { ...page, text: '' }, ask }, origin())
+  }, ask ? 0 : 250)
+}
+
+window.addEventListener('message', async (e) => {
+  if (e.source !== frame.contentWindow || !e.data || e.data.type !== 'aurora:get-page') return
+  const page = await pageNow().catch(() => null)
+  frame.contentWindow.postMessage({ type: 'aurora:page', id: e.data.id, page }, origin())
 })
 
 // A PDF open in the browser: the extension cannot draw on Chrome's PDF viewer, so the sentences your saves argue with
@@ -52,5 +92,7 @@ async function checkPdf() {
 }
 
 checkPdf().catch(() => {})
-chrome.tabs.onActivated.addListener(() => checkPdf().catch(() => {}))
-chrome.tabs.onUpdated.addListener((id, change) => { if (change.url || change.status === 'complete') checkPdf().catch(() => {}) })
+chrome.tabs.onActivated.addListener(() => { checkPdf().catch(() => {}); tellPage(false) })
+chrome.tabs.onUpdated.addListener((id, change, tab) => {
+  if (change.url || change.status === 'complete') { checkPdf().catch(() => {}); if (tab.active) tellPage(false) }
+})

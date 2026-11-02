@@ -408,6 +408,10 @@ See [The shared notebook](concepts/memory.md).
 - **Context**: the page and your selection (sites can be excluded).
 - **Following**: people, topics and threads on Zhihu, X and Xiaohongshu read every 15 minutes in a background tab
   of your signed-in browser; Reddit and blog feeds read by the console; new posts into the notebook and the digest.
+- **Ask on any page**: the side panel's conversation reads the page you have open (as you see it, signed-in pages
+  too; a paper's page from its PDF) and the words you selected; **Ask Pippin** appears beside a selection (or right
+  click → *Ask Pippin about …*). An answer can be **kept as a note on the page** (your question, Pippin's answer as its
+  reply; the page goes into your Library), and **Open in Pippin** opens the page in the reader at the same words.
 - **Side panel**: your notebook panel beside the page; for a PDF open in the browser, the sentences your saves argue
   with above it, each opening its page.
 - **Interruptions** as browser notifications (a decision opens its experiment).

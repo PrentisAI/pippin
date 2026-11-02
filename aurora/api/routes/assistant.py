@@ -13,6 +13,13 @@ from aurora.auth.guard import current_user
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 
 
+class Page(BaseModel):
+    url: str
+    title: str = ""
+    text: str = ""               # as the browser shows it (signed-in pages too)
+    selection: str = ""
+
+
 class Said(BaseModel):
     text: str = ""
     audio: str = ""              # base64; recognised here when the text is not given
@@ -20,6 +27,7 @@ class Said(BaseModel):
     screenshot: str = ""         # the window in front when they spoke ("this figure")
     via: str = "typed"           # typed | voice
     context: str = ""            # what they are looking at in the console (⌘K): the project, the run, a selection
+    page: Page | None = None     # the page open in the browser, asked about from the extension's side panel
 
 
 def _access() -> tuple[Any, Any, dict[str, str]]:
@@ -51,7 +59,8 @@ async def say(body: Said) -> dict[str, Any]:
     access, mem, models = _access()
     shot = body.screenshot if body.screenshot.startswith("data:image/") and len(body.screenshot) < 8_000_000 else ""
     return await assistant.ask(current_user().user_id, text[:4000], access=access, mem_access=mem, models=models,
-                               screenshot=shot, via="voice" if body.via == "voice" else "typed", context=body.context[:2000])
+                               screenshot=shot, via="voice" if body.via == "voice" else "typed", context=body.context[:2000],
+                               page=body.page.model_dump() if body.page else None)
 
 
 class Answer(BaseModel):
@@ -78,3 +87,61 @@ async def history(limit: int = 60) -> list[dict[str, Any]]:
 async def new_conversation() -> None:
     from aurora.memory import assistant
     assistant.clear(current_user().user_id)
+
+
+async def _keep_page(uid: str, page: Page) -> dict[str, Any]:
+    """The page in their Library (a paper's page: the paper), read as it was asked about."""
+    from aurora.literature import pages
+    from aurora.literature.library import library
+    from aurora.memory import onpage
+    p = await onpage.load(uid, url=page.url, title=page.title, text=page.text, selection=page.selection)
+    if p["paper_id"]:
+        library.add_item("", p["paper_id"], source="person", added_by=uid, owner=uid)
+        entry = library.paper(p["paper_id"])
+    else:
+        try:
+            entry = pages.save_page(uid, url=p["url"], title=page.title, text=page.text)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+    return {"paper_id": entry["paper_id"], "key": entry["key"], "title": entry["paper"].title,
+            "is_page": entry["paper"].is_page}
+
+
+@router.post("/page/open")
+async def open_page(body: Page) -> dict[str, Any]:
+    """Open the page in Pippin: it is kept in their Library and read there, at the passage they selected."""
+    return await _keep_page(current_user().user_id, body)
+
+
+class Keep(BaseModel):
+    turn_id: str
+    page: Page
+
+
+@router.post("/page/keep")
+async def keep_answer(body: Keep) -> dict[str, Any]:
+    """Keep an answer about the page as a note on it: the passage (their selection, else the one it drew on), their
+    question as the note, Pippin's answer as its reply. The page goes into their Library."""
+    from aurora.literature.annotations import annotations
+    from aurora.memory import assistant, onpage
+    uid = current_user().user_id
+    turns = assistant.history(uid, 200)
+    i = next((k for k, t in enumerate(turns) if t["turn_id"] == body.turn_id and t["role"] == "assistant"), -1)
+    if i < 0 or not turns[i].get("page"):
+        raise HTTPException(404, "No such answer about a page")
+    if turns[i].get("kept"):
+        return turns[i]["kept"]
+    question = next((t["text"] for t in reversed(turns[:i]) if t["role"] == "user"), "")
+    entry = await _keep_page(uid, body.page)
+    quote, at = onpage.anchor(uid)
+    if not quote:
+        raise HTTPException(400, "Select the words the answer is about, then keep it")
+    a = annotations.add(uid, entry["paper_id"], state="kept", text=quote, comment=question, space=f"user:{uid}",
+                        page_index=max(at, 0), page_label="" if entry["is_page"] else str(max(at, 0) + 1))
+    annotations.add_reply(a["ann_id"], "Pippin", turns[i]["text"])
+    kept = {**entry, "ann_id": a["ann_id"], "quote": quote}
+    assistant.mark(uid, body.turn_id, kept=kept)
+    if not entry["is_page"]:
+        from aurora.api.routes.reader import _to_zotero
+        _to_zotero(uid)
+    return kept

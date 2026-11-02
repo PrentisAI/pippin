@@ -266,6 +266,8 @@ RULES: dict[tuple[str, str], str] = {
     ("POST", "/api/assistant"): "any",
     ("GET", "/api/assistant/history"): "any",
     ("DELETE", "/api/assistant/history"): "any",
+    ("POST", "/api/assistant/page/open"): "any",            # into the person's own Library
+    ("POST", "/api/assistant/page/keep"): "any",
     ("POST", "/api/assistant/actions/{action_id}"): "any",     # each person's own proposals; the project's rights apply
     # Pippin in a chat app: the team's apps (admins), and linking your own account
     ("GET", "/api/im/settings"): "admin",

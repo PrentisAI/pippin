@@ -37,6 +37,9 @@ You can:
 something they want kept, note a thought, read them today's digest: use `memory` with what they asked, in their \
 words, for anything about what they read, saved or are looking at;
 - see what is in front of them: `in_front`;
+- read the page they have open in the browser, when they ask from the browser's side panel (a paper's page is read \
+from its PDF): `this_page`, with what they asked in your words. Answer from its passages and say where (the page \
+or part); when it does not say, tell them so, and only then add what you know, as yours;
 - tell them about their research projects and the runs in them (what is running, how far, what it costs, what \
 waits for their decision, what the project's front desk last said): `projects`, then `project`;
 - read what a run found and wrote: `report` (its report, claims, results, the direction it took);
@@ -75,6 +78,11 @@ def history(owner: str, limit: int = 60) -> list[dict[str, Any]]:
 
 def _save(owner: str, turns: list[dict[str, Any]]) -> None:
     _file(owner).write_text(json.dumps(turns[-TURNS:], ensure_ascii=False))
+
+
+def mark(owner: str, turn_id: str, **fields: Any) -> None:
+    """Note something on a turn of the conversation (an answer kept as a note on its page)."""
+    _save(owner, [{**t, **fields} if t["turn_id"] == turn_id else t for t in history(owner, TURNS)])
 
 
 def clear(owner: str) -> None:
@@ -154,6 +162,10 @@ def _tools(owner: str, now: dict[str, _Turn], mem_access: Any, models: dict[str,
 
     async def in_front(p: dict[str, Any]) -> Any:
         return voice._scene_text(voice.scene(owner))
+
+    async def this_page(p: dict[str, Any]) -> Any:
+        from aurora.memory import onpage
+        return onpage.passages(owner, str(p.get("question") or ""))
 
     async def projects(p: dict[str, Any]) -> Any:
         from aurora.api.routes.campaigns import list_campaigns
@@ -277,6 +289,9 @@ def _tools(owner: str, now: dict[str, _Turn], mem_access: Any, models: dict[str,
                       {**obj, "properties": {"request": {"type": "string"}}, "required": ["request"]}, memory),
         FrontDeskTool("in_front", "What is open in front of them now, what they had open before, what they saved lately.",
                       {**obj, "properties": {}}, in_front),
+        FrontDeskTool("this_page", "The page they have open in the browser (asked from the side panel): the passages that "
+                      "bear on the question, or the whole text when it is short, with what they selected.",
+                      {**obj, "properties": {"question": {"type": "string"}}, "required": ["question"]}, this_page),
         FrontDeskTool("projects", "Their research projects: name, runs, how many are running, whether one needs them.",
                       {**obj, "properties": {}}, projects),
         FrontDeskTool("project", "One project (by name or ID): its runs with status, phase, cost, errors, the decision "
@@ -327,20 +342,34 @@ def _agent(owner: str, access: Any, mem_access: Any, models: dict[str, str]) -> 
 
 
 async def ask(owner: str, text: str, *, access: Any, mem_access: Any, models: dict[str, str], screenshot: str = "",
-              via: str = "typed", context: str = "") -> dict[str, Any]:
+              via: str = "typed", context: str = "", page: dict[str, Any] | None = None) -> dict[str, Any]:
     """One turn: what they said, answered with the tools. Returns the reply as the orb and the panel show it.
-    *context* is what they are looking at in the console when they asked (given to the model, not kept as their words)."""
+    *context* is what they are looking at in the console when they asked (given to the model, not kept as their words);
+    *page* is the page open in the browser when they asked from its side panel (url, title, text, selection)."""
     text = text.strip()
+    told = context.strip()
+    if page and page.get("url"):
+        from aurora.memory import onpage
+        p = await onpage.load(owner, url=str(page["url"]), title=str(page.get("title") or ""),
+                              text=str(page.get("text") or ""), selection=str(page.get("selection") or ""))
+        told = (f"the page open in their browser, \"{p['title'] or p['url']}\" ({p['url']})"
+                + (f", with this selected: \"{p['selection'][:600]}\"" if p["selection"] else "")
+                + "; read it with this_page")
     lock = _locks.setdefault(owner, asyncio.Lock())
     async with lock:
         agent, now = _agent(owner, access, mem_access, models)
         now["turn"] = turn = _Turn(screenshot)
-        out = await agent.handle_user_message(f"[They are looking at: {context.strip()}]\n{text}" if context.strip() else text)
+        out = await agent.handle_user_message(f"[They are looking at: {told}]\n{text}" if told else text)
         reply = out.get("text") or ""
         at = time.time()
         mine = {"turn_id": uuid.uuid4().hex[:10], "role": "user", "text": text, "at": at, "via": via}
         theirs = {"turn_id": uuid.uuid4().hex[:10], "role": "assistant", "text": reply, "at": time.time(),
                   "items": turn.items[:8], "links": turn.links[:4], "undo_id": turn.undo_id, "actions": turn.actions[:3]}
+        if page and page.get("url"):             # asked about the page open in the browser: it can be kept there
+            from aurora.memory import onpage
+            p = onpage.current(owner) or {}
+            mine["page"] = theirs["page"] = {"url": p.get("url", ""), "title": p.get("title", ""),
+                                             "selection": p.get("selection", "")}
         _save(owner, [*history(owner, TURNS), mine, theirs])
     # for the orb: what to say aloud, and whether the panel should open with the rest
     speech = reply if len(reply) <= SPOKEN else re.split(r"(?<=[.!?。！？])\s*", reply, maxsplit=1)[0]

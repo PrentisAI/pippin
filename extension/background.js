@@ -69,6 +69,14 @@ async function save(tab, { selection = '', link = '' } = {}) {
   }
 }
 
+// Ask Pippin about the words selected on a page: the side panel opens (or comes forward) on its conversation,
+// which reads the page with the selection when the question is sent.
+function askAbout(tab) {
+  if (!tab || !chrome.sidePanel || !chrome.sidePanel.open) return
+  chrome.sidePanel.open({ tabId: tab.id }).catch(() => {})
+  setTimeout(() => chrome.runtime.sendMessage({ type: 'aurora:ask', tabId: tab.id }).catch(() => {}), 300)
+}
+
 function tell(message) {
   chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Pippin', message: String(message).slice(0, 300) })
 }
@@ -82,6 +90,7 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({ id: 'save-selection', title: 'Save the selection to Pippin', contexts: ['selection'] })
   chrome.contextMenus.create({ id: 'save-link', title: 'Save the link to Pippin', contexts: ['link'] })
   chrome.contextMenus.create({ id: 'follow-page', title: 'Follow this page in Pippin', contexts: ['page'] })
+  chrome.contextMenus.create({ id: 'ask-selection', title: 'Ask Pippin about “%s”', contexts: ['selection'] })
   chrome.alarms.create('follows', { periodInMinutes: 15 })
   chrome.alarms.create('alerts', { periodInMinutes: 5 })
   if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
@@ -91,6 +100,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === 'save-page') save(tab)
   else if (info.menuItemId === 'save-selection') save(tab, { selection: info.selectionText || '' })
   else if (info.menuItemId === 'save-link') save(tab, { link: info.linkUrl })
+  else if (info.menuItemId === 'ask-selection') askAbout(tab)
   else if (info.menuItemId === 'follow-page') {
     try {
       const f = await api('/memory/follows', { method: 'POST', body: JSON.stringify({ url: tab.url, label: tab.title }) })
@@ -137,6 +147,10 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     api(`/memory/relate?url=${encodeURIComponent(msg.url)}&title=${encodeURIComponent(msg.title || '')}`)
       .then((r) => reply({ ok: true, data: r })).catch((err) => reply({ ok: false, error: err.message }))
     return true
+  }
+  if (msg.type === 'aurora:ask-selection') {    // "Ask Pippin" on the words selected on a page
+    askAbout(sender.tab)
+    return false
   }
   if (msg.type === 'aurora:save') {
     save(sender.tab).then((s) => reply({ ok: !!s, data: s }))

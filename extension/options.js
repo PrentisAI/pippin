@@ -1,16 +1,17 @@
-const DEFAULTS = { server: 'http://localhost:8200', token: '', reportContext: true, excluded: '', followEnabled: true }
+const DEFAULTS = { server: 'http://localhost:8200', token: '', reportContext: true, excluded: '', followEnabled: true, askChip: true }
 const $ = (id) => document.getElementById(id)
 const status = (t) => { $('status').textContent = t }
 
 chrome.storage.sync.get(Object.keys(DEFAULTS)).then((saved) => {
   const s = { ...DEFAULTS, ...saved }
   $('server').value = s.server; $('token').value = s.token; $('excluded').value = s.excluded
-  $('reportContext').checked = s.reportContext; $('followEnabled').checked = s.followEnabled
+  $('reportContext').checked = s.reportContext; $('followEnabled').checked = s.followEnabled; $('askChip').checked = s.askChip
 })
 
 $('save').onclick = async () => {
   await chrome.storage.sync.set({ server: $('server').value.trim() || DEFAULTS.server, token: $('token').value.trim(),
-    excluded: $('excluded').value, reportContext: $('reportContext').checked, followEnabled: $('followEnabled').checked })
+    excluded: $('excluded').value, reportContext: $('reportContext').checked, followEnabled: $('followEnabled').checked,
+    askChip: $('askChip').checked })
   status('Saved.')
 }
 

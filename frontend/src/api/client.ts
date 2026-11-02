@@ -15,7 +15,9 @@ import type { AssistantAction, ChatApp, NbClip, NbNote, NbOverview, NbRunPage, C
   TodayView,
   StartExperimentRequest,
   StartExperimentResponse,
+  KeptPage,
 } from '../types'
+import type { BrowserPage } from '../components/memory/browserPage'
 
 const BASE_URL = '/api'
 
@@ -149,7 +151,13 @@ export const api = {
   },
   assistant: {
     /** One turn; *context* is what they are looking at in the console (⌘K), given to Pippin with the question. */
-    say: (text: string, context = '') => request<AssistantTurn & { reply: string; said: string }>('/assistant', post({ text, via: 'typed', context })),
+    say: (text: string, context = '', page: BrowserPage | null = null) =>
+      request<AssistantTurn & { reply: string; said: string }>('/assistant', post({ text, via: 'typed', context, page })),
+    /** The page open in the browser, kept in the Library and opened in the reader. */
+    openPage: (page: BrowserPage) => request<KeptPage>('/assistant/page/open', post(page)),
+    /** An answer about the page kept as a note on it (the page goes into the Library). */
+    keepAnswer: (turnId: string, page: BrowserPage) =>
+      request<KeptPage & { ann_id: string; quote: string }>('/assistant/page/keep', post({ turn_id: turnId, page })),
     history: (limit = 60) => request<AssistantTurn[]>(`/assistant/history?limit=${limit}`),
     clear: () => request<void>('/assistant/history', del),
     /** Do what Pippin proposed (confirm), or drop it. */
