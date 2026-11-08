@@ -1,8 +1,12 @@
 // On every page: what the page says (for saving it) and, when you allow it, what you are reading now
 // (the page, your selection), so Pippin can show what in your notebook bears on it.
 (() => {
-  if (window.__auroraContent) return
-  window.__auroraContent = true
+  // After the extension is reloaded or updated, a script left in an open page has lost it: it stops quietly and the
+  // new one (injected by the background) takes over.
+  const alive = () => { try { return !!chrome.runtime.id } catch { return false } }
+  if (window.__auroraContent && window.__auroraContent()) return
+  window.__auroraContent = alive
+  const send = (m) => { if (!alive()) return; try { chrome.runtime.sendMessage(m).catch(() => {}) } catch { /* reloaded */ } }
 
   const mainText = () => {
     const main = document.querySelector('article, main, [role="main"]') || document.body
@@ -22,8 +26,8 @@
     if (document.visibilityState !== 'visible') return
     clearTimeout(timer)
     timer = setTimeout(() => {
-      chrome.runtime.sendMessage({ type: 'aurora:context', url: location.href, title: document.title,
-        selection: selection(), text: mainText().slice(0, 6000) }).catch(() => {})
+      send({ type: 'aurora:context', url: location.href, title: document.title,
+        selection: selection(), text: mainText().slice(0, 6000) })
     }, 1200)
   }
   document.addEventListener('visibilitychange', report)
@@ -35,7 +39,7 @@
   let told = null
   document.addEventListener('selectionchange', () => {
     clearTimeout(told)
-    told = setTimeout(() => chrome.runtime.sendMessage({ type: 'aurora:selection' }).catch(() => {}), 400)
+    told = setTimeout(() => send({ type: 'aurora:selection' }), 400)
   })
 
   // "Ask Pippin" beside words you select (not in fields you type in; off in the options or on excluded sites)
@@ -55,12 +59,13 @@
       <button type="button" title="Ask Pippin about the selected words (Alt+Shift+A opens the panel)">Ask Pippin</button>`
     const b = root.querySelector('button')
     b.addEventListener('mousedown', (e) => e.preventDefault())     // keep the selection
-    b.addEventListener('click', () => { hide(); chrome.runtime.sendMessage({ type: 'aurora:ask-selection' }).catch(() => {}) })
+    b.addEventListener('click', () => { hide(); send({ type: 'aurora:ask-selection' }) })
     document.documentElement.appendChild(host)
     return host
   }
   document.addEventListener('mouseup', (e) => {
     setTimeout(async () => {
+      if (!alive()) { if (chip) chip.remove(); chip = null; return }
       const sel = window.getSelection()
       const words = selection()
       if (!sel || sel.isCollapsed || words.length < 12 || inField(sel.anchorNode) || (chip && chip.contains(e.target))) { hide(); return }

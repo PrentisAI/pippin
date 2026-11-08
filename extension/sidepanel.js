@@ -2,16 +2,45 @@
 const frame = document.getElementById('panel')
 const msg = document.getElementById('msg')
 
-chrome.runtime.sendMessage({ type: 'aurora:panel-url' }).then(({ url }) => {
+// an "Ask Pippin" that came before the panel had loaded is passed on once it has
+let ready = false
+let pending = false
+
+// The console's address: the one in the options when it answers, else a local console on a usual port (aurora serve
+// uses 8000, the desktop app 8200), which is then kept. When none answers, say so instead of showing a broken page.
+const LOCAL = ['http://localhost:8000', 'http://localhost:8200', 'http://localhost:8002', 'http://127.0.0.1:8000']
+const answers = async (server) => {
+  try { return (await fetch(`${server.replace(/\/$/, '')}/api/health`, { signal: AbortSignal.timeout(1500) })).ok } catch { return false }
+}
+
+async function connect() {
+  const { server = 'http://localhost:8200' } = await chrome.storage.sync.get('server')
+  let found = (await answers(server)) ? server : null
+  if (!found && /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(server)) {
+    for (const s of LOCAL) if (s !== server && await answers(s)) { found = s; break }
+    if (found) await chrome.storage.sync.set({ server: found })
+  }
+  if (!found) {
+    msg.hidden = false
+    frame.hidden = true
+    msg.innerHTML = `<b>Pippin isn’t running at ${server}.</b><br><br>Start it with <code>aurora serve</code> (or open the Pippin
+      desktop app), then <a href="#" id="retry">try again</a>. If it runs elsewhere, set its address in the
+      <a href="#" id="opts">extension’s options</a>.`
+    document.getElementById('retry').onclick = (e) => { e.preventDefault(); msg.textContent = 'Connecting to Pippin…'; connect() }
+    document.getElementById('opts').onclick = (e) => { e.preventDefault(); chrome.runtime.openOptionsPage() }
+    return
+  }
+  const { url } = await chrome.runtime.sendMessage({ type: 'aurora:panel-url' })
+  frame.onload = () => { ready = true; if (pending) { pending = false; setTimeout(() => tellPage(true), 300) } }
   frame.src = url
   frame.hidden = false
   msg.hidden = true
-  frame.addEventListener('error', () => { msg.hidden = false; msg.textContent = `Cannot reach Pippin at ${url}. Check the address in the extension’s options.` })
-})
+}
+connect()
 
 chrome.runtime.onMessage.addListener((m, sender) => {
   if (m.type === 'aurora:refresh' && frame.contentWindow) frame.contentWindow.postMessage({ type: 'aurora:refresh' }, '*')
-  if (m.type === 'aurora:ask') tellPage(true)
+  if (m.type === 'aurora:ask') { if (ready) tellPage(true); else pending = true }
   if (m.type === 'aurora:selection' && sender.tab && sender.tab.active) tellPage(false)
 })
 

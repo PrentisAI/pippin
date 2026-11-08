@@ -94,6 +94,10 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create('follows', { periodInMinutes: 15 })
   chrome.alarms.create('alerts', { periodInMinutes: 5 })
   if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+  // pages already open get the new content script, so they need no reload after an install or update
+  chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] }).then((tabs) => tabs.forEach((t) => {
+    chrome.scripting.executeScript({ target: { tabId: t.id }, files: ['content.js'] }).catch(() => {})
+  }))
 })
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
