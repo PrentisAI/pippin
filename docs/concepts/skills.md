@@ -71,6 +71,15 @@ skills_dirs:
   - ~/my-skills              # ~/my-skills/<name>/SKILL.md
 ```
 
+### Skills others have shared
+
+**Browse** in the *Skills* panel lists a catalog of skills others have published: 69 from K-Dense's Scientific Agent
+Skills, Nature Skills and Orchestra's AI Research Skills, in nine categories, each with its source, licence and a few
+words on what it is for; 14 are marked as a good start. Nothing is added unless you choose it. Adding one downloads
+its whole folder (`SKILL.md`, references, scripts) at a pinned commit, with its licence and a `SOURCE.md` beside it,
+into your library as a skill *from the catalog*: kept as its authors wrote it, for all projects or the ones you
+choose, and removed with its files.
+
 ## Accepting skills
 
 By default nothing joins the library on its own. Each proposed skill appears in

@@ -1,11 +1,15 @@
 # Browser extension and desktop app
 
 Two entry points bring Pippin to where you read and write. Both work against your Pippin console and share its
-[memory](../concepts/memory.md); neither keeps anything of its own.
+[notebook](../concepts/memory.md); neither keeps anything of its own.
 
 ## Connecting
 
-Without accounts (a console only you use), nothing is needed beyond the console's address. With accounts, make a
+Without accounts (a console only you use), nothing is needed beyond the console's address. `aurora serve` listens on
+`http://localhost:8000`; the desktop app starts its own console on `http://localhost:8200`. The extension's side panel
+finds a console on this machine by itself (it tries the address in its options, then ports 8000, 8200 and 8002) and
+keeps the one that answers; when none does, it says so and how to start one. A console on another machine needs its
+address in the extension's options (and the Zotero and Obsidian plugins' settings). With accounts, make a
 token for each entry point on the console's **Notebook** page → *How things come in on their own* → **Make a
 token**, and paste it into the extension's options or the app's settings. Tokens can be revoked there.
 
@@ -42,7 +46,7 @@ Build it from `desktop/` (see its README). An orb sits at the edge of the screen
 | What | How |
 |---|---|
 | **Save** | Drop a link, a selection or a file (PDF or text) on the orb. It swallows it, and a bubble says what happened. |
-| **The panel** | Click the orb, or ⌥ Space: your notebook panel (Now, Ask me, Today). |
+| **The panel** | Click the orb, or ⌥ Space. It opens on your conversation with Pippin, with the notebook (Now, Ask me, Today) a tab away. It is one thread, kept per person, that goes on where it stopped, whether you type here, speak to the orb, ask in the browser's side panel, press ⌘K in the console or write from a [chat app](notifications.md#talking-to-pippin-in-feishu-or-wecom). Pippin answers from your notebook and about what is in front, says where your projects and runs stand and what they found, and gives you buttons to the right page of the console. When you ask it to act on a run (answer its decision, tell it something, stop it), it proposes the action and waits for you to confirm. |
 | **What you are doing** | The app and window in front (with macOS Accessibility access) are sent as context. In another PDF reader (Preview, Acrobat, Skim, PDF Expert…) the paper is told from the file name (an arXiv id, a title in your Library or memory, or Zotero's "Author - Year - Title" looked up in the indexes), and when something you saved argues with it the bubble says so: *2 of your saves argue with this paper (p. 3, p. 7)*. Browsers are left to the extension, which knows the page. When something you saved bears on it, a bubble says so for a few seconds, and nothing else happens. |
 | **The console** | It starts the Pippin console in the background when it is not running, and stops it when you quit. |
 | **A thought** | ⌥⇧N opens a small box: type a thought about what is in front and press Return. It is kept as your own note in the notebook, and as a note on the paper's Zotero item when you allowed *Write notes on Zotero items*. |

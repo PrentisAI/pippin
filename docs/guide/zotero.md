@@ -28,7 +28,7 @@ only to a project you can edit.
 ## What flows each way
 
 Writing into your Zotero is off until you allow it, kind by kind, under the account button → **What Pippin may
-write** (see [Accounts](accounts.md#what-aurora-may-write)). Sending a project's papers during a sync needs *Save
+write** (see [Accounts](accounts.md#what-pippin-may-write)). Sending a project's papers during a sync needs *Save
 papers and their PDFs* set to *Also on its own*; **+ Zotero** on one paper needs it at *When I do it*; your notes on
 a PDF go to Zotero with *Send the notes you keep on a PDF as Zotero annotations*.
 

@@ -1,11 +1,33 @@
 # The shared notebook
 
-Everything you save, from a paper on arXiv to a thread on Zhihu, X, Reddit or Xiaohongshu, goes into one memory.
-Every entry point uses it: the console's **Notebook** page now, the browser extension and the desktop app next.
-The notebook is kept by **claim**, not by document. A claim that three sources make is one *idea unit* with three
+The **Notebook** page keeps your research's own record: a page for every run, written from the run; clips from
+papers with your words; notes you write at length; and everything you saved, from a paper on arXiv to a thread on
+Zhihu, X, Reddit or Xiaohongshu. Every entry point uses it: the console, the browser extension, the desktop app and
+the chat apps. On the left: every project with its runs, your clips, your notes and what you saved; on the right,
+the one open.
+
+What you save is kept by **claim**, not by document. A claim that three sources make is one *idea unit* with three
 sources. Two units that say opposite things are linked as a **conflict**.
 
 The notebook is personal: only you see yours.
+
+## A page for every run
+
+Each run has a page, written from the run itself, never filled in by hand: the idea it took; the hypothesis behind
+it and what would refute it; why it was worth trying (the gap, why this idea over the others, the alternatives,
+screening's scores); what it expected, set against what it found (its claims and recorded results, compared by a
+model once per run and again whenever the findings change); then your notes on it. Clips you made for the run are
+listed under it. A run's page in the console links to it, and the page is shared with everyone who can see the run.
+
+## Clips and notes
+
+A **clip** is a passage taken from a paper word for word, with where it is (the paper, the page) and, under it, what
+you make of it in your own words. Make one in the [reader](literature.md#reading-with-pippin) from a selection; it
+can be for a project and a run, and it opens the paper at its page.
+
+**Notes** are written at length: headings, lists, quotes, code, saved a second after you stop typing. A clip goes into
+a note where the cursor is, as the piece of the page it was cut from with your words under it; pieces are moved by
+their handle and set side by side, so an argument can be laid out from the sources themselves.
 
 ## Idea units
 
@@ -127,4 +149,4 @@ references is about one call per eight citations, plus a few for the missing wor
 ## What Pippin may write
 
 The notebook is Pippin's own. Writing into your tools (Zotero, Overleaf, your notes) is set separately: see
-[What Pippin may write](../guide/accounts.md#what-aurora-may-write).
+[What Pippin may write](../guide/accounts.md#what-pippin-may-write).

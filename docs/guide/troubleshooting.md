@@ -36,6 +36,10 @@ or a time limit (`agent.research_timeout_minutes`) that is too short.
 agents may only edit files in the campaign directory and run commands in the
 container. See [Sandbox and security](sandbox.md).
 
+**The browser extension's side panel says "Pippin isn't running"** (or stays blank) — no console answers at the
+address in the extension's options, nor on ports 8000, 8200 or 8002 of this machine. Start one (`aurora serve`, or
+open the desktop app) and click *try again*; for a console elsewhere, put its address in the extension's options.
+
 **The web console shows "No web console build found"** — in a source checkout,
 build the frontend: `cd frontend && npm ci && npm run build && cp -r dist ../aurora/web`.
 

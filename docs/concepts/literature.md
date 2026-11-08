@@ -169,14 +169,39 @@ highlights and notes, and to send the project's papers back to it. See
 
 ## Your Library
 
-The **Library** (in the sidebar) holds:
+The **Library** (in the left bar) opens on your [feed](../guide/feed.md) and holds:
 
-- the papers you saved yourself;
+- the papers you saved yourself, and **web pages**: a blog post, a thread, a README, any link. A page is an entry
+  like a paper, identified by its address, with a snapshot of its readable article taken when it was saved, so it
+  can still be read after the page changes or disappears. Saving a page from the feed, the browser extension or the
+  notebook keeps it here too;
 - the literature of every project you can see.
 
-Its **Search** tab searches the indexes. Save a result to your own library, or
-add it to a project you can edit. With accounts, the papers of projects you are
-not in stay hidden.
+**Saved** lists papers and pages together, with a label for each kind and a *Pages* filter; a title opens it in the
+reader. **Add a paper or page** takes a DOI, an arXiv ID, a title or any link (a paper is checked against the
+indexes first). The **Search** tab searches the indexes. Save a result to your own library, or add it to a project
+you can edit. With accounts, the papers of projects you are not in stay hidden.
+
+## Reading with Pippin
+
+Any paper (its PDF) or saved page (its snapshot, in a reading column) opens in the reader, with the same notes on
+both: highlights anchored on the words and notes in the margin beside them. Select words to highlight them, write a
+note, ask an agent about them, **Clip** them into your notebook, or **Write here**. How the brainstorm's agents read
+along with an idea is in [Brainstorm](brainstorm.md#reading-a-paper-with-the-agents).
+
+- **Pippin's notes.** Pippin reads each paper once against what you are doing (the project's objective, what its
+  runs set out to test, the brainstorm's idea, your open questions, what you clipped from other papers) and writes
+  a few notes, each on a passage it quotes word for word: what to read a section for, a question the paper raises
+  for your work, where a passage meets something of yours (a run, a clip, a question), and an assumption worth
+  doubting. They are suggestions until you keep them, and Pippin answers when you reply.
+- **Figures it draws.** Where a passage is easier to understand by trying it than by reading it (a quantity that
+  changes with a setting, a trade-off, numbers easier to compare by moving something), Pippin draws a small
+  interactive figure from the paper's own numbers and shows it under the passage. Most papers get none. A figure
+  runs in a sandboxed frame with no network, and its source is a click away. Brainstorm agents can draw them too.
+- **Gaps to write in.** Open the page under any line (the **+** in the margin, or **Write here** on a selection):
+  the page parts there and you write in between, at any length, saved as you go.
+- **Clips.** **Clip** keeps the selected words in your notebook with their page and, under them, what you make of
+  them; a clip can be put into a [notebook note](memory.md#clips-and-notes) as the piece of the page it was cut from.
 
 ## Configuration
 

@@ -12,8 +12,8 @@ aurora quickstart                    # check this machine, set the key, see the 
 `aurora quickstart` walks through the next steps in the terminal: it checks
 Python, Claude Code and Docker (and offers to pull the container image), asks for
 your OpenRouter key (checked with OpenRouter and saved in `~/.aurora/.env`,
-readable only by you), runs the offline demo, and starts the web console, where
-a welcome takes it from there. Every question can be answered no; `-y` answers
+readable only by you), runs the offline demo, and starts the web console, whose
+start page takes it from there. Every question can be answered no; `-y` answers
 yes to all of them and `--no-serve` stops before the console.
 
 To try only the pipeline first:

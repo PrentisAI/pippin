@@ -2,11 +2,21 @@
 
 The **Library** opens on your feed: new papers, posts, blogs and discussions
 from the people and sources you follow, each ranked against every project you
-can see, and shown under the ones it fits with one sentence on why.
+can see, and shown under the ones it fits with one sentence on why. Its first line says what it follows (people,
+topics, your projects' objectives, other sources) and that what comes in is picked from them, with one box to follow
+someone (searched at once), a topic or a blog's feed.
+
+## One paper at a time
+
+**Go through N new papers, one at a time** shows the feed's papers one by one: why it was picked, what it says, and
+four ways on. **Skip** (J or ←) passes it by; **Less like this** (X) hides it and ranks similar ones lower; **Into
+notebook** (S or ↓) keeps what it says among your saves; **Read with me** (R or →) puts it in the project it fits
+and opens it in the [reader](../concepts/literature.md#reading-with-pippin). U undoes the last one. On a trackpad or
+a phone, swipe: left to skip, right to read, down to keep.
 
 ## A card
 
-Each card says what it is (*Paper*, *Post*, *Blog*, *Discussion*), where it
+Each card says what it is (*Paper*, *Post*, *Blog*, *Code*, *Video*, *Discussion*), where it
 comes from, when, and for a paper its checked identity (`✓ arXiv:2610.08812`).
 Below the title and the people (those you follow are links to their page) and a
 summary, **Why for &lt;project&gt;** says what it means for that project: its
@@ -38,15 +48,22 @@ brought today (and any source that did not answer, with why).
 **Sources and people** (top of the Library) is where you choose what the feed
 follows.
 
-**People.** Type a name, a profile link (OpenAlex, Semantic Scholar, ORCID, a
-homepage), an ORCID, or a handle (`@someone.bsky.social`, `@user@mastodon.social`,
-`x.com/someone`). When several authors share the name, you pick the right one by
-affiliation, number of papers, latest paper and co-authors. Pippin then looks
-for their other places, in their ORCID record and on their homepage: Bluesky,
-Mastodon, X, their blog's feed. What it is sure of is ticked; what it only found
-by name is offered unticked, with a note. For each person you choose what to
-follow: papers, posts, blog, and discussions about their work; click a place to
-stop or start following it there.
+**People.** Type a name, a profile link (OpenAlex, Semantic Scholar, ORCID, a homepage), an ORCID, or a handle
+(`@someone.bsky.social`, `@user@mastodon.social`, `x.com/someone`). When several authors share the name, you pick the
+right one by affiliation, number of papers, latest paper and co-authors. Pippin then looks for their places, and each
+step shows on the page as it happens (the web search, who it found, each place as it is checked):
+
+- with a model that can search the web, one search lists their homepage, blog, X, Bluesky, Mastodon and OpenAlex
+  profile; a blog must have a feed, an account must exist and the OpenAlex author must carry their name, or the place
+  is left out. Without one, the links in their ORCID record and on their homepage are followed;
+- once the person is certain: their arXiv papers by name, their GitHub and their own YouTube channel (new
+  repositories and videos come into the feed as *Code* and *Videos*), and talks or videos with them or about their
+  papers, each checked to exist;
+- links to open, not followed: their homepage, Google Scholar, Semantic Scholar, LinkedIn, ORCID.
+
+What it is sure of is ticked; what it only found by name is offered unticked, with a note. For each person you choose
+what to follow: papers, posts, blog, code, videos and discussions about their work; click a place to stop or start
+following it there. A person's page lists what came from them by kind.
 
 **Topics.** arXiv categories (`cs.LG`, `stat.AP`) and keywords, searched in
 arXiv and OpenAlex. *Topics from my projects' objectives* adds search phrases

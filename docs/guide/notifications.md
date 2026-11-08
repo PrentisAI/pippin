@@ -72,6 +72,21 @@ approve anything.
   must be reachable from the phone that opens them. Turn them off with
   *Approve/Stop links* in the settings (`notifications.action_links: false`).
 
+## Talking to Pippin in Feishu or WeCom
+
+The channels above only send: they cannot hear a reply. To talk to Pippin from a chat app, connect the team's own
+app once under **Settings → Chat apps**: a Feishu/Lark custom app with the bot ability, or a WeCom self-built app.
+A team admin enters its IDs and secrets there and points the app's message callback at the address shown
+(`/im/feishu` or `/im/wecom` on this console, which must be reachable from the internet).
+
+Each person then links their chat account once: the same page gives them a code, and they send `绑定 <code>` (or
+`bind <code>`) to the bot. From then on what they write to the bot goes to Pippin as them (their projects, their
+rights), in the same conversation as the console's ⌘K, the orb and the browser's side panel; the answer comes back
+in the chat. Pippin can read a run's report and what it found, and say where a project stands. When they ask it to
+act on a run (answer its decision, tell it something, stop it), it proposes the action and nothing happens until
+they reply `确认` / `yes` (`取消` / `no` drops it). Their decision and run notifications come to the same chat, so
+they can answer them there.
+
 ## Quiet hours
 
 Set **Quiet hours** (from, until; the server's clock, may span midnight) and

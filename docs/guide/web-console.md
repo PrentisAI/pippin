@@ -4,113 +4,102 @@
 aurora serve              # then open http://localhost:8000
 ```
 
-![The web console: a report, with the provenance of one result open](../assets/console-report.png)
+![The web console: the report of the bundled Citi Bike example run](../assets/console-report.png)
+
+## Finding your way
+
+The left bar lists your projects and their runs, and the places of the console, one open at a time: **Home**,
+**Brainstorm**, **Library**, **Notebook** and **Analytics**, then **Skills**, **Team** (with accounts) and
+**Settings**. **Search** (⌘K) opens over whatever page is open, and **Help** is a drawer beside it, so neither
+replaces the page you are on.
+
+**⌘K, anywhere.** A box that knows what you are looking at: the project, the run, the text you selected. Type and
+press Enter to ask Pippin about it (the same conversation as the orb's and the browser's side panel; what is in
+front is passed along, not kept as your words), or pick a page, a project or a run, or a report, conversation or
+skill that the search finds. ↑ ↓ choose, Esc closes. An answer opens in the box, with buttons to the pages it names.
 
 ## The first time
 
-**The welcome.** The first time a person opens the console — you, and with
-accounts every new member — a short welcome takes them through four steps:
+**The start page is a conversation.** *Hi, I'm Pippin. What would you like to do?* — start your own experiment,
+work out the question first (with the Mentor), or see how it works (a finished run with the tour, or a scripted run
+to watch). It then sets this machine up for what you chose, one thing at a time and only what that needs: the model
+key (pasted there, checked with OpenRouter and saved in `AURORA_HOME/.env`, readable only by the console's user),
+Claude Code (installed for you in the background) and Docker (the one thing you install yourself, since its
+installer asks for your password; the page notices when it runs, or takes the path of its `docker` command). Once a
+key is there, what you type is read by a model, so *no idea yet* brings the Mentor and examples rather than being
+taken for a research question. It says what the next page is for and takes you there. The conversation is kept in
+this browser; a question you typed survives the setup.
 
-1. *Welcome*: what Pippin does, who checks the work, where they come in.
-2. *Connect*: what this machine has and what is missing, each with how to fix
-   it, and the model key (without accounts the console's, with accounts their
-   own). Optional extras (GPU jobs, notifications, OpenAlex, Zotero) can wait.
-3. *Your way of working*: their field (its templates and examples come first),
-   how hands-on new runs are (supervised or autonomous) and their budget. Without
-   accounts these become the console's defaults, with accounts the person's own.
-4. *Start*: walk through a finished example with the tour, watch the scripted
-   demo, or start their own research.
+**Today.** Once you have a project of your own, Home opens on Today (the start conversation is one click away,
+**New question**): one sentence on how things stand; what waits for you from every project, answered right there
+(a run's decision — continue, reply with an instruction, stop, or open the run to choose a direction —, what the
+notebook flagged such as a retraction or a paper close to your aim, a skill to approve); what changed since
+yesterday; the papers most worth reading; and a box to ask Pippin.
 
-Every step can be skipped and comes back from **Help → Open the welcome again**.
+**Examples.** A console comes with finished runs to look at: *Citi Bike usage patterns*, a real run from question
+to report (with a screening decision and the live auditor stopping the agent), and the scripted demo. An example is
+marked *example · read-only* in the project list: everyone can open its stream, files and report and ask its front
+desk about it, nobody can change or delete it. **Duplicate it as my project** makes a project of your own with its
+question, ready to run. Help → Examples lists them; each person can hide them from their project list, and an admin
+can take one out of the console (and put it back).
 
-**Examples.** A console comes with finished runs to look at: *Citi Bike usage
-patterns*, a real run from question to report (with a screening decision and
-the live auditor stopping the agent), and the scripted demo. An example is
-marked *example · read-only* in the project list: everyone can open its stream,
-files and report and ask its front desk about it, nobody can change or delete
-it. **Duplicate** makes a project of your own with its question, ready to run.
-Help → Examples lists them; each person can hide them from their project list,
-and an admin can take one out of the console (and put it back).
+**Watch a run** adds a run of scripted models and simulated tools to your demo project (made the first time): the
+ideation meeting, every phase, the auditors' checks and a report, in seconds, with no key, no Docker and no cost.
 
-**The tour.** Three chapters, each a spotlight on one part of the console with
-what it is and what to do there: *A finished run* (the project list, the status
-of a run, report, re-run and fork, the stream and its decisions, files and
-jobs, the project's tabs, talking to a run, the report and its downloads),
-*Around Pippin* (every button of the left bar) and *Your own research* (the
-brief, the templates, the proposal card, a run at work, what comes after).
-Arrow keys move through it; Esc ends it.
+**The tour.** Three chapters, each a spotlight on one part of the console with what it is and what to do there:
+*A finished run* (the project list, where a run is, report, re-run and fork, the stream and its decisions, files
+and jobs, talking to a run, the report and where each number comes from), *Around Pippin* (every place in the left
+bar, ⌘K included) and *Your own research* (the brief, the proposal, a run at work, what comes after). Arrow keys
+move through it; Esc ends it.
 
-**Help (?).** The button at the bottom of the left bar, with the number of
-things not tried yet:
+**Help (?).** At the bottom of the left bar, with the number of things not tried yet:
 
-- *Ask how to do something*: answered from the documentation by the front
-  desk's model, with links to the pages (without a key, the matching pages);
-- *Getting started*: a checklist that ticks itself as you do things — connect a
-  key, walk through the example, watch the demo, start your own research, answer
-  a decision, trace a number in a report, brainstorm, bring in papers, get
-  decisions on your phone, find your way around (and, for admins, connect GPUs
-  and invite the team);
-- the tours, the examples, and every guide of the documentation, read in the
-  console.
+- *Ask how to do something*: answered from the documentation by the front desk's model, with links to the pages
+  (without a key, the matching pages);
+- *Getting started*: a checklist that ticks itself as you do things — connect a key, walk through the example,
+  watch the demo, start your own research, answer a decision, trace a number in a report, brainstorm, bring in
+  papers, get decisions on your phone, find your way around (and, for admins, connect GPUs and invite the team);
+- the tours, the examples, and every guide of the documentation, read in the console.
 
-**First-time tips.** The first time something appears — a proposal card, a
-decision, a run at work, a report, Compare, Fork, GPU jobs, the Brainstorm, the
-Library — a short tip says what it is; *Got it* hides it for good, and Help can
-show them all again.
-
-**Setup.** The start page also shows what a run needs and whether it is there
-(a model key, Claude Code, Docker) and what helps (the container image pulled,
-GPU jobs, notifications, an OpenAlex key), each with how to fix it. Without
-accounts you can paste the OpenRouter key there (it is checked with OpenRouter
-and saved in `AURORA_HOME/.env`, readable only by the console's user) and pull
-the image with one click. The card hides once everything needed is there, or
-when you dismiss it.
-
-**Watch a demo run** adds a run of scripted models and simulated tools to your
-demo project (made the first time): the ideation meeting, every phase, the
-auditors' checks and a report, in seconds, with no key, no Docker and no cost.
-It shows what a run looks like before you spend anything.
-
-Below the box, **templates** start the most common kinds of work: *Analyse a
-dataset*, *Compare methods*, *Reproduce a paper*, *Explore an open question*,
-*Run a simulation study*. A template fills in a brief with [brackets] to
-replace (the first one is selected) and says which phases it will likely use.
+**First-time tips.** The first time something appears — a proposal card, a decision, a run at work, a report,
+Compare, Fork, GPU jobs, the Brainstorm, the Library — a short tip says what it is; *Got it* hides it for good, and
+Help can show them all again.
 
 ## Projects and experiments
 
-A **project** groups related experiments and has its own chat. Type what you
-want to investigate on the start page to create one. The project's front desk
-asks what is unclear and then shows a **proposal card**: the instruction the
-agents will get, a summary, and the phases to run. Change the phases on the
-card, choose the ideation mode (*Round table* or *Independent*) when ideation
-runs, set the budget (US$20 by default; empty means no limit), or ask the front
-desk to change the instruction, then **confirm** to start the experiment.
-*Advanced settings* on the card set whether decisions wait for you
-(supervised or autonomous), the model of every role (the agents of each
-phase, the ideation seats and chair, both auditors and the front desk), and the
-container's CPUs and memory.
+A **project** groups related experiments. Type what you want to investigate on the start page (or **+** in the
+left bar) to create one. The project's front desk asks what is unclear and then shows a **proposal card**: the
+instruction the agents will get, a summary, and the phases to run. Change the phases on the card, choose the
+ideation mode (*Round table* or *Independent*) when ideation runs, set the budget (US$20 by default; empty means no
+limit), or ask the front desk to change the instruction, then **confirm** to start the experiment. *Advanced
+settings* on the card set whether decisions wait for you (supervised or autonomous), the model of every role (the
+agents of each phase, the ideation seats and chair, both auditors and the front desk), and the container's CPUs
+and memory. The card also shows what the run will likely cost and take
+([Estimate](results.md#estimate-before-a-run)).
 
-An **experiment** is one campaign. Its page shows
+A project opens like a document, its **Overview**: its question, where it stands (a sentence or two from what its
+runs are doing), what waits for you (answered there), what its runs found (the claims each run kept, with how they
+stand) and its runs. Its other views are tabs: **Chat** (the project's front desk), **Literature**, and **Compare**
+once it has several runs.
+
+An **experiment** (a run) is one campaign. Its page has no tabs: the left bar goes to the project's other runs and
+the header back to the project. It shows
 
 - the **phase pipeline** and the current phase;
-- the **live stream**: the ideation meeting as it happens (each seat's
-  presentation and remarks appear while they are written), agent reasoning and tool calls, job boundaries,
-  milestone audit verdicts, live-auditor verdicts, human gates, front-desk
-  messages and skill suggestions;
-- the **files** of the experiment: its campaign directory (plans, audit
-  reports, transcripts, the report) and, while it runs, the container's `/app`
-  (`app (live container)`). You can open and edit files; edits to container
+- the **live stream**: the ideation meeting as it happens (each seat's presentation and remarks appear while they
+  are written), agent reasoning and tool calls, job boundaries, milestone audit verdicts, live-auditor verdicts,
+  human gates, front-desk messages and skill suggestions;
+- the **files** of the experiment: its campaign directory (plans, audit reports, transcripts, the report) and,
+  while it runs, the container's `/app` (`app (live container)`). You can open and edit files; edits to container
   files go straight into the running container;
 - the **cost** so far;
-- the container's **CPU and memory limits** (*Container*): click to change them,
-  at once while the experiment runs, or for its resume or re-run;
-- **Report**, once there is one: every number traced to the script that computed
-  it, downloads, a script that reproduces it, and *Put into Overleaf*; **Fork...**
-  starts a new run from any phase or job of this one; a project with several
-  runs has a **Compare** tab. See [Results, reports and runs](results.md).
-
-The proposal card also shows what the run will likely cost and take
-([Estimate](results.md#estimate-before-a-run)).
+- the container's **CPU and memory limits** (*Container*): click to change them, at once while the experiment
+  runs, or for its resume or re-run;
+- **Report**, once there is one: every number traced to the script that computed it, downloads, a script that
+  reproduces it, and *Put into Overleaf*; **Fork...** starts a new run from any phase or job of this one. See
+  [Results, reports and runs](results.md);
+- a link to the run's page in the [Notebook](../concepts/memory.md#a-page-for-every-run): its idea, hypothesis,
+  expected against actual, and your notes on it.
 
 ## Talking to an experiment
 
@@ -189,15 +178,14 @@ files 200 GB (`uploads.max_file_gb`, `uploads.max_project_gb`, also in
 
 ## Literature and the Library
 
-A project's **Literature** tab lists the papers the agents cited, the references
-that could not be found in any index (with what to do about each), and every
-search the agents ran. The **Library** (the book icon) opens on your **feed**:
-new papers, posts, blogs and discussions from the people and sources you follow,
-ranked against your projects (see [The feed](feed.md)). Its **Saved** tab holds
-your own papers, what you saved from the feed and the literature of the projects
-you can see; **Search** searches the scholarly indexes. In a project's chat,
-**+ → From the Library** attaches a saved item for the front desk to read. See
-[Literature](../concepts/literature.md).
+A project's **Literature** tab lists the papers the agents cited, the references that could not be found in any
+index (with what to do about each), and every search the agents ran. The **Library** opens on your **feed**: new
+papers, posts, blogs and discussions from the people and sources you follow, ranked against your projects, one at a
+time if you like (see [The feed](feed.md)); its top line says what it follows, with a box to follow more. Its
+**Saved** tab holds your papers and web pages (each page kept as a snapshot), what you saved from the feed and the
+literature of the projects you can see; **Search** searches the scholarly indexes. Any paper or page opens in the
+reader, where you and the agents write notes beside the words (see [Literature](../concepts/literature.md#reading-with-pippin)).
+In a project's chat, **+ → From the Library** attaches a saved item for the front desk to read.
 
 ## Brainstorm
 
@@ -206,12 +194,10 @@ Methods and the Librarian, keep ideas as arguments (evidence for, against, open
 questions, next steps), and turn one into an experiment proposal. See
 [Brainstorm](../concepts/brainstorm.md).
 
-## Search, Analytics and Settings
+## Analytics and Settings
 
-The sidebar on the left also opens:
+The left bar also opens:
 
-- **Search** — projects, runs (names and instructions), reports, the project and
-  experiment chats, and skills, with the matching passage; a click opens it.
 - **Analytics** — what the experiments cost and how they went over the last 7,
   30, 90 or 365 days: total cost, runs, the share completed, mean duration, cost
   per day, cost per project, and the most expensive runs.
@@ -226,7 +212,8 @@ The sidebar on the left also opens:
   links that answer a decision from the message; *Cluster jobs* lets the
   research agents submit SLURM jobs and *GPU machine (SSH)* run jobs on a GPU
   server over SSH ([GPU jobs](cluster-jobs.md)); their states and what the GPUs
-  are doing appear under **Jobs** on the experiment's right bar.
+  are doing appear under **Jobs** on the experiment's right bar. *Chat apps* links your Feishu/Lark or WeCom
+  account so you can talk to Pippin there ([Notifications](notifications.md#talking-to-pippin-in-feishu-or-wecom)).
 
 ## Changing settings in conversation
 

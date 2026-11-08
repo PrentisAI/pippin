@@ -5,7 +5,7 @@ feature does, how you reach it, and the settings that matter; the linked pages g
 
 | Area | In short |
 |---|---|
-| [Getting started](#getting-started) | quickstart, offline demo, welcome, examples, tour, help |
+| [Getting started](#getting-started) | quickstart, offline demo, a start page you talk to, Today, examples, tour, help |
 | [Projects and experiments](#projects-and-experiments) | a project chat that drafts a proposal; one experiment = one campaign |
 | [The research cycle](#the-research-cycle) | ideation → screening → planning → pre-flight → research → analysis → writing, with follow-up rounds |
 | [Oversight](#oversight-auditors-and-you) | milestone auditor, live auditor, human gates, front desks you talk to while it works |
@@ -15,15 +15,15 @@ feature does, how you reach it, and the settings that matter; the linked pages g
 | [Literature and the Library](#literature-and-the-library) | real papers only, every reference checked |
 | [Brainstorm](#brainstorm) | Skeptic, Methods, Librarian and Mentor; ideas as arguments; drafts and your own versions |
 | [Zoom out, zoom in](#zoom-out-zoom-in) | a map of a field as a chain; a deep read of a paper in twelve questions |
-| [Paper reader](#paper-reader) | read a PDF with the agents; notes in step with Zotero |
+| [Reading with Pippin](#reading-with-pippin) | a paper or page with notes in the margin, Pippin's notes and figures, gaps to write in, clips |
 | [The feed](#the-feed) | new papers and posts from whom you follow, ranked against your projects |
 | [Zotero](#zotero) | two-way sync, annotations both ways, and a Zotero 7 plugin |
-| [The shared notebook](#the-shared-notebook) | everything you save, kept by claim; what bears on what you do surfaces |
+| [The shared notebook](#the-shared-notebook) | a page per run, clips, long notes; everything you save, kept by claim |
 | [Where you read and write](#where-you-read-and-write) | browser extension, Overleaf, macOS orb, Obsidian, voice |
-| [What Pippin may write](#what-aurora-may-write) | every write into your tools off by default, logged, undoable |
+| [What Pippin may write](#what-pippin-may-write) | every write into your tools off by default, logged, undoable |
 | [Accounts and sharing](#accounts-and-sharing) | sign-in, roles, sharing, own keys, confidential projects, team rules |
-| [Notifications](#notifications) | WeCom, Feishu, Slack, WeChat, webhooks; answer decisions from the phone |
-| [Around the console](#around-the-console) | files, search, analytics, settings, settings by conversation |
+| [Notifications](#notifications) | WeCom, Feishu, Slack, WeChat, webhooks; answer decisions from the phone; talk to Pippin in Feishu or WeCom |
+| [Around the console](#around-the-console) | ⌘K, files, analytics, settings, settings by conversation |
 | [Command line](#command-line) | `aurora run`, `resume`, `serve`, `users`, `skills`, and the agents' `job` and `papers` |
 | [Reference and research](#reference-and-research) | configuration, campaign files, events, reproducing the paper |
 
@@ -37,22 +37,23 @@ feature does, how you reach it, and the settings that matter; the linked pages g
 | **`aurora demo`** | The whole pipeline in seconds with scripted models and simulated tools: no key, no Docker, no Claude Code, no cost. Same files and events as a real run. |
 | **`aurora doctor`** | Checks Claude Code, Docker, the API key and a config. Every campaign runs the same checks at start and stops with instructions if something is missing. |
 | **`aurora init`** | Writes a commented starter `aurora.yaml`. |
-| **Welcome** | The first time someone opens the console (with accounts, every new member): *Welcome*, *Connect* (what this machine has and lacks, each with how to fix it; the model key), *Your way of working* (field, supervised or autonomous, budget), *Start* (example, demo or own research). Every step can be skipped; **Help → Open the welcome again**. |
+| **A start page you talk to** | *What would you like to do?* — start an experiment, work out the question with the Mentor, or see how it works. It sets the machine up for that one thing at a time: the model key (pasted and checked), Claude Code (installed in the background), Docker (you install it; the page notices, or takes the path of `docker`). With a key, what you type is read by a model, so *no idea yet* brings the Mentor rather than a project. Kept in this browser. |
+| **Today** | Home once you have a project: one sentence on how things stand; what waits for you from every project, answered in place (decisions, what the notebook flagged, skills to approve); what changed since yesterday; the papers most worth reading; a box to ask Pippin. **New question** goes back to the start conversation. |
 | **Examples** | Finished runs to look at, read-only: *Citi Bike usage patterns* (a real run, with a screening decision and the live auditor stopping the agent) and the scripted demo. **Duplicate** makes a project of your own with the same question. Each person can hide them; an admin can withdraw one. |
-| **The tour** | Three chapters of spotlights: *A finished run*, *Around Pippin* (every button of the left bar), *Your own research*. Arrow keys move, Esc ends. |
+| **The tour** | Three chapters of spotlights: *A finished run*, *Around Pippin* (every place in the left bar, ⌘K included), *Your own research*. Arrow keys move, Esc ends. |
+| **⌘K** | On any page: ask Pippin about what you are looking at (the project, the run, the selected text), or jump to a page, project, run, report, conversation or skill. |
 | **Help (?)** | Ask how to do something (answered from the documentation, with links); a *Getting started* checklist that ticks itself; the tours, the examples and every guide, read in the console. |
 | **First-time tips** | The first proposal card, decision, running run, report, Compare, Fork, GPU jobs, Brainstorm and Library each get a short tip; *Got it* hides it for good. |
-| **Setup card** | On the start page: what a run needs (key, Claude Code, Docker) and what helps (image pulled, GPU jobs, notifications, OpenAlex key), each with its fix. Without accounts the key can be pasted there and the image pulled with one click. |
-| **Watch a demo run** | Adds a scripted run to your demo project: the ideation meeting, every phase, the auditors and a report, in seconds, for free. |
-| **Templates** | *Analyse a dataset*, *Compare methods*, *Reproduce a paper*, *Explore an open question*, *Run a simulation study*: a brief with [brackets] to fill in and the phases it will likely use. |
+| **Watch a run** | Adds a scripted run to your demo project: the ideation meeting, every phase, the auditors and a report, in seconds, for free. |
 
 See [Installation](getting-started/installation.md), [Your first campaign](getting-started/first-campaign.md) and
 [Web console](guide/web-console.md#the-first-time).
 
 ## Projects and experiments
 
-- **A project** groups related experiments and has its own chat. Type what you want to investigate on the start
-  page to create one.
+- **A project** groups related experiments. Type what you want to investigate on the start page to create one. It
+  opens as a document (**Overview**): its question, where it stands, what waits for you, what its runs found (their
+  claims and how they stand) and its runs; **Chat**, **Literature** and **Compare** are tabs.
 - **The project front desk** asks what is unclear, then shows a **proposal card**: the instruction the agents
   will get, a summary, and the phases to run. On the card you can:
   - tick or untick phases, choose *Round table* or *Independent* ideation, set the budget (US$20 by default;
@@ -70,7 +71,7 @@ See [Installation](getting-started/installation.md), [Your first campaign](getti
   reasoning and tool calls, job boundaries, audit verdicts, live-auditor verdicts, human gates, front-desk
   messages, skill suggestions, literature searches and flagged references, GPU jobs), the files (the campaign
   directory and, while it runs, the live container's `/app`, editable in place), the cost, the container limits,
-  the report, and **Fork…**; a project with several runs has a **Compare** tab.
+  the report, **Fork…**, and its page in the Notebook. It has no tabs: the left bar goes to the other runs.
 - **Stop** (at the next safe point), **Resume** (from the checkpoint), **Re-run** (same settings), **Rename** and
   **Delete** (optionally with the files on disk, showing how much space that frees) from each item's ⋮ menu.
 - **Templates and settings by conversation**: "budget 50 dollars, Opus for research, 32 CPUs" goes into the card;
@@ -251,6 +252,9 @@ See [Sandbox and security](guide/sandbox.md) and [GPU jobs](guide/cluster-jobs.m
 - **You decide**: each proposal is a card (a revision side by side with the current text); *Edit first*, choose
   where it applies (this run, this project, selected projects, all projects), *Add* or *Dismiss*. A team rule can
   require an admin's approval before a skill leaves its project; skills from confidential projects never leave.
+- **Shared by others**: **Browse** lists 69 published skills (K-Dense's Scientific Agent Skills, Nature Skills,
+  Orchestra's AI Research Skills) in nine categories with source and licence; adding one copies its whole folder at a
+  pinned commit, kept as written, for all projects or chosen ones.
 
 See [Skills](concepts/skills.md).
 
@@ -270,8 +274,9 @@ See [Skills](concepts/skills.md).
   import BibTeX or RIS; newer arXiv versions (**Cite vN**); export `.bib`.
 - **Which found papers go in by themselves**: `cited` (default), `all` or `none`, per console, per project and
   per run.
-- **The Library**: your own papers and the literature of every project you can see; **Search** the indexes; the
-  **feed** (below).
+- **The Library**: your own papers and **web pages** (a blog, a thread, a README: kept as a snapshot of the
+  readable article, so it outlives the page), and the literature of every project you can see; **Add a paper or
+  page** takes any link; *Saved* lists both, with a *Pages* filter; **Search** the indexes; the **feed** (below).
 
 See [Literature](concepts/literature.md).
 
@@ -327,25 +332,41 @@ to the brainstorm.
 
 See [Zoom out and zoom in](concepts/zoom-out-zoom-in.md).
 
-## Paper reader
+## Reading with Pippin
 
-- The PDF with its notes beside it. Select words to highlight, note, or ask the Librarian, the Skeptic or Methods;
-  the answer comes in the note's conversation.
-- **The agents read along** for your idea, each marking up to two passages as dashed suggestions you **Keep** or
-  **Dismiss**.
-- Author colours (you yellow, Librarian blue, Skeptic orange, Methods purple); filter by author.
+- **Any paper or page** opens in the reader: a PDF, or a saved page's snapshot in a reading column, with the same
+  notes on both: highlights anchored on the words, notes in the margin beside them.
+- Select words to highlight, note, ask the Librarian, the Skeptic or Methods (the answer comes in the note's
+  conversation), **Clip** them into your notebook, or **Write here**.
+- **Pippin's notes**: it reads each paper once against your work (the project, its runs, your questions and clips)
+  and writes a few notes on passages it quotes: what to read a section for, a question for you, where it meets your
+  work, what is worth doubting. Suggestions until you keep them; it answers replies.
+- **Figures it draws** where trying beats reading: small interactive figures from the paper's own numbers, under
+  the passage, in a sandboxed frame with no network, source one click away. Most papers get none.
+- **Gaps to write in**: the **+** in the margin opens the page under any line, and you write in between at any
+  length.
+- **The agents read along** for a brainstorm idea, each marking up to two passages as dashed suggestions you
+  **Keep** or **Dismiss**. Author colours (you yellow, Librarian blue, Skeptic orange, Methods purple); filter by
+  author.
 - Notes private by default; **Share with the project** to discuss them.
 - **Zotero annotations both ways**, including agents' kept notes with their colour and replies in the comment.
 - The **Deep read** tab, and the **Your saves** tab: the sentences of this paper that something you saved argues
   with, with a margin button (*N of your saves argue with this page*).
 - The PDF comes from the project, your Library, another project, or the open copy fetched once.
 
+See [Reading with Pippin](concepts/literature.md#reading-with-pippin).
+
 ## The feed
 
 - New papers, posts, blogs and discussions from the people and sources you follow, ranked against every project
   you can see, each with **Why for <project>** and how well it fits.
-- **People**: by name (pick the right one among namesakes), profile link, ORCID or handle; Pippin finds their
-  other places (Bluesky, Mastodon, X, blog) and you choose what to follow from each.
+- **People**: by name (pick the right one among namesakes), profile link, ORCID or handle; Pippin searches the web
+  for their places (homepage, blog, X, Bluesky, Mastodon, OpenAlex, arXiv, GitHub, their YouTube channel, talks),
+  checks each one and shows each step as it goes; you choose what to follow (papers, posts, blog, code, videos,
+  discussions about their work).
+- **What it follows**, in a line at the top of the feed, with one box to follow someone, a topic or a blog.
+- **One paper at a time**: skip (J/←), less like this (X), into notebook (S/↓), read with me (R/→), undo (U), or
+  swipe.
 - **Topics**: arXiv categories and keywords, and topics worked out from your projects' objectives.
 - **Other sources**: HF Daily Papers, discussions around your projects' papers (Bluesky, Hacker News,
   OpenReview, with **Show the points**), any blog's RSS or Atom; X with your own API key.
@@ -370,6 +391,11 @@ See [The feed](guide/feed.md).
 See [Zotero](guide/zotero.md).
 
 ## The shared notebook
+
+The **Notebook** page holds a **page for every run**, written from the run (the idea, the hypothesis and what
+would refute it, why it was worth trying, what it expected set against what it found, then your notes), your
+**clips** (passages cut from papers with their page and your words), **notes** written at length (a clip goes in
+as the piece of the page, set side by side with others), and everything you save.
 
 Everything you save is kept by **claim**: the same claim from several sources (in any language) is one **idea
 unit** with several sources, each with its own words found again in a snapshot; opposite claims are linked as
@@ -434,7 +460,12 @@ See [The shared notebook](concepts/memory.md).
 ### The macOS orb (Tauri)
 
 - A ball at the screen's edge: drop a link, a selection or a file to save it (it swallows it and says what
-  happened); click or ⌥Space for the panel; drag it and it settles against the nearest side.
+  happened); click or ⌥Space for the panel, which opens on your conversation with Pippin (one thread with the
+  browser's side panel, ⌘K and the chat apps; the notebook a tab away); drag it and it settles against the nearest
+  side.
+- **Pippin, in conversation**: answers from your notebook and about what is in front, says where your projects and
+  runs stand and what a run found, gives buttons to the right page, and proposes an action on a run (answer its
+  decision, tell it something, stop it) that happens only once you confirm.
 - Knows the app and window in front (Accessibility) and says in a bubble when something you saved bears on it. In
   another PDF reader (Preview, Acrobat, Skim…) it tells the paper from the file name and says when your saves argue
   with it, with the pages.
@@ -509,6 +540,9 @@ See [Accounts and sharing](guide/accounts.md).
 - **Approve and continue** / **Stop the experiment** links that confirm on a page (so link previews cannot act),
   signed, expiring after a day, respecting who may decide.
 - **Quiet hours** with a summary when they end, and kinds that still come through.
+- **Chat apps**: connect the team's Feishu/Lark or WeCom app once, link your account with a code, and talk to
+  Pippin there (the same conversation as the orb's); proposals are done when you reply `确认` / `yes`, and your
+  decisions and run notifications come to the same chat.
 
 See [Notifications](guide/notifications.md).
 
@@ -517,7 +551,8 @@ See [Notifications](guide/notifications.md).
 | Feature | What it does |
 |---|---|
 | **Files** | Upload files and whole folders with a message, to the project (shared by its runs), as a run's inputs (copy-on-write clones), or into a running experiment; preview, folders, delete, unpack archives; limits per file and project. |
-| **Search** | Projects, runs, reports, chats and skills, with the matching passage. |
+| **⌘K** | On any page: ask Pippin about what is in front (the project, the run, your selection), or go to a page, project or run; it also finds reports, chats and skills, with the matching passage. |
+| **Help drawer** | Beside whatever page is open: ask how to do something, the getting-started checklist, the tours, the examples and the guides. |
 | **Analytics** | Cost and outcomes over 7–365 days: total cost, runs, completion share, mean duration, cost per day and per project, the most expensive runs. |
 | **Settings** | Defaults for new experiments (models of every role, budget, time, decision mode, front desk, ideation, research limits, live auditor, container, skill learning), the environment (key set or not, Docker, Claude Code, CPUs, memory, disk), notifications, cluster jobs and the SSH GPU machine. |
 | **Remote use** | Without accounts it listens on 127.0.0.1 (use an SSH tunnel); with accounts it can sit behind HTTPS. |

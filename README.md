@@ -15,7 +15,7 @@ yours — while you can talk to it at any time without stopping it.
 Pippin is the system of the paper *Pippin: Towards Long-Horizon Open-Ended
 AutoResearch with Human-Agent Synergy*.
 
-![A report in the Pippin console: every number is a chip; clicking one shows the script, command, files and job that produced it](docs/assets/console-report.png)
+![A report in the Pippin console: the bundled Citi Bike example run, with what was done, its key results and conclusions beside it](docs/assets/console-report.png)
 
 ## Contents
 
@@ -94,8 +94,9 @@ See [Results, reports and runs](docs/guide/results.md).
   arXiv and Semantic Scholar (`aurora papers`), and every reference they cite is
   checked against those indexes; one that cannot be found is flagged, never
   presented as real.
-- **Library** — the papers of all your projects, with your notes; two-way sync
-  with a Zotero collection, including PDFs and highlights.
+- **Library** — the papers of all your projects and the web pages you keep (as a
+  snapshot that outlives the page), with your notes; two-way sync with a Zotero
+  collection, including PDFs and highlights.
 - **Brainstorm** — think out loud with a *Skeptic*, *Methods* and a
   *Librarian* agent, or let a *Mentor* help you find your own research question by
   asking (your plan builds up beside the conversation), keep ideas as arguments (evidence for and against, open
@@ -104,10 +105,15 @@ See [Results, reports and runs](docs/guide/results.md).
   field means by it, the design space, how far each need is met, where it moves, what is attempted
   but not solved), and deep-read a paper in twelve questions, including how the authors may have
   come to the idea, reconstructed without seeing their method.
-- **Paper reader** — read a PDF with the agents: highlight and note passages,
-  ask an agent about one, let them mark what bears on your idea; the notes you
-  keep become annotations on the PDF in Zotero, and back.
-- **Notebook** — everything you save, from arXiv to Zhihu, X, Reddit and Xiaohongshu, kept by
+- **Reading with Pippin** — read a paper or page with notes in the margin beside
+  its words: Pippin's own (what to read a section for, a question for you, where it
+  meets your work, what to doubt), interactive figures it draws where trying beats
+  reading, gaps you open under any line to write in, and clips into your notebook;
+  ask an agent about a passage; kept notes become annotations on the PDF in
+  Zotero, and back.
+- **Notebook** — a page for every run, written from the run (its idea, hypothesis,
+  why it was worth trying, what it expected against what it found), your clips and
+  notes written at length, and everything you save, from arXiv to Zhihu, X, Reddit and Xiaohongshu, kept by
   claim: the same claim from several sources (in any language) is one idea unit, opposite claims
   are flagged as conflicts, and what bears on what you are reading surfaces (at most three) while
   the rest is absorbed or sinks. A browser extension (Chrome, Safari) and a macOS desktop orb save
@@ -115,10 +121,13 @@ See [Results, reports and runs](docs/guide/results.md).
   Zotero (every paper you add read in the background) and Obsidian (your own notes in the notebook),
   citations from your own library in Overleaf, a reference check before you submit (retracted,
   miscited, missing work), interruptions only for a retraction or overlapping work, and voice on
-  the Mac (hold a key, "add this one to my reading list"). Pippin writes into your Zotero,
+  the Mac (hold a key, "add this one to my reading list"). Ask Pippin on any page
+  from the browser's side panel, or talk to it in Feishu or WeCom: one conversation
+  that knows your notebook and your runs. Pippin writes into your Zotero,
   Overleaf or notes only as far as you allow, each kind off by default, and every write can be undone.
-- **Feed** — new papers and posts from the people and sources you follow,
-  ranked against your projects, with one sentence on why each fits.
+- **Feed** — new papers, posts, code and talks from the people and sources you
+  follow (a person's places found on the web and checked), ranked against your
+  projects, with one sentence on why each fits; go through them one at a time.
 
 See [Literature](docs/concepts/literature.md), [Brainstorm](docs/concepts/brainstorm.md), [Notebook](docs/concepts/memory.md),
 [Zotero](docs/guide/zotero.md), [The feed](docs/guide/feed.md), [Browser extension and desktop app](docs/guide/extension-and-desktop.md),
@@ -161,8 +170,11 @@ aurora quickstart
 
 `aurora quickstart` checks this machine, asks for your OpenRouter key, plays the
 offline demo (scripted models: no key, no Docker, no cost) and opens the web
-console. There a short welcome shows what Pippin does, sets your defaults, and
-offers a finished example run with a guided tour. **Help (?)** in the left bar
+console. Its start page asks what you would like to do (start an experiment, work
+out your question with the Mentor, or see a finished run with a guided tour) and
+sets up only what that needs, one thing at a time. Once you have work going, Home
+opens on **Today**: what waits for you from every project, answered in place.
+**⌘K** asks Pippin about whatever is on screen, and **Help (?)** in the left bar
 keeps a getting-started checklist, the tours, and the documentation, which also
 answers "how do I …" questions.
 
@@ -178,9 +190,7 @@ mkdir -p ~/.aurora && echo "OPENROUTER_API_KEY=sk-or-..." > ~/.aurora/.env
 aurora doctor                   # checks all of it
 ```
 
-**From the browser:** type what you want to find out on the start page, or
-pick a template (analyse a dataset, compare methods, reproduce a paper, explore
-an open question, run a simulation study). The front desk asks what is unclear
+**From the browser:** type what you want to find out on the start page. The front desk asks what is unclear
 and shows a proposal card with the phases, models, budget and an estimate of
 cost and time; confirm it and the run starts.
 
