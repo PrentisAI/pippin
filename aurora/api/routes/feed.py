@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from datetime import datetime
 from typing import Any
@@ -21,6 +22,8 @@ from aurora.feed import people as ppl
 from aurora.feed import service as svc
 from aurora.feed.sources import SOURCE_NAMES, SourceError, sources
 from aurora.feed.store import WANTS, feed_store
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/feed", tags=["feed"])
 _background: set[asyncio.Task] = set()      # snapshots of saved pages being taken
@@ -118,7 +121,13 @@ def _digest_view(cfg: dict[str, Any]) -> dict[str, Any]:
     chans = _channels()
     d = cfg["digest"]
     label = next((c["label"] for c in chans if c["id"] == d.get("to")), "Only in the console")
-    return {**d, "to": d.get("to") if label != "Only in the console" else "console", "label": label, "channels": chans}
+    try:
+        from aurora import im
+        linked = [link["app"] for link in im.links(_uid()) if im.ready(link["app"])]
+    except Exception:
+        linked = []
+    return {**d, "to": d.get("to") if label != "Only in the console" else "console", "label": label, "channels": chans,
+            "linked": linked}
 
 
 def _spaces() -> list[dict[str, str]]:
@@ -220,6 +229,43 @@ async def save_item(item_id: str, body: SaveBody) -> dict[str, Any]:
     feed_store.save(_uid(), item_id, body.campaign_id)
     return {"saved": {"campaign_id": body.campaign_id, "project": name if body.campaign_id else ""},
             "in_literature": bool(it["paper"] and body.campaign_id), "paper_id": paper_id}
+
+
+async def keep_and_read(item_id: str, campaign_id: str | None = None) -> dict[str, Any]:
+    """Keep an item (in the project it fits best that you may write in, else your own library) and have Pippin read
+    it, so its notes are there when you open it.  Used by the console's links from the digest and by "read 2"."""
+    it = _item(item_id)
+    me = current_user()
+    if campaign_id is None:
+        saved = feed_store.saves(me.user_id).get(item_id)
+        if saved is not None:
+            campaign_id = saved["campaign_id"]
+        else:
+            fits = sorted(feed_store.ranks([item_id]).get(item_id, []), key=lambda r: -r["rel"])
+            campaign_id = next((f["campaign_id"] for f in fits if f["rel"] >= 3
+                                and "edit" in rights(me, f["campaign_id"])), "")
+    elif campaign_id:
+        require(campaign_id, "edit")
+    paper_id = _paper_into(campaign_id, it) if it["paper"] else _page_into(campaign_id, it)
+    feed_store.save(me.user_id, item_id, campaign_id)
+    reading = False
+    if paper_id:
+        from aurora.api.routes.reader import Companion, companion_read
+        try:
+            reading = bool((await companion_read(paper_id, Companion(space=campaign_id or "global"))).get("started"))
+        except Exception:
+            logger.info("Pippin could not start reading %s", paper_id, exc_info=True)
+    return {"paper_id": paper_id, "space": campaign_id or "global", "title": it["title"], "reading": reading,
+            "project": _projects().get(campaign_id, "") if campaign_id else ""}
+
+
+@router.post("/items/{item_id}/read")
+async def read_item(item_id: str) -> dict[str, Any]:
+    """Keep it and open it in the reader (the links in the digest)."""
+    r = await keep_and_read(item_id)
+    if not r["paper_id"]:
+        raise HTTPException(400, "It has no page to read")
+    return r
 
 
 @router.delete("/items/{item_id}/save")
@@ -393,13 +439,19 @@ async def put_settings(body: Settings) -> dict[str, Any]:
         change["keywords"] = list(dict.fromkeys(k.strip() for k in change["keywords"] if k.strip()))[:20]
     if "digest" in change:
         d = {**svc.settings(me.user_id)["digest"], **change["digest"]}
-        at = str(d.get("at", "08:30")).strip()
-        try:
-            h, m = (int(x) for x in at.split(":"))
-            assert 0 <= h < 24 and 0 <= m < 60
-        except (ValueError, AssertionError):
-            raise HTTPException(400, "The time looks like 08:30") from None
-        d["at"] = f"{h:02d}:{m:02d}"
+
+        def hhmm(t: Any, empty: bool = False) -> str:
+            t = str(t or "").strip()
+            if empty and not t:
+                return ""
+            try:
+                h, m = (int(x) for x in t.split(":"))
+                assert 0 <= h < 24 and 0 <= m < 60
+            except (ValueError, AssertionError):
+                raise HTTPException(400, "The time looks like 08:30") from None
+            return f"{h:02d}:{m:02d}"
+        d["at"] = hhmm(d.get("at", "08:30"))
+        d["at2"] = hhmm(d.get("at2", ""), empty=True)
         try:
             d["top"] = max(1, min(20, int(d.get("top", 5))))
         except (TypeError, ValueError):
@@ -407,7 +459,8 @@ async def put_settings(body: Settings) -> dict[str, Any]:
         if d.get("to") != "console" and d.get("to") not in {c["id"] for c in _channels()}:
             raise HTTPException(400, "Choose a notification channel set up under Settings → Notifications")
         d["skip"] = bool(d.get("skip", True))
-        change["digest"] = {k: d[k] for k in ("to", "at", "top", "skip")}
+        d["chat"] = bool(d.get("chat", True))
+        change["digest"] = {k: d[k] for k in ("to", "at", "at2", "top", "skip", "chat")}
     if {"topics", "keywords", "from_objectives", "hf"} & set(change):
         auth_store.set_pref(me.user_id, "feed_status", {**svc.status(me.user_id), "last": 0})   # fetch again soon
     svc.save_settings(me.user_id, {**saved, **change})

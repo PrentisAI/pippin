@@ -13,6 +13,7 @@ import { HtmlView } from './HtmlView'
 import { sortIndex, type Line } from './locate'
 import { DeepReadPanel } from '../review/DeepReadPanel'
 import { DissentPanel } from '../memory/DissentPanel'
+import { KbSection } from './KbSection'
 
 export interface ReadRequest {
   /** The paper's key or ID. */
@@ -368,8 +369,8 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
           </button>
         )}
         {zpop && (
-          <div className="rd-zpop" role="dialog" aria-label="Notes and Zotero">
-            <div className="rd-row-between"><b>Notes and Zotero</b><button className="rd-act quiet" aria-label="Close" onClick={() => setZpop(false)}>✕</button></div>
+          <div className="rd-zpop" role="dialog" aria-label="Where your notes go">
+            <div className="rd-row-between"><b>Where your notes go</b><button className="rd-act quiet" aria-label="Close" onClick={() => setZpop(false)}>✕</button></div>
             {z.state === 'ok' && <span className="rd-text-2">[{p.key}] is in your Zotero ({z.library}). Your notes, and the agents’ notes you keep,
               become annotations on its PDF there: same place, same colour. Replies go into the note’s comment. Notes you make in Zotero show up here too.</span>}
             {z.state === 'off' && <span className="rd-text-2">Connect Zotero and your notes become annotations on the paper’s PDF in your library (and the ones you make in Zotero come here).</span>}
@@ -393,6 +394,7 @@ export default function PaperReader({ req, onClose, docked, full, onToggleFull }
               {(z.state === 'off' || z.state === 'read_only' || ((z.state === 'not_in_zotero' || z.state === 'no_pdf') && !z.can_add)) &&
                 <button className="rd-act keep" onClick={() => setZdialog(true)}>{z.state === 'off' ? 'Connect Zotero' : 'Zotero settings'}</button>}
             </div>
+            <KbSection paper={p.paper_id} onToast={(text) => say(text)} />
             <details className="rd-rules">
               <summary>How notes and Zotero stay in step</summary>
               <dl>

@@ -22,7 +22,7 @@ feature does, how you reach it, and the settings that matter; the linked pages g
 | [Where you read and write](#where-you-read-and-write) | browser extension, Overleaf, macOS orb, Obsidian, voice |
 | [What Pippin may write](#what-pippin-may-write) | every write into your tools off by default, logged, undoable |
 | [Accounts and sharing](#accounts-and-sharing) | sign-in, roles, sharing, own keys, confidential projects, team rules |
-| [Notifications](#notifications) | WeCom, Feishu, Slack, WeChat, webhooks; answer decisions from the phone; talk to Pippin in Feishu or WeCom |
+| [Notifications](#notifications) | WeCom, Feishu, Slack, WeChat, webhooks; answer decisions from the phone; talk to Pippin in Feishu, WeCom, Slack or WhatsApp, typed or spoken |
 | [Around the console](#around-the-console) | ⌘K, files, analytics, settings, settings by conversation |
 | [Command line](#command-line) | `aurora run`, `resume`, `serve`, `users`, `skills`, and the agents' `job` and `papers` |
 | [Reference and research](#reference-and-research) | configuration, campaign files, events, reproducing the paper |
@@ -286,6 +286,8 @@ See [Literature](concepts/literature.md).
 |---|---|
 | **Four agents** | **Skeptic** (the weakest assumption), **Methods** (how to test it), **Librarian** (the literature and the project's runs), **Mentor** (helps you find your own question by asking). Name one (`@Skeptic`), or use *What could be wrong?*, *Find evidence*, *How to test it?* on an idea. You see each agent's steps while it works. |
 | **How active** | *Only when asked*, *Moderately* (a cheap check decides whether one agent answers), *Very* (up to two answer). On their own they bring up recent papers bearing on an idea, ideas that could be one, questions left waiting; at *Very* they also look for evidence and question unchallenged ideas (at most 40 calls a day). Dismissing a suggestion teaches them. |
+| **Who leads** | Per conversation, switchable any time (a switch, or *I'll lead* / *我来*, *you lead* / *你来带*): **you** lead and the agents answer and question you on their own when you seem very sure (more when you are sweeping, settle fast, or take drafts unchanged; less when you are exploring, tired, or say **not now**), or **Pippin** leads: where things stand, the next step with drafts, and a choice for you after each message. |
+| **Tangents** | **Branch off here** on any message opens a side conversation whose agents see the main one up to there; **Back…** returns, bringing what it found in a few editable sentences, or nothing. Tangents can branch and are listed under their conversation. |
 | **Deep search** | The Librarian searches from many angles and writes an overview, including what the literature does not answer yet. |
 | **Attachments** | **+** attaches a Library paper (abstract and your highlights) or a project file. |
 | **The Mentor** (after ARS's Socratic mentor) | Asks one or two questions at a time; asks you to predict before it shows; brings a counterpoint from a real paper; offers the opposite when you sound certain; raises one adjacent angle; brings the Skeptic in as devil's advocate; writes your question down as an **RQ Summary** in your words with FINER notes when you can say it; proposes candidate questions only when you ask (marked as the AI's); ends when you say so, then offers to map the field around your question. |
@@ -350,6 +352,11 @@ See [Zoom out and zoom in](concepts/zoom-out-zoom-in.md).
   author.
 - Notes private by default; **Share with the project** to discuss them.
 - **Zotero annotations both ways**, including agents' kept notes with their colour and replies in the comment.
+- **Obsidian and Notion**: what you kept from a paper or page as one note, in your vault's `Pippin/` folder or as a
+  Notion page under one you choose; sent when you press Send, or kept up to date (each by its *What Pippin may write*
+  switch); **Copy as Markdown** otherwise.
+- **One reader for whatever you meet**: **Read with Pippin** on a feed card (papers, posts, blogs, threads), and web
+  addresses an agent gives in a brainstorm open in it, kept in the Library.
 - The **Deep read** tab, and the **Your saves** tab: the sentences of this paper that something you saved argues
   with, with a margin button (*N of your saves argue with this page*).
 - The PDF comes from the project, your Library, another project, or the open copy fetched once.
@@ -372,7 +379,8 @@ See [Reading with Pippin](concepts/literature.md#reading-with-pippin).
   OpenReview, with **Show the points**), any blog's RSS or Atom; X with your own API key.
 - Buttons: **Save to project**, **Bring to brainstorm**, **Ask the front desk**, open it, **Not interested** (and
   similar items rank lower).
-- **The daily digest** at your chosen time to a notification channel, with what came into your notebook.
+- **The digest twice a day** (who you follow, the top per project, what is trending) to your chat app or a
+  notification channel; each item opens in the reader with Pippin's notes, or reply **read 2** in the chat app.
 
 See [The feed](guide/feed.md).
 
@@ -536,13 +544,16 @@ See [Accounts and sharing](guide/accounts.md).
   test button; per-person.
 - Events: a decision waits, a run finished, failed or stopped on its own, 80 % of the budget, the estimate
   exceeded, the agent replied, a skill proposed, a GPU job ended, something in your notebook you would regret
-  missing, and the daily digest.
+  missing, and the digest.
+- **Progress without asking**: while an experiment runs, a word at each new phase and a summary every three hours
+  (phase, jobs done and running, what happened since, cost), in your chat app, where you can answer it.
 - **Approve and continue** / **Stop the experiment** links that confirm on a page (so link previews cannot act),
   signed, expiring after a day, respecting who may decide.
 - **Quiet hours** with a summary when they end, and kinds that still come through.
-- **Chat apps**: connect the team's Feishu/Lark or WeCom app once, link your account with a code, and talk to
-  Pippin there (the same conversation as the orb's); proposals are done when you reply `确认` / `yes`, and your
-  decisions and run notifications come to the same chat.
+- **Chat apps**: connect the team's Feishu/Lark, WeCom, Slack or WhatsApp app once, link your account with a code,
+  and talk to Pippin there (the same conversation as the orb's); proposals are done when you reply `确认` / `yes`,
+  and your decisions and run notifications come to the same chat.
+- **Voice in chat apps**: send a voice message; Pippin shows what it heard and answers in writing and aloud.
 
 See [Notifications](guide/notifications.md).
 

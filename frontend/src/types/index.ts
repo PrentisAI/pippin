@@ -441,6 +441,9 @@ export interface NotificationSettings {
   quiet_except: string[]
   /** "Approve" and "Stop" links in decision messages. */
   action_links: boolean
+  /** How a running experiment is getting on, every this many hours (0: never), and at each new phase. */
+  progress_every_hours: number
+  progress_phases: boolean
 }
 
 export interface ClusterJob {
@@ -821,6 +824,21 @@ export interface BsChat {
   status?: string
   /** The Mentor is guiding this conversation: the researcher's next message is for it. */
   guided?: boolean
+  /** Who leads: the researcher (the agents answer, and question them when they seem too sure) or Pippin. */
+  lead?: 'me' | 'pippin'
+  /** A tangent: the conversation it branched from, and the message it branched at. */
+  parent?: string
+  branch_at?: string
+}
+
+/** A conversation as opened: its messages, its tangents, and (for a tangent) where it came from. */
+export interface BsChatView {
+  chat: BsChat
+  messages: BsMessage[]
+  pending: boolean
+  here: { user_id: string; name: string }[]
+  branches?: { chat_id: string; title: string; branch_at: string; mine: boolean }[]
+  parent?: { chat_id: string; title: string; at: string; at_who: string } | null
 }
 
 export interface BsMessage {
@@ -945,8 +963,14 @@ export interface FeedDigest {
   to: string
   label: string
   at: string
+  /** a second time in the day ('' : once a day) */
+  at2: string
   top: number
   skip: boolean
+  /** also to the chat apps you linked (Feishu, WeCom, Slack, WhatsApp) */
+  chat: boolean
+  /** the chat apps you linked that can take it */
+  linked: string[]
   channels: { id: string; label: string }[]
 }
 
@@ -1414,6 +1438,10 @@ export type MsgWidget =
   | { type: 'question'; kind: 'summary' | 'candidates'; state: 'waiting' | 'confirmed' | 'superseded'; version: number; rq: ResearchQuestion; card_id?: string }
   /** A figure an agent drew to try something out: being drawn, then shown (``fig_id``). */
   | { type: 'figure'; state: 'drawing' | 'ready' | 'failed'; about: string; fig_id?: string }
+  /** The Skeptic questioned the researcher unasked (friction); "not now" waves it off for a while. */
+  | { type: 'friction'; state: 'open' | 'waved'; signals: Record<string, number> }
+  /** What the researcher brought back from a tangent. */
+  | { type: 'from_branch'; chat_id: string; title: string }
 
 // ---------------------------------------------------------------------------
 // The shared notebook
@@ -1580,7 +1608,7 @@ export interface MemVoiceTurn {
 }
 
 /** A chat app Pippin can be talked to from. */
-export type ChatApp = 'feishu' | 'wecom'
+export type ChatApp = 'feishu' | 'wecom' | 'slack' | 'whatsapp'
 /** A chat app's settings as the console shows them: secrets only as whether they are set. */
 export interface ChatAppSettings {
   app: ChatApp
@@ -1636,4 +1664,12 @@ export interface NbOverview {
   projects: { campaign_id: string; name: string; example: boolean; runs: { run_id: string; name: string; status: string; started_at: number }[] }[]
   clips: number
   notes: NbNoteSummary[]
+}
+
+/** Where what you keep while reading can go: an Obsidian vault, a Notion page. */
+export interface KbTarget { ready: boolean; level: 'off' | 'ask' | 'auto'; where: string; why: string }
+export interface KbStatus {
+  obsidian: KbTarget
+  notion: KbTarget
+  notion_settings: { page: string; page_title: string; token: boolean; hint: string }
 }

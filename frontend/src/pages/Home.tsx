@@ -65,6 +65,7 @@ import {
 import { turnKey, type StreamEvent } from '../types/chat'
 import type { ReadRequest } from '../components/reader/PaperReader'
 import type { MapRequest } from '../components/review/FieldMapView'
+import PippinMark from '../components/PippinMark'
 
 // the paper reader (and pdf.js) load when a paper is first opened
 const PaperReader = lazy(() => import('../components/reader/PaperReader'))
@@ -401,7 +402,7 @@ function SidebarPanel({
     <div className={`sidebar${collapsed ? ' collapsed' : ''}`} ref={sidebarRef} data-tour="sidebar">
       <div className="sidebar-brand">
         <button className="home-link" title="Home" onClick={onNewProject}>
-          <div className="logo" aria-hidden="true" />
+          <PippinMark className="logo" />
           <div className="name">Pippin</div>
         </button>
         <button className="new-btn" title="New project" aria-label="New project" onClick={onNewProject}>+</button>
@@ -2542,6 +2543,15 @@ export default function Home() {
     const paper = q.get('read')
     return paper ? { paper, space: 'global', quote: q.get('quote') || undefined, page: Number(q.get('page')) || 0 } : null
   })
+  // an item of the digest asked for in the address (/?feed=<item>): kept where it fits, then opened in the reader
+  useEffect(() => {
+    const item = new URLSearchParams(window.location.search).get('feed')
+    if (!item) return
+    api.feed.read(item)
+      .then((r) => setReading({ paper: r.paper_id, space: r.space, from: 'Digest' }))
+      .catch(() => setPage('library'))
+    window.history.replaceState(null, '', window.location.pathname)
+  }, [])
   // opened on the brainstorm page, the reader sits in its right column (and can go full screen)
   const [readingDocked, setReadingDocked] = useState(false)
   const pageNow = useRef<MainPage>(null)

@@ -47,6 +47,19 @@ notifications:
 | `agent_reply` | the research agent answered an instruction you sent | no |
 | `skill_suggestion` | a skill was proposed and waits for your review | no |
 | `compute_job` | one of its [GPU jobs](cluster-jobs.md) ended | no |
+| `progress` | how a running experiment is getting on: each new phase, and every few hours | no (always to your chat apps) |
+
+### How a running experiment is getting on
+
+While an experiment runs, Pippin tells you how it is getting on without being
+asked: a word when it enters a new phase (planning, research, analysis,
+writing), and every three hours a summary: the phase, the jobs done of the plan
+and which are running, what happened since the last summary (jobs done or
+failed, audits, questions it asked you, cluster jobs) and what the agents have
+cost. No summary is sent when nothing happened. Set the hours (0: never) and the
+phase word under **Settings → Notifications**. Progress goes to your linked
+chat apps, where you can reply to ask about the run or give it an instruction,
+and to any channel that takes `progress`; quiet hours hold it like the rest.
 
 Each message names the experiment, says what happened in a few lines and links
 to the experiment in the console. The same message is not sent twice within a
@@ -72,12 +85,24 @@ approve anything.
   must be reachable from the phone that opens them. Turn them off with
   *Approve/Stop links* in the settings (`notifications.action_links: false`).
 
-## Talking to Pippin in Feishu or WeCom
+## Talking to Pippin in a chat app
 
 The channels above only send: they cannot hear a reply. To talk to Pippin from a chat app, connect the team's own
-app once under **Settings → Chat apps**: a Feishu/Lark custom app with the bot ability, or a WeCom self-built app.
-A team admin enters its IDs and secrets there and points the app's message callback at the address shown
-(`/im/feishu` or `/im/wecom` on this console, which must be reachable from the internet).
+app once under **Settings → Chat apps**: a Feishu/Lark custom app with the bot ability, a WeCom self-built app, a
+Slack app with a bot, or a WhatsApp Business number. A team admin enters its IDs and secrets there and points the
+app's message callback at the address shown (`/im/feishu`, `/im/wecom`, `/im/slack` or `/im/whatsapp` on this
+console, which must be reachable from the internet). Each request is checked by the app's token or signature.
+
+| App | What to set up |
+|---|---|
+| Feishu / Lark | A custom app with the bot ability; permissions `im:message` and `im:resource` (voice); subscribe to `im.message.receive_v1` |
+| WeCom | A self-built app with *Receive messages* on (its Token and EncodingAESKey); this server's IP among its trusted IPs |
+| Slack | An app with bot scopes `chat:write`, `im:history`, `im:write`, `app_mentions:read`, `files:read`, `files:write`; events `message.im` and `app_mention`; messages allowed in App Home. Mention the bot in a channel and it answers in the thread |
+| WhatsApp | A Meta Business app with the WhatsApp product; a permanent system-user token; the webhook with your verify token, subscribed to `messages` |
+
+WhatsApp lets a business write to someone only within 24 hours of their last message (later, only with a template
+Meta approved). So a notification reaches WhatsApp when the person wrote to Pippin that day; otherwise it is logged
+and their other channels still get it.
 
 Each person then links their chat account once: the same page gives them a code, and they send `绑定 <code>` (or
 `bind <code>`) to the bot. From then on what they write to the bot goes to Pippin as them (their projects, their
@@ -86,6 +111,13 @@ in the chat. Pippin can read a run's report and what it found, and say where a p
 act on a run (answer its decision, tell it something, stop it), it proposes the action and nothing happens until
 they reply `确认` / `yes` (`取消` / `no` drops it). Their decision and run notifications come to the same chat, so
 they can answer them there.
+
+**Voice.** Send a voice message instead of typing. Pippin hears it with this console's speech recognition
+(`AURORA_WHISPER`, a whisper.cpp command, the same as the orb's; [Voice](extension-and-desktop.md)), shows what it heard
+above the answer, and answers in writing and, briefly, as a voice message in the orb's voice (the cloud voice, or the
+model that talks). Feishu and WhatsApp get a voice message, Slack an audio file, WeCom a voice message when the
+server's ffmpeg can write AMR. Without speech recognition, the bot says so and asks you to type; without a voice,
+the answer is in writing only. WeCom's own recognition is used when the app has it on.
 
 ## Quiet hours
 

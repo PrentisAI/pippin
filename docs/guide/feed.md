@@ -28,6 +28,7 @@ how well it fits.
 | **Save to project ▾** | Keeps it under a project, or *for later*. A paper joins that project's literature (marked *from the feed*) and its Literature page. *Remove* takes it back. |
 | **Bring to brainstorm ▾** | Puts it on a brainstorm board as material: a project's, or your own ideas. The Librarian notes why it was brought (unless the agents are set to *Only when asked*). |
 | **Ask the front desk** | Opens the project's chat with the item attached; write your question, or just send. The front desk reads its summary, abstract and why it was picked. A paper also joins the project's literature, marked as a *seed*. |
+| **Read with Pippin** | Keeps it (in the project it fits, or where you saved it) and opens it in Pippin's [reader](../concepts/literature.md#reading-with-pippin): a paper from its PDF, a post, blog, thread or README from a snapshot of its page. Not for videos. |
 | **PDF / Open thread / Read** | The item itself. |
 | **Not interested** | Hides it, and similar items rank lower from now on (*Undo* brings it back). |
 
@@ -77,13 +78,24 @@ found from the page).
 it is stored encrypted, like your other keys. Bluesky and Mastodon need no key.
 LinkedIn cannot be followed (it has no open API).
 
-## The daily digest
+## The digest
 
-Every day at the time you choose, the top items per project go to one of your
-notification channels (WeCom, Feishu, Slack, Server酱, a webhook; set them up
-under **Settings → Notifications**), or only to the console. *Skip days when
-nothing fits a project well* sends nothing on a day without a strong match.
-**Send today's now** shows what it looks like.
+Twice a day by default (08:30 and 20:30; clear the second time for once a day),
+Pippin sends what came in since the last one, numbered: what the people you
+follow published or posted, the top items per project with why each fits, and
+what is trending on HF Daily Papers, with what came into your notebook.
+
+It goes to the chat apps you linked (Feishu, WeCom, Slack, WhatsApp; see
+[Talking to Pippin in a chat app](notifications.md#talking-to-pippin-in-a-chat-app)),
+to one of your notification channels (set them up under **Settings →
+Notifications**), or both. *Skip it when nothing new fits a project well* sends
+nothing when there is no strong match. **Send one now** shows what it looks like.
+
+Each item links to the console: the link keeps it in the project it fits best
+(or your own library) and opens it in the reader, where Pippin has started
+reading it with you. In a chat app, reply **read 2** (「读 2」) to do the same
+from there: Pippin keeps item 2, starts writing its notes in the margin, and
+answers with the link.
 
 ## How it works
 

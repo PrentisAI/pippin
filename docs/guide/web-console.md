@@ -212,8 +212,8 @@ The left bar also opens:
   links that answer a decision from the message; *Cluster jobs* lets the
   research agents submit SLURM jobs and *GPU machine (SSH)* run jobs on a GPU
   server over SSH ([GPU jobs](cluster-jobs.md)); their states and what the GPUs
-  are doing appear under **Jobs** on the experiment's right bar. *Chat apps* links your Feishu/Lark or WeCom
-  account so you can talk to Pippin there ([Notifications](notifications.md#talking-to-pippin-in-feishu-or-wecom)).
+  are doing appear under **Jobs** on the experiment's right bar. *Chat apps* links your Feishu/Lark, WeCom, Slack
+  or WhatsApp account so you can talk to Pippin there, typed or spoken ([Notifications](notifications.md#talking-to-pippin-in-a-chat-app)).
 
 ## Changing settings in conversation
 

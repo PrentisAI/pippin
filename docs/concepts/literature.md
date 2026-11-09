@@ -203,6 +203,30 @@ along with an idea is in [Brainstorm](brainstorm.md#reading-a-paper-with-the-age
 - **Clips.** **Clip** keeps the selected words in your notebook with their page and, under them, what you make of
   them; a clip can be put into a [notebook note](memory.md#clips-and-notes) as the piece of the page it was cut from.
 
+The same reader opens whatever you meet: a paper or a post in the [feed](../guide/feed.md#a-card) (**Read with
+Pippin**), a web address an agent gives in a [brainstorm](brainstorm.md) (click it; ↗ opens it on the web instead),
+a saved page in the Library. A page met this way is kept in the Library (the project's when you may add to it) so
+your notes on it stay.
+
+### Your notes in Obsidian or Notion
+
+What you kept from a paper or page (your notes with the passages they are on and the replies under them, and
+Pippin's and the agents' notes you kept) can become one note in your own knowledge base. The reader's notes button
+(beside **Panel**) opens **Where your notes go**:
+
+- **Obsidian**: a Markdown file in the `Pippin/` folder of the vault the console reads (Notebook → *Your notes*),
+  named after the paper. Pippin writes only between its two markers (`<!-- pippin:start -->` … `<!-- pippin:end -->`);
+  what you add around them stays.
+- **Notion**: a page under a page you choose. Make an internal integration at notion.so/my-integrations, add it to
+  that page (⋯ → *Connections*), then **Connect** with its secret and the page's link. The secret is stored
+  encrypted, like your other keys. Sending again replaces the page's content.
+- **Copy as Markdown** works with neither set up.
+
+Each follows its switch under the account button → *What Pippin may write* (*Create notes in your vault*, *Write
+what you keep from a paper as a Notion page*): *off* leaves you the copy; *ask* writes when you press **Send**;
+*auto* also sends it again a little after you keep, change or delete a note. Zotero gets the same notes as
+annotations on the PDF ([Zotero](../guide/zotero.md)).
+
 ## Configuration
 
 ```yaml

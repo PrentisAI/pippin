@@ -158,6 +158,11 @@ class BrainstormStore:
             self._conn.execute("ALTER TABLE bs_chats ADD COLUMN status TEXT NOT NULL DEFAULT ''")   # a live meeting's
         if "guide" not in chat_cols:        # the Mentor's guided questioning in this conversation
             self._conn.execute("ALTER TABLE bs_chats ADD COLUMN guide TEXT NOT NULL DEFAULT '{}'")
+        # who leads (me: the researcher | pippin: the agents), a tangent's parent and the message it branched at,
+        # and how much the agents question the researcher unasked (see lead.py)
+        for col, default in (("lead", "'me'"), ("parent", "''"), ("branch_at", "''"), ("friction", "'{}'")):
+            if col not in chat_cols:
+                self._conn.execute(f"ALTER TABLE bs_chats ADD COLUMN {col} TEXT NOT NULL DEFAULT {default}")
         card_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(bs_cards)")}
         # material from the feed that is not a paper (a post, a blog); a claim from the researcher's memory
         for col in ("source", "url", "unit_id"):
@@ -191,6 +196,8 @@ class BrainstormStore:
     @staticmethod
     def _chat(r: dict[str, Any]) -> dict[str, Any]:
         r["guide"] = json.loads(r.get("guide") or "{}")
+        r["friction"] = json.loads(r.get("friction") or "{}")
+        r["lead"] = r.get("lead") or "me"
         return r
 
     def chat(self, chat_id: str) -> dict[str, Any] | None:
@@ -207,8 +214,30 @@ class BrainstormStore:
     def set_guide(self, chat_id: str, guide: dict[str, Any]) -> None:
         self._x("UPDATE bs_chats SET guide=? WHERE chat_id=?", (json.dumps(guide), chat_id))
 
+    def set_friction(self, chat_id: str, friction: dict[str, Any]) -> None:
+        self._x("UPDATE bs_chats SET friction=? WHERE chat_id=?", (json.dumps(friction), chat_id))
+
+    def branches(self, chat_id: str) -> list[dict[str, Any]]:
+        """The tangents opened from a conversation."""
+        return [self._chat(r) for r in self._all("SELECT * FROM bs_chats WHERE parent=? ORDER BY created_at", (chat_id,))]
+
+    def context(self, chat_id: str, limit: int = 500) -> list[dict[str, Any]]:
+        """The conversation as the agents see it: a tangent's own messages after its parent's, up to the message it
+        branched at (and so on up, for a tangent of a tangent)."""
+        own = self.messages(chat_id, limit=limit)
+        ch = self.chat(chat_id)
+        seen = {chat_id}
+        before: list[dict[str, Any]] = []
+        while ch is not None and ch.get("parent") and ch["parent"] not in seen:
+            seen.add(ch["parent"])
+            at = self.message(ch.get("branch_at") or "")
+            upto = at["created_at"] if at else float("inf")
+            before = [m for m in self.messages(ch["parent"], limit=limit) if m["created_at"] <= upto] + before
+            ch = self.chat(ch["parent"])
+        return (before + own)[-limit:]
+
     def update_chat(self, chat_id: str, **fields: Any) -> None:
-        allowed = {k: v for k, v in fields.items() if k in ("title", "vis", "focus", "status")}
+        allowed = {k: v for k, v in fields.items() if k in ("title", "vis", "focus", "status", "lead", "parent", "branch_at")}
         if allowed:
             sets = ", ".join(f"{k}=?" for k in allowed)
             self._x(f"UPDATE bs_chats SET {sets}, updated_at=? WHERE chat_id=?", (*allowed.values(), time.time(), chat_id))
@@ -218,6 +247,8 @@ class BrainstormStore:
             self._x("DELETE FROM bs_messages WHERE chat_id=?", (chat_id,))
             self._x("DELETE FROM bs_insights WHERE chat_id=?", (chat_id,))
             self._x("DELETE FROM bs_chats WHERE chat_id=?", (chat_id,))
+            # its tangents stay, as conversations of their own
+            self._x("UPDATE bs_chats SET parent='', branch_at='' WHERE parent=?", (chat_id,))
 
     # ------------------------------------------------------------------ messages
 

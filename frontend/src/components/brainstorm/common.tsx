@@ -1,5 +1,6 @@
 import { Fragment } from 'react'
 import type { BsCard, BsLink } from '../../types'
+import { readPage } from '../reader/open'
 
 const svg = (d: React.ReactNode, size = 12) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
@@ -74,11 +75,26 @@ export function analyse(idea: BsCard, cards: Map<string, BsCard>, links: BsLink[
 const KEYS = /(\[[A-Z][A-Za-z\-']{1,16}\d{2}[a-z]?(?:\s*[,;]\s*[A-Z][A-Za-z\-']{1,16}\d{2}[a-z]?)*\]|\bc_[0-9a-f]{12}\b)/g
 
 /** Text with **bold**, [Key] papers and c_… idea references made into chips. */
-export function Rich({ text, cards, onIdea, onPaper }: { text: string; cards: Map<string, BsCard>; onIdea: (id: string) => void; onPaper?: (key: string) => void }) {
+/** A web address in a message, up to the punctuation that ends a sentence. */
+const URL_RE = /(https?:\/\/[^\s<>()\]]*[^\s<>()\].,;:!?'"])/g
+
+/** A web address in a message: opens in Pippin's reader (kept in the Library), ↗ on the web. */
+function WebLink({ url, space }: { url: string; space: string }) {
+  let label = url
+  try { const u = new URL(url); label = u.hostname.replace(/^www\./, '') + (u.pathname.length > 1 ? u.pathname.slice(0, 28) + (u.pathname.length > 28 ? '…' : '') : '') } catch { /* as written */ }
+  return (
+    <span className="bs-weblink">
+      <button type="button" className="bs-kchip" title={`Read it in Pippin: ${url}`} onClick={() => readPage(url, space, 'Brainstorm')}>{label}</button>
+      <a href={url} target="_blank" rel="noreferrer" title="Open it on the web" aria-label="Open it on the web">↗</a>
+    </span>
+  )
+}
+
+export function Rich({ text, cards, onIdea, onPaper, space = 'global' }: { text: string; cards: Map<string, BsCard>; onIdea: (id: string) => void; onPaper?: (key: string) => void; space?: string }) {
   const bold = text.split(/(\*\*[^*\n]+\*\*)/g)
   if (bold.length > 1) {
-    return <>{bold.map((b, i) => /^\*\*[^*]+\*\*$/.test(b) ? <b key={i}><Rich text={b.slice(2, -2)} cards={cards} onIdea={onIdea} onPaper={onPaper} /></b>
-      : <Rich key={i} text={b} cards={cards} onIdea={onIdea} onPaper={onPaper} />)}</>
+    return <>{bold.map((b, i) => /^\*\*[^*]+\*\*$/.test(b) ? <b key={i}><Rich text={b.slice(2, -2)} cards={cards} onIdea={onIdea} onPaper={onPaper} space={space} /></b>
+      : <Rich key={i} text={b} cards={cards} onIdea={onIdea} onPaper={onPaper} space={space} />)}</>
   }
   return (
     <>{text.split(KEYS).map((p, i) => {
@@ -90,7 +106,7 @@ export function Rich({ text, cards, onIdea, onPaper }: { text: string; cards: Ma
         const c = cards.get(p)
         return c ? <button key={i} type="button" className="bs-ichip" onClick={() => onIdea(p)}>{short(c.text, 40)}</button> : <Fragment key={i}>an idea</Fragment>
       }
-      return <Fragment key={i}>{p}</Fragment>
+      return <Fragment key={i}>{p.split(URL_RE).map((q, j) => j % 2 ? <WebLink key={j} url={q} space={space} /> : q)}</Fragment>
     })}</>
   )
 }

@@ -82,6 +82,15 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
       toast({ text: 'Hidden. Similar items will rank lower.', action: ['Undo', async () => { await api.feed.unhide(it.item_id); loadFeed() }] })
     }),
     onPerson: (pid) => setSub({ person: pid }),
+    onRead: (it, fitCid) => act(async () => {
+      // kept where it already is, else in the project it fits; one you cannot add to (an example) goes to your own
+      let cid = it.saved ? it.saved.campaign_id : fitCid
+      const r = await api.feed.save(it.item_id, cid).catch((e) => { if (!cid) throw e; cid = ''; return api.feed.save(it.item_id, '') })
+      patch(it.item_id, { saved: r.saved })
+      loadSaved()
+      if (r.paper_id) readPaper({ paper: r.paper_id, space: cid || 'global', from: 'Library' })
+      else window.open(it.url, '_blank', 'noopener')
+    }),
   }
 
   if (sub === 'following' || (sub && 'find' in sub)) {
@@ -204,10 +213,15 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
             {feed && !feed.people.length && <div className="lit-sub">Nobody yet. <button className="link-btn" onClick={() => setSub('following')}>Follow someone</button>: their papers, posts, blog and what others say about their work.</div>}
           </section>
           <section className="fd-box">
-            <h3>Daily digest</h3>
-            {feed && (feed.digest.to !== 'console'
-              ? <div className="fd-small">Every day at {feed.digest.at}, the top {feed.digest.top} per project go to <b>{feed.digest.label}</b>.</div>
-              : <div className="fd-small">Shown only here. <button className="link-btn" onClick={() => setSub('following')}>Send it to a channel</button> (WeCom, Feishu, Slack, Server酱).</div>)}
+            <h3>Digest</h3>
+            {feed && (() => {
+              const d = feed.digest
+              const where = [d.to !== 'console' ? d.label : '', d.chat && d.linked.length ? 'your chat app' : ''].filter(Boolean)
+              const when = d.at2 ? `${d.at} and ${d.at2}` : d.at
+              return where.length
+                ? <div className="fd-small">Every day at {when}: who you follow, the top {d.top} per project and what is trending, to <b>{where.join(' and ')}</b>.</div>
+                : <div className="fd-small">Shown only here. <button className="link-btn" onClick={() => setSub('following')}>Send it to your chat app or a channel</button>.</div>
+            })()}
             <div className="lit-sub">Ranked against each project’s objective, its saved papers and what its runs found. “Not interested” teaches the ranking.</div>
           </section>
           {feed && (

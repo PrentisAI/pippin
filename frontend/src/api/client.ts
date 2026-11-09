@@ -1,4 +1,4 @@
-import type { AssistantAction, ChatApp, NbClip, NbNote, NbOverview, NbRunPage, ChatAppSettings, PdfProgress, DeepRead, IdeaVersion, MemAlert, MemVault, MemVoiceTurn, MemAudit, MemCite, MemDissent, MemDigest, MemFollow, MemAsk, MemQuestion, MemReport, MemSource, MemSurface, MemUnit, WriteLevel, WriteSettings, PlanInsight, ResearchPlan, FieldMap, FieldMapSummary, LitPaper, NotePlace, ReaderAgent, ReaderNote, ReaderView, Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
+import type { AssistantAction, KbStatus, ChatApp, NbClip, NbNote, NbOverview, NbRunPage, ChatAppSettings, PdfProgress, DeepRead, IdeaVersion, MemAlert, MemVault, MemVoiceTurn, MemAudit, MemCite, MemDissent, MemDigest, MemFollow, MemAsk, MemQuestion, MemReport, MemSource, MemSurface, MemUnit, WriteLevel, WriteSettings, PlanInsight, ResearchPlan, FieldMap, FieldMapSummary, LitPaper, NotePlace, ReaderAgent, ReaderNote, ReaderView, Onboarding, WizardStep, ExampleCard, HelpPage, HelpAnswer, SetupStatus, ForkPoints, RunEstimate, RunReport, RunResult, RunComparison, FeedView, FeedItem, Following, PersonCandidate, FeedIdentity, FeedPerson, ScholarPage, LibraryRef, ReportLink, OtherProject, BsAttachment, BsLink, Activity, BsCard, BsChat, BsChatView, BsMessage, BsSpace, CardType, Relation, ZoteroCollection, ZoteroMapping, ZoteroOptions, ZoteroStatus, AddFound, LibraryView, LitCheck, LitSearch, ProjectLiterature, ActivityEntry, AuthStatus, AuthUser, InviteInfo, KeyStatus, Person, ProjectAccess, TeamGroup, TeamRules, ClusterJobs, GpuUsage, NotificationSettings, NotifyChannel, ProjectFileEntry, ProjectFileListing, Analytics, EditableSetting, SearchHit, SuggestionOutcome,
   AutonomyMode,
   CampaignDetail,
   CampaignSummary,
@@ -375,7 +375,7 @@ export const api = {
       request<{ saved: boolean; editable: EditableSetting[] }>('/settings', { method: 'PUT', body: JSON.stringify({ changes, reset }) }),
     notifications: () => request<NotificationSettings>('/settings/notifications'),
     /** Replace the notification settings; a channel without `target` keeps its saved one. */
-    saveNotifications: (body: { console_url: string; budget_warning_at: number; channels: NotifyChannel[]; quiet_start?: string; quiet_end?: string; quiet_except?: string[]; action_links?: boolean }) =>
+    saveNotifications: (body: { console_url: string; budget_warning_at: number; channels: NotifyChannel[]; quiet_start?: string; quiet_end?: string; quiet_except?: string[]; action_links?: boolean; progress_every_hours?: number; progress_phases?: boolean }) =>
       request<NotificationSettings>('/settings/notifications', { method: 'PUT', body: JSON.stringify(body) }),
     testNotification: (channel: NotifyChannel) =>
       request<{ ok: boolean; error: string }>('/settings/notifications/test', { method: 'POST', body: JSON.stringify(channel) }),
@@ -454,6 +454,13 @@ export const api = {
       request<ReaderView>(`/reader/papers/${encodeURIComponent(paper)}?${new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][])}`),
     /** A page kept in the Library, as it was saved: its readable HTML and text. */
     page: (paper: string) => request<{ html: string; text: string; url: string }>(`/reader/papers/${encodeURIComponent(paper)}/page`),
+    /** Keep a web page met somewhere in the Library (the project's when you may add to it), to open in the reader. */
+    keepPage: (url: string, space: string) => request<{ paper_id: string; key: string; space: string }>('/reader/pages', post({ url, space })),
+    /** Where what you keep can go (Obsidian, Notion). */
+    kb: () => request<KbStatus>('/reader/kb'),
+    kbNotion: (body: { token: string; page: string }) => request<KbStatus>('/reader/kb/notion', put(body)),
+    kbNote: (paper: string) => request<{ title: string; markdown: string; count: number; sent: Partial<Record<'obsidian' | 'notion', { at: number; ref: string }>> }>(`/reader/papers/${encodeURIComponent(paper)}/kb`),
+    kbSend: (paper: string, target: 'obsidian' | 'notion') => request<{ target: string; where: string; count: number }>(`/reader/papers/${encodeURIComponent(paper)}/kb`, post({ target })),
     pdfUrl: (paper: string, space: string) => `${BASE_URL}/reader/papers/${encodeURIComponent(paper)}/pdf?space=${encodeURIComponent(space)}`,
     /** Start fetching the paper's open PDF now, so it is there when it is opened. */
     prefetch: (paper: string, space: string) =>
@@ -511,8 +518,12 @@ export const api = {
     spaces: () => request<{ space: string; name: string; project: boolean; can_write: boolean }[]>('/brainstorm/spaces'),
     space: (space: string) => request<BsSpace>(`/brainstorm/spaces/${encodeURIComponent(space)}`),
     newChat: (space: string, title = '') => request<BsChat>(`/brainstorm/spaces/${encodeURIComponent(space)}/chats`, post({ title })),
-    chat: (chatId: string) => request<{ chat: BsChat; messages: BsMessage[]; pending: boolean; here: { user_id: string; name: string }[] }>(`/brainstorm/chats/${chatId}`),
+    chat: (chatId: string) => request<BsChatView>(`/brainstorm/chats/${chatId}`),
     renameChat: (chatId: string, title: string) => request<BsChat>(`/brainstorm/chats/${chatId}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+    setLead: (chatId: string, lead: 'me' | 'pippin') => request<BsChat>(`/brainstorm/chats/${chatId}`, { method: 'PATCH', body: JSON.stringify({ lead }) }),
+    branch: (chatId: string, msgId: string) => request<BsChat>(`/brainstorm/chats/${chatId}/branch`, post({ msg_id: msgId })),
+    returnSummary: (chatId: string) => request<{ text: string }>(`/brainstorm/chats/${chatId}/return/summary`, post()),
+    goBack: (chatId: string, text: string) => request<{ parent: string; posted: boolean }>(`/brainstorm/chats/${chatId}/return`, post({ text })),
     deleteChat: (chatId: string) => request<{ ok: boolean }>(`/brainstorm/chats/${chatId}`, del),
     say: (chatId: string, text: string, focus = '', attachments: BsAttachment[] = []) =>
       request<{ message: BsMessage; agents: string[] }>(`/brainstorm/chats/${chatId}/messages`, post({ text, focus, attachments })),
@@ -561,13 +572,16 @@ export const api = {
     ask: (itemId: string, campaign_id: string) =>
       request<{ campaign_id: string; ref: LibraryRef; seed: boolean }>(`/feed/items/${itemId}/ask`, post({ campaign_id })),
     following: () => request<Following>('/feed/following'),
-    settings: (body: Partial<Pick<Following, 'topics' | 'keywords' | 'from_objectives' | 'hf' | 'discussions'>> & { digest?: Partial<{ to: string; at: string; top: number; skip: boolean }> }) =>
+    settings: (body: Partial<Pick<Following, 'topics' | 'keywords' | 'from_objectives' | 'hf' | 'discussions'>> & { digest?: Partial<{ to: string; at: string; at2: string; top: number; skip: boolean; chat: boolean }> }) =>
       request<Following>('/feed/settings', put(body)),
     addRss: (url: string) => request<Following>('/feed/rss', post({ url })),
     removeRss: (url: string) => request<Following>(`/feed/rss?url=${encodeURIComponent(url)}`, del),
     setXKey: (key: string) => request<Following>('/feed/x-key', put({ key })),
     removeXKey: () => request<Following>('/feed/x-key', del),
     testDigest: () => request<{ ok: boolean }>('/feed/digest/test', post()),
+    /** keep an item where it fits and have Pippin read it (the digest's links) */
+    read: (itemId: string) =>
+      request<{ paper_id: string; space: string; title: string; reading: boolean; project: string }>(`/feed/items/${itemId}/read`, post()),
     find: (query: string) => request<{ candidates: PersonCandidate[] }>('/feed/people/find', post({ query })),
     findStream: (query: string, onStep: (step: string) => void) =>
       streamed<{ candidates: PersonCandidate[] }>('/feed/people/find/stream', { query }, onStep),

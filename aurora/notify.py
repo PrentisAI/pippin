@@ -27,7 +27,16 @@ _TIMEOUT = 15.0
 # the same message again within this many seconds is dropped (a burst of identical events)
 _DEDUPE_SECONDS = 60.0
 # what goes to a person's linked chat app (aurora.im) too: what they may want to answer there
-DIRECT = ("decision_needed", "run_finished", "run_failed", "agent_reply")
+DIRECT = ("decision_needed", "run_finished", "run_failed", "agent_reply", "progress")
+PHASES = {
+    "ideation": "the seat models prepare research directions",
+    "screening": "the proposal is scored",
+    "planning": "the plan of jobs is being written",
+    "preflight": "each job's prerequisites are checked and smoke-run",
+    "research": "the research agent works on the jobs",
+    "analysis": "the results are being checked",
+    "writing": "the report is being written",
+}
 
 
 def _clip(text: str, n: int) -> str:
@@ -197,8 +206,11 @@ class Notifier:
         self._flusher: asyncio.Task | None = None
         self._recent: dict[tuple[str, str], float] = {}
         self._tasks: set[asyncio.Task] = set()
+        self.progress = Progress()
+        self._ticker: asyncio.Task | None = None
 
     async def on_event(self, event: Event) -> None:
+        self._progress(event)
         note = describe(event, self.run_name or "experiment")
         if note is not None:
             actions: list[tuple[str, str]] = []
@@ -270,7 +282,119 @@ class Notifier:
                 logger.warning("Notification to %s (%s) failed: %s", channel.name or channel.type,
                                channel.type, error)
 
+    # ---------------------------------------------------------------- how the run is getting on
+
+    def _progress(self, event: Event) -> None:
+        """Keep track of the run; a word at a new phase, and a ticker for the summary every few hours."""
+        p = self.progress
+        p.see(event)
+        if event.name in END_EVENTS:
+            if self._ticker is not None:
+                self._ticker.cancel()
+            return
+        try:
+            config = self.config_fn()
+        except Exception:
+            return
+        if event.name == "phase_started" and config.progress_phases and p.phases > 1:
+            self.send("progress", f"{self.run_name or 'Experiment'}: now {p.phase}", p.text(phase_only=True))
+        if event.name in ("phase_started", "job_started") and config.progress_every_hours \
+                and (self._ticker is None or self._ticker.done()):
+            try:
+                self._ticker = asyncio.get_running_loop().create_task(self._tick())
+            except RuntimeError:
+                pass
+
+    async def _tick(self, every: float = 60.0) -> None:
+        while not self.progress.ended:
+            await asyncio.sleep(every)
+            self.progress_due()
+
+    def progress_due(self, now: float | None = None) -> bool:
+        """Send the summary when its hours have passed and something happened since the last; whether it went."""
+        try:
+            hours = self.config_fn().progress_every_hours
+        except Exception:
+            return False
+        p = self.progress
+        now = now or time.time()
+        if not hours or p.ended or now - p.last_sent < hours * 3600 or not p.news:
+            return False
+        p.last_sent = now
+        self.send("progress", f"Progress: {self.run_name or 'experiment'}", p.text(now=now))
+        p.news = []
+        return True
+
     async def drain(self, timeout: float = 20.0) -> None:
         """Wait for notifications still being sent (at the end of a run)."""
         if self._tasks:
             await asyncio.wait(list(self._tasks), timeout=timeout)
+
+
+END_EVENTS = ("campaign_completed", "campaign_failed", "campaign_stopped")
+
+
+class Progress:
+    """How a run is getting on, from its events: the phase, the jobs done of the plan, what happened since the
+    last summary, the cost.  No model call: the words are the run's own."""
+
+    def __init__(self) -> None:
+        self.started = time.time()
+        self.last_sent = time.time()
+        self.phase = ""
+        self.phases = 0
+        self.total = 0
+        self.done = 0
+        self.failed = 0
+        self.cost = 0.0
+        self.running: dict[str, str] = {}
+        self.titles: dict[str, str] = {}
+        self.news: list[str] = []
+        self.ended = False
+
+    def see(self, event: Event) -> None:
+        d = event.data
+        n = event.name
+        if n in END_EVENTS:
+            self.ended = True
+        elif n == "phase_started":
+            self.phase = str(d.get("phase") or self.phase)
+            self.phases += 1
+            self.news.append(f"started {self.phase}")
+        elif n == "job_started":
+            jid = str(d.get("job_id"))
+            self.total = int(d.get("total") or self.total)
+            self.titles[jid] = str(d.get("title") or jid)
+            self.running[jid] = self.titles[jid]
+        elif n == "iteration_complete":
+            jid = str(d.get("job_id"))
+            self.running.pop(jid, None)
+            self.cost += float(d.get("cost_usd") or 0)
+            if d.get("decision") == "error":
+                self.failed += 1
+                err = "; ".join(str(e) for e in (d.get("errors") or []))
+                self.news.append(f"job {self.titles.get(jid, jid)} failed" + (f": {_clip(err, 160)}" if err else ""))
+            else:
+                self.done += 1
+                self.news.append(f"job {self.titles.get(jid, jid)} done")
+        elif n == "milestone_audit" and d.get("verdict"):
+            self.news.append(f"audit of {d.get('completed_phase')}: {d.get('verdict')}")
+        elif n == "human_gate_opened":
+            self.news.append(f"asked you: {_clip(str(d.get('title', '')), 120)}")
+        elif n == "compute_job_ended":
+            self.news.append(f"cluster job {d.get('name', '')} {str(d.get('state', '')).lower()}")
+        elif n == "ideation_progress" and d.get("step") == "decided":
+            self.news.append(f"direction chosen: {_clip(str(d.get('headline', '')), 160)}")
+
+    def text(self, *, now: float | None = None, phase_only: bool = False) -> str:
+        lines = [f"Now: {self.phase} — {PHASES.get(self.phase, self.phase)}." if self.phase else ""]
+        if self.total:
+            jobs = f"Jobs: {self.done} of {self.total} done" + (f", {self.failed} failed" if self.failed else "")
+            if self.running:
+                jobs += "; running " + ", ".join(list(self.running.values())[:3])
+            lines.append(jobs + ".")
+        if not phase_only and self.news:
+            lines.append("Since the last update: " + "; ".join(self.news[-6:]) + ".")
+        took = _duration((now or time.time()) - self.started)
+        lines.append(f"Running {took}" + (f", agents ${self.cost:.2f} so far." if self.cost else "."))
+        return "\n".join(x for x in lines if x)

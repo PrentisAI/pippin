@@ -186,3 +186,34 @@ export function PickFile({ campaignId, onClose, onPick }: { campaignId: string; 
     </div>
   )
 }
+
+/** Back from a tangent: what it found, written for you to change, posted in the conversation it came from; or nothing. */
+export function ReturnDialog({ chatId, parentTitle, onClose, onDone }: { chatId: string; parentTitle: string; onClose: () => void; onDone: (parent: string, posted: boolean) => void }) {
+  const [text, setText] = useState('')
+  const [writing, setWriting] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  useEsc(onClose)
+  useEffect(() => {
+    api.brainstorm.returnSummary(chatId).then((r) => setText(r.text)).catch((e) => setError(describeError(e))).finally(() => setWriting(false))
+  }, [chatId])
+  const go = async (bring: boolean) => {
+    try { const r = await api.brainstorm.goBack(chatId, bring ? text : ''); onDone(r.parent, r.posted) } catch (e) { setError(describeError(e)) }
+  }
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Back to the main conversation" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="modal-title">Back to “{short(parentTitle, 50)}”</div>
+        <div className="modal-body">
+          <div className="modal-hint">What this tangent found, to post there as your message. Change it as you like; the agents there read it.</div>
+          <textarea className="bs-return-text" rows={5} value={text} disabled={writing} aria-label="What to bring back"
+            placeholder={writing ? 'Writing a summary of the tangent…' : 'What to bring back (empty: nothing)'} onChange={(e) => setText(e.target.value)} />
+          {error && <div className="modal-error">{error}</div>}
+        </div>
+        <div className="modal-actions">
+          <button className="btn-sm" onClick={() => go(false)}>Go back without it</button>
+          <button className="btn-sm btn-approve" disabled={writing || !text.trim()} onClick={() => go(true)}>Bring it back</button>
+        </div>
+      </div>
+    </div>
+  )
+}

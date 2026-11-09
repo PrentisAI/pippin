@@ -2203,6 +2203,7 @@ def _notification_settings() -> dict[str, Any]:
         "budget_warning_at": cfg.budget_warning_at,
         "quiet_start": cfg.quiet_start, "quiet_end": cfg.quiet_end, "quiet_except": cfg.quiet_except,
         "action_links": cfg.action_links,
+        "progress_every_hours": cfg.progress_every_hours, "progress_phases": cfg.progress_phases,
         "channels": [{"id": c.id, "type": c.type, "name": c.name, "target_hint": _hint(c.target),
                       "events": c.events, "enabled": c.enabled} for c in cfg.channels],
         "events": [{"key": k, "label": v, "default": k in DEFAULT_NOTIFY_EVENTS} for k, v in NOTIFY_EVENTS.items()],
@@ -2226,6 +2227,8 @@ class NotificationsBody(BaseModel):
     quiet_end: str = ""
     quiet_except: list[str] = []
     action_links: bool = True
+    progress_every_hours: float = 3
+    progress_phases: bool = True
 
 
 def _channels(bodies: list[ChannelBody]) -> list[Any]:
@@ -2261,7 +2264,8 @@ async def update_notification_settings(req: NotificationsBody) -> dict[str, Any]
         cfg = NotificationsConfig(console_url=req.console_url.strip().rstrip("/"),
                                   budget_warning_at=req.budget_warning_at, channels=_channels(req.channels),
                                   quiet_start=req.quiet_start.strip(), quiet_end=req.quiet_end.strip(),
-                                  quiet_except=req.quiet_except, action_links=req.action_links)
+                                  quiet_except=req.quiet_except, action_links=req.action_links,
+                                  progress_every_hours=req.progress_every_hours, progress_phases=req.progress_phases)
     except Exception as exc:
         raise HTTPException(400, f"invalid notification settings: {exc}") from exc
     if _me() != "local":                      # each person's own channels

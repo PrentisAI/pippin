@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from datetime import datetime
 from typing import Any
@@ -36,7 +37,7 @@ DEFAULTS: dict[str, Any] = {
     "hf": True,                   # HF Daily Papers
     "discussions": True,          # discussions around papers in my projects
     "rss": [],                    # [{url, title, state, last_ok, error}]
-    "digest": {"to": "console", "at": "08:30", "top": 5, "skip": True},
+    "digest": {"to": "console", "at": "08:30", "at2": "20:30", "top": 5, "skip": True, "chat": True},
 }
 
 _running: dict[str, asyncio.Task] = {}
@@ -458,67 +459,195 @@ def activity(user_id: str, person: dict[str, Any]) -> tuple[str, int]:
 
 
 # ---------------------------------------------------------------------------- the digest
+#
+# Twice a day by default (``at`` and ``at2``): what came in since the last one, numbered.  It goes to a
+# notification channel, to the person's linked chat apps (``chat``), or both.  In a chat app, "read 2" (读 2)
+# keeps item 2 in the project it fits and has Pippin read it, with a link to open it in the reader.
 
-def digest_text(user: Any) -> tuple[str, str] | None:
-    """(title, text) of today's digest; None when nothing fits well enough (and skipping is on)."""
-    cfg = settings(user.user_id)["digest"]
+READ_WORD = re.compile(r"^(?:读|看|存|保存|打开|read|open|save|keep)\s*(?:第\s*)?(\d{1,2})\s*(?:个|篇|条)?$", re.I)
+
+
+def _digest_items(user: Any, since: float, top: int) -> tuple[list[tuple[str, list[tuple[dict[str, Any], str]]]], str]:
+    """The digest's sections, [(heading, [(item, why)])], and the memory part."""
     profiles = {p["campaign_id"]: p["name"] for p in project_profiles(user)}
-    rows = feed_store.items(user.user_id, time.time() - 86400)
+    rows = feed_store.items(user.user_id, since)
     ranks = feed_store.ranks([r["item_id"] for r in rows])
+    taken: set[str] = set()
+    sections: list[tuple[str, list[tuple[dict[str, Any], str]]]] = []
+    followed = [r for r in rows if r.get("person_ids")]
+    if followed:
+        picks = []
+        for r in followed[:top]:
+            who = ", ".join(n for n, pid in (r.get("people") or []) if pid) or "someone you follow"
+            picks.append((r, f"by {who}"))
+            taken.add(r["item_id"])
+        sections.append(("From people you follow", picks))
     per: dict[str, list[tuple[int, dict[str, Any], str]]] = {}
     for r in rows:
+        if r["item_id"] in taken:
+            continue
         for rr in ranks.get(r["item_id"], []):
             if rr["campaign_id"] in profiles and rr["rel"] >= 3:
                 per.setdefault(rr["campaign_id"], []).append((rr["rel"], r, rr["why"]))
+    for cid, picks in per.items():
+        picks.sort(key=lambda x: -x[0])
+        chosen = [(r, why) for _, r, why in picks if r["item_id"] not in taken][:top]
+        taken.update(r["item_id"] for r, _ in chosen)
+        if chosen:
+            sections.append((profiles[cid], chosen))
+
+    def votes(r: dict[str, Any]) -> int:
+        m = re.match(r"(\d+) upvotes", str(r.get("extra") or ""))
+        return int(m.group(1)) if m else 0
+    hot = sorted((r for r in rows if r["item_id"] not in taken and votes(r) >= 20), key=votes, reverse=True)[:3]
+    if hot:
+        sections.append(("Trending", [(r, r.get("extra") or "") for r in hot]))
     try:                          # what came into the person's memory goes along
         from aurora.memory.relate import digest_text as memory_part
         memory = memory_part(user.user_id)
     except Exception:
         memory = ""
-    if cfg.get("skip", True) and not any(rel >= 4 for v in per.values() for rel, _, _ in v) and not memory:
+    return sections, memory
+
+
+def _half() -> str:
+    h = datetime.now().hour
+    return "morning" if h < 12 else "afternoon" if h < 18 else "evening"
+
+
+def digest_text(user: Any, *, since: float | None = None, chat: bool = False) -> tuple[str, str] | None:
+    """(title, text) of the digest: what came in since the last one; None when nothing fits well enough (and
+    skipping is on).  The items are numbered and remembered, for "read 2" in a chat app."""
+    cfg = settings(user.user_id)["digest"]
+    from aurora.auth.store import auth_store
+    if since is None:
+        last = float(auth_store.get_pref(user.user_id, "feed_digest_at") or 0)
+        since = max(last, time.time() - 86400) if last else time.time() - 86400
+    sections, memory = _digest_items(user, since, int(cfg.get("top") or 5))
+    strong = any(sec in ("From people you follow",) for sec, _ in sections) or any(
+        rr["rel"] >= 4 for sec, picks in sections for r, _ in picks
+        for rr in feed_store.ranks([r["item_id"]]).get(r["item_id"], []))
+    if cfg.get("skip", True) and not strong and not memory:
         return None
-    if not per and not memory:
+    if not sections and not memory:
         return None
-    lines = []
-    for cid, picks in per.items():
-        picks.sort(key=lambda x: -x[0])
-        lines.append(f"## {profiles[cid]}")
-        for _, r, why in picks[: int(cfg.get("top") or 5)]:
-            lines.append(f"- {r['title']} ({r['source']})\n  {why}\n  {r['url']}")
+    base = _console()
+    lines, numbered = [], []
+    for heading, picks in sections:
+        lines.append(f"## {heading}")
+        for r, why in picks:
+            numbered.append(r["item_id"])
+            link = f"{base}/?feed={r['item_id']}" if base else r["url"]
+            lines.append(f"{len(numbered)}. {r['title']} ({r['source']})" + (f"\n   {why}" if why else "")
+                         + (f"\n   {link}" if link else ""))
         lines.append("")
     if memory:
         lines.append(memory)
-    return f"Today’s reading, {datetime.now().strftime('%a %d %b')}", "\n".join(lines).strip()
+    if chat and numbered:
+        lines.append("Reply “read 2” (or 「读 2」) to keep one and read it with Pippin.")
+    auth_store.set_pref(user.user_id, "feed_digest_items", numbered)
+    return f"Your reading this {_half()}, {datetime.now().strftime('%a %d %b')}", "\n".join(lines).strip()
+
+
+def _console() -> str:
+    try:
+        from aurora.api.routes.campaigns import console_url
+        return console_url()
+    except Exception:
+        return ""
+
+
+def _chat_linked(user_id: str) -> bool:
+    try:
+        from aurora import im
+        return any(im.ready(link["app"]) for link in im.links(user_id))
+    except Exception:
+        return False
 
 
 async def send_digest(user: Any) -> str:
-    """Send today's digest to the chosen channel; returns '' or why it was not sent."""
+    """Send the digest to the chosen channel and the linked chat apps; returns '' or why it was not sent."""
     from aurora.api.routes.campaigns import live_notifications
+    from aurora.auth.store import auth_store
     from aurora.notify import deliver
     cfg = settings(user.user_id)["digest"]
-    if cfg.get("to", "console") == "console":
+    to_chat = bool(cfg.get("chat", True)) and _chat_linked(user.user_id)
+    channel = None
+    if cfg.get("to", "console") != "console":
+        channel = next((c for c in live_notifications(user.user_id).channels if c.id == cfg["to"] or c.name == cfg["to"]), None)
+        if channel is None and not to_chat:
+            return "The chosen channel no longer exists"
+    if channel is None and not to_chat:
         return "The digest goes only to the console"
-    channel = next((c for c in live_notifications(user.user_id).channels if c.id == cfg["to"] or c.name == cfg["to"]), None)
-    if channel is None:
-        return "The chosen channel no longer exists"
-    note = digest_text(user)
+    note = digest_text(user, chat=to_chat)
     if note is None:
         return "Nothing fits a project well today"
-    return await deliver(channel, "daily_digest", note[0], note[1])
+    errors = []
+    if channel is not None:
+        error = await deliver(channel, "daily_digest", note[0], note[1])
+        if error:
+            errors.append(error)
+    if to_chat:
+        from aurora import im
+        if not await im.push(user.user_id, note[0], note[1]):
+            errors.append("no chat app took it")
+    auth_store.set_pref(user.user_id, "feed_digest_at", time.time())
+    return "; ".join(errors)
 
 
-def _due(user_id: str, now: datetime) -> bool:
+def _slots(cfg: dict[str, Any]) -> list[tuple[int, int]]:
+    out = []
+    for t in (cfg.get("at", "08:30"), cfg.get("at2", "")):
+        try:
+            h, m = (int(x) for x in str(t).split(":"))
+            out.append((h, m))
+        except ValueError:
+            continue
+    return sorted(out)
+
+
+def _due(user_id: str, now: datetime) -> str:
+    """The slot (``YYYY-MM-DD HH:MM``) whose digest is due now; '' when none is."""
     from aurora.auth.store import auth_store
     cfg = settings(user_id)["digest"]
-    if cfg.get("to", "console") == "console":
-        return False
+    if cfg.get("to", "console") == "console" and not (cfg.get("chat", True) and _chat_linked(user_id)):
+        return ""
+    passed = [s for s in _slots(cfg) if (now.hour, now.minute) >= s]
+    if not passed:
+        return ""
+    slot = f"{now.strftime('%Y-%m-%d')} {passed[-1][0]:02d}:{passed[-1][1]:02d}"
+    return "" if auth_store.get_pref(user_id, "feed_digest_sent") == slot else slot
+
+
+async def digest_word(user_id: str, text: str) -> str | None:
+    """A reply to the digest in a chat app: "read 2" keeps item 2 and has Pippin read it; None when the words are
+    something else (they go to Pippin as usual)."""
+    m = READ_WORD.match(text.strip().rstrip("。.!！"))
+    if not m:
+        return None
+    from aurora.auth.store import auth_store
+    numbered = auth_store.get_pref(user_id, "feed_digest_items") or []
+    zh = bool(re.search(r"[\u4e00-\u9fff]", text))
+    n = int(m.group(1))
+    if not numbered:
+        return None
+    if not 1 <= n <= len(numbered):
+        return (f"摘要里只有 {len(numbered)} 条。" if zh else f"The digest had {len(numbered)} items.")
+    from aurora.api.routes.feed import keep_and_read
     try:
-        h, m = (int(x) for x in str(cfg.get("at", "08:30")).split(":"))
-    except ValueError:
-        return False
-    if (now.hour, now.minute) < (h, m):
-        return False
-    return auth_store.get_pref(user_id, "feed_digest_sent") != now.strftime("%Y-%m-%d")
+        r = await keep_and_read(numbered[n - 1])
+    except Exception as exc:
+        logger.warning("keeping digest item %s failed", numbered[n - 1], exc_info=True)
+        return (f"没能保存：{getattr(exc, 'detail', exc)}" if zh else f"Could not keep it: {getattr(exc, 'detail', exc)}")
+    where = r["project"] or ("你的资料库" if zh else "your library")
+    base = _console()
+    link = f"\n{base}/?read={r['paper_id']}" if base and r["paper_id"] else ""
+    reading = r.get("reading")
+    if zh:
+        return f"已保存「{r['title']}」到{where}。" + ("Pippin 正在读它，会在页边留下笔记。" if reading else "") + \
+            (f"用 Pippin 打开：{link}" if link else "")
+    return f"Kept “{r['title']}” in {where}." + (" Pippin is reading it and will leave notes in its margin." if reading else "") + \
+        (f" Open it with Pippin:{link}" if link else "")
 
 
 # ---------------------------------------------------------------------------- the loop
@@ -554,8 +683,9 @@ async def tick() -> None:
                 await refresh(user)
             except Exception:
                 logger.warning("feed refresh for %s failed", uid, exc_info=True)
-        if _due(uid, now):
-            auth_store.set_pref(uid, "feed_digest_sent", now.strftime("%Y-%m-%d"))
+        slot = _due(uid, now)
+        if slot:
+            auth_store.set_pref(uid, "feed_digest_sent", slot)
             error = await send_digest(user)
             if error:
                 logger.info("feed digest for %s not sent: %s", uid, error)

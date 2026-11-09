@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from aurora.auth.guard import current_user, require, rights
 from aurora.brainstorm import agents as ag
-from aurora.brainstorm import ideas, mentor
+from aurora.brainstorm import ideas, lead, mentor
 from aurora.brainstorm.store import CARD_TYPES, bs_store
 
 logger = logging.getLogger(__name__)
@@ -221,7 +221,7 @@ def _run_agents(ch: dict[str, Any], campaign_id: str, names: list[str], question
     async def go() -> None:
         for name in names:
             board = _board(bs_store.chat(ch["chat_id"]) or ch, campaign_id)
-            history = bs_store.messages(ch["chat_id"])
+            history = bs_store.context(ch["chat_id"])
             await ag.answer(name, board, history, question, access, focus=focus, deep=deep, context=context)
             if name == "Mentor":
                 await _after_mentor(ch["chat_id"], campaign_id, access)
@@ -250,11 +250,20 @@ async def _conduct(chat_id: str, campaign_id: str, access: ag.ModelAccess, answe
         return
     activity = _activity()
     board = _board(chat, campaign_id)
-    d = await conductor.decide(bs_store.messages(chat_id), board, _uid(), activity, access, answered)
+    history = bs_store.context(chat_id)
+    # when the researcher leads: the Skeptic questions them unasked, as much as the conversation calls for (lead.py);
+    # one unasked voice a turn, so the conductor waits when it does
+    f = lead.decide(history, chat, _uid(), activity, answered) if chat["owner"] == _uid() else None
+    if f is not None:
+        bs_store.add_message(chat_id, f["agent"], f"{f['agent']} questions this: {f['why']}", kind="system")
+        said = await ag.answer(f["agent"], board, history, lead.FRICTION_ASK.format(why=f["why"]), access, focus=chat["focus"])
+        bs_store.update_message(said["msg_id"], widget={"type": "friction", "state": "open", "signals": f["signals"]})
+        return
+    d = await conductor.decide(history, board, _uid(), activity, access, answered)
     logger.info("conductor in %s (%s): %s", chat_id, activity, d or "nobody joins")
     if d and d["move"] in conductor.JOINERS:
         bs_store.add_message(chat_id, d["move"], f"{d['move']} joins in: {d['why']}", kind="system")
-        await ag.answer(d["move"], _board(bs_store.chat(chat_id) or chat, campaign_id), bs_store.messages(chat_id),
+        await ag.answer(d["move"], _board(bs_store.chat(chat_id) or chat, campaign_id), bs_store.context(chat_id),
                         conductor.JOIN_ASK.format(**d), access, focus=chat["focus"])
     elif d and d["move"] == "map":
         _propose_map(chat_id, d["about"] or chat["title"], why=d["why"])
@@ -279,7 +288,7 @@ async def _after_mentor(chat_id: str, campaign_id: str, access: ag.ModelAccess) 
                 await _write_question(chat_id, access, candidates=todo == "rq_candidates")
             elif todo.startswith("skeptic:"):
                 board = _board(bs_store.chat(chat_id), campaign_id)  # type: ignore[arg-type]
-                await ag.answer("Skeptic", board, bs_store.messages(chat_id), mentor.SKEPTIC[todo.split(":", 1)[1]],
+                await ag.answer("Skeptic", board, bs_store.context(chat_id), mentor.SKEPTIC[todo.split(":", 1)[1]],
                                 access, focus=board.chat["focus"])
             elif todo == "handoff":
                 _handoff(chat_id)
@@ -547,12 +556,95 @@ async def get_chat(chat_id: str) -> dict[str, Any]:
     bs_store.seen(chat_id, _uid())
     msgs = [_message_view(m) for m in bs_store.messages(chat_id, viewer=_uid())]
     here = [{"user_id": u, "name": _name(u)} for u in bs_store.here(chat_id)] if ch["vis"] == "project" else []
-    return {"chat": _chat_view(ch), "messages": msgs, "pending": any(m["pending"] for m in msgs), "here": here}
+    branches = [{"chat_id": b["chat_id"], "title": b["title"], "branch_at": b["branch_at"], "mine": b["owner"] == _uid()}
+                for b in bs_store.branches(chat_id) if _sees_chat(b, _uid())]
+    parent = None
+    p = bs_store.chat(ch["parent"]) if ch.get("parent") else None
+    if p is not None and _sees_chat(p, _uid()):
+        at = bs_store.message(ch["branch_at"]) if ch["branch_at"] else None
+        parent = {"chat_id": p["chat_id"], "title": p["title"], "at": " ".join((at or {}).get("text", "").split())[:240],
+                  "at_who": _name(at["who"]) if at else ""}
+    return {"chat": _chat_view(ch), "messages": msgs, "pending": any(m["pending"] for m in msgs), "here": here,
+            "branches": branches, "parent": parent}
+
+
+class Branch(BaseModel):
+    msg_id: str
+    title: str = ""
+
+
+@router.post("/chats/{chat_id}/branch")
+async def branch(chat_id: str, body: Branch) -> dict[str, Any]:
+    """Go off on a tangent from a message: a conversation of its own whose agents also see this one up to there."""
+    ch, cid = _chat(chat_id)
+    _may_write(cid)
+    if ch["run_id"]:
+        raise HTTPException(400, "A live round table cannot branch; branch from a brainstorm about it")
+    m = bs_store.message(body.msg_id)
+    if m is None or m["chat_id"] != chat_id or (m["only_for"] and m["only_for"] != _uid()):
+        raise HTTPException(404, "No such message here")
+    # yours alone, unless you branch your own shared conversation (then it is shared like it)
+    vis = ch["vis"] if ch["owner"] == _uid() else "private"
+    title = body.title.strip() or "↳ " + _title(m["text"] or ch["title"], 50)
+    b = bs_store.new_chat(ch["space"], _uid(), title, vis=vis)
+    bs_store.update_chat(b["chat_id"], parent=chat_id, branch_at=m["msg_id"], lead=ch["lead"], focus=ch["focus"])
+    bs_store.add_move(chat_id, ch["space"], "branch", {"branch": b["chat_id"], "at": m["msg_id"]})
+    return _chat_view(bs_store.chat(b["chat_id"]))  # type: ignore[arg-type]
+
+
+def _parent_of(ch: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    if not ch.get("parent"):
+        raise HTTPException(400, "This conversation is not a tangent")
+    try:
+        return _chat(ch["parent"])
+    except HTTPException:
+        raise HTTPException(404, "The conversation it branched from is gone") from None
+
+
+@router.post("/chats/{chat_id}/return/summary")
+async def return_summary(chat_id: str) -> dict[str, Any]:
+    """What to bring back from a tangent: a few sentences, written for the researcher to change before posting."""
+    ch, _ = _chat(chat_id)
+    parent, _ = _parent_of(ch)
+    talk = lead.tangent_talk(chat_id, _uid())
+    if not talk:
+        return {"text": ""}
+    access = _access()
+    if not access.api_key:
+        raise HTTPException(400, f"No API key is set: {access.missing}")
+    at = bs_store.message(ch["branch_at"]) if ch["branch_at"] else None
+    prompt = lead.RETURN_PROMPT.format(at=" ".join((at or {}).get("text", parent["title"]).split())[:500], talk=talk)
+    try:
+        resp = await ag._client(access).chat.completions.create(model=access.model, temperature=0.2, max_tokens=900,
+                                                                 messages=[{"role": "user", "content": prompt}])
+        text = (resp.choices[0].message.content or "").strip()
+    except Exception as exc:
+        raise HTTPException(502, f"The summary could not be written: {str(exc)[:200]}") from None
+    return {"text": text}
+
+
+class Return(BaseModel):
+    text: str = ""          # what to bring back; empty: go back without posting anything
+
+
+@router.post("/chats/{chat_id}/return")
+async def return_to_parent(chat_id: str, body: Return) -> dict[str, Any]:
+    """Back to the conversation the tangent came from, bringing what it found (as the researcher's message there)."""
+    ch, _ = _chat(chat_id)
+    parent, pcid = _parent_of(ch)
+    text = body.text.strip()
+    if text:
+        _may_write(pcid)
+        bs_store.add_message(parent["chat_id"], _uid(), text[:4000],
+                             widget={"type": "from_branch", "chat_id": chat_id, "title": ch["title"]})
+        bs_store.add_move(parent["chat_id"], parent["space"], "returned", {"branch": chat_id, "chars": len(text)})
+    return {"parent": parent["chat_id"], "posted": bool(text)}
 
 
 class ChatChange(BaseModel):
     title: str | None = None
     focus: str | None = None
+    lead: str | None = None          # me | pippin
 
 
 @router.patch("/chats/{chat_id}")
@@ -565,6 +657,16 @@ async def change_chat(chat_id: str, body: ChatChange) -> dict[str, Any]:
     if body.focus is not None:
         _may_write(cid)
         bs_store.update_chat(chat_id, focus=body.focus)
+    if body.lead is not None:
+        if body.lead not in lead.LEADS:
+            raise HTTPException(400, "lead is me or pippin")
+        if ch["owner"] != _uid():
+            raise HTTPException(403, "Only the one whose conversation it is sets who leads it")
+        if ch["run_id"]:
+            raise HTTPException(400, "A round table has its own chair")
+        if lead.set_lead(chat_id, body.lead) and body.lead == "pippin":
+            # handed over: the lead agent takes it from where the conversation is
+            _run_agents(bs_store.chat(chat_id) or ch, cid, [lead.LEAD_AGENT], lead.lead_ask(""), ch["focus"])
     return _chat_view(bs_store.chat(chat_id))  # type: ignore[arg-type]
 
 
@@ -630,7 +732,20 @@ async def say(chat_id: str, body: Say) -> dict[str, Any]:
         bs_store.update_chat(chat_id, focus=body.focus)
     if ch["title"] == "New brainstorm" and ch["owner"] == _uid():
         bs_store.update_chat(chat_id, title=_title(text))
+    # "I'll lead" / "你来带" at the start of a message hands over the lead; the rest of it is said as usual
+    switched, rest = lead.switch_word(text) if ch["owner"] == _uid() else (None, text)
+    if switched:
+        lead.set_lead(chat_id, switched, by_words=True)
+        ch = bs_store.chat(chat_id) or ch
+        text = rest
     activity = _activity()
+    if ch["lead"] == "pippin" and not ag.mentioned(text):
+        # the agents lead: where things stand, the next step with drafts, a choice
+        _run_agents(ch, cid, [lead.LEAD_AGENT], lead.lead_ask(text), body.focus or ch["focus"],
+                    attachments=body.attachments, conduct=True)
+        return {"message": _message_view(msg), "agents": [lead.LEAD_AGENT]}
+    if switched == "me" and not text:
+        return {"message": _message_view(msg), "agents": []}
     if not ag.mentioned(text) and mentor.active(ch) and ch["owner"] == _uid():
         names = ["Mentor"]                  # a guided conversation: the researcher is answering the Mentor
     else:
@@ -761,6 +876,13 @@ async def act(msg_id: str, body: Act) -> dict[str, Any]:
                     f"(Console: the researcher picked this version of their idea to go on with: “{got['text']}”. "
                     f"Help them elaborate it.)", got["card_id"])
         return _message_view(bs_store.message(msg_id))  # type: ignore[arg-type]
+    elif kind == "friction":
+        if w.get("state") != "open":
+            raise HTTPException(409, "Already decided")
+        if body.choice != "later":
+            raise HTTPException(400, "later")
+        lead.wave(ch["chat_id"], msg_id)
+        w["state"] = "waved"
     elif kind == "map_failed":
         rv._start(w["map_id"], lambda b: rv.fieldmap.run(b, start=rv.fieldmap.resume_from(b.content)))
         w["state"] = "resumed"

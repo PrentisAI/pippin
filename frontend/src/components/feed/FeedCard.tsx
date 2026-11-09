@@ -11,7 +11,12 @@ export interface FeedActions {
   onAsk: (it: FeedItem, campaignId: string) => void
   onHide: (it: FeedItem) => void
   onPerson: (personId: string) => void
+  /** keep it (in the project it fits) and open it in Pippin's reader */
+  onRead: (it: FeedItem, campaignId: string) => void
 }
+
+/** What Pippin's reader can read: a paper, and a page of text (a post, a blog, a thread, a README); not a video. */
+export const readable = (it: FeedItem) => !!it.url && it.kind !== 'video'
 
 /** One item of the feed: what it is, who it is by, why it matters for a project, and what to do with it. */
 export function FeedCard({ it, project, actions }: { it: FeedItem; project: string; actions: FeedActions }) {
@@ -62,6 +67,8 @@ export function FeedCard({ it, project, actions }: { it: FeedItem; project: stri
       )}
       <div className="fd-actions">
         <div className="fd-buttons">
+          {readable(it) && <button className="btn-sm btn-approve" onClick={() => actions.onRead(it, fit?.campaign_id ?? '')}
+            title="Read it in Pippin: Pippin's notes, gaps to write in, pieces into your notebook">Read with Pippin</button>}
           <MenuButton label={it.saved ? (it.saved.campaign_id ? `Saved to ${it.saved.project}` : 'Saved for later') : 'Save to project'}
             className={`btn-sm lit-btn${it.saved ? ' on' : ''}`}>
             {(close) => <>

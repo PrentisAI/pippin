@@ -47,7 +47,7 @@ def test_settings_keep_secrets_and_show_only_whether_they_are_set(client):
     got = client.get("/api/im/settings").json()
     assert got["apps"]["feishu"]["app_id"] == "cli_2" and got["callbacks"]["wecom"].endswith("/im/wecom")
     assert "s3cret" not in json.dumps(got)
-    assert client.put("/api/im/settings/slack", json={}).status_code == 404
+    assert client.put("/api/im/settings/telegram", json={}).status_code == 404
 
 
 async def test_feishu_checks_the_callback_and_links_an_account(client, later, monkeypatch):

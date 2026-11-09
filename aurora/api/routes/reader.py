@@ -269,6 +269,30 @@ async def get_pdf(ident: str, space: str = "") -> FileResponse:
                         content_disposition_type="inline")
 
 
+class PageBody(BaseModel):
+    url: str
+    space: str = ""          # the project it is read for ('' / 'global': your own)
+
+
+@router.post("/pages")
+async def keep_page(body: PageBody) -> dict[str, Any]:
+    """A web page met somewhere (a link in a brainstorm, an answer's source), kept in the Library so it opens in the
+    reader like a saved page: in the project when you may add to it, else in your own. Returns ``{paper_id, key}``."""
+    from aurora.literature import pages
+    url = body.url.strip()
+    if not re.match(r"https?://\S+$", url):
+        raise HTTPException(400, "That is not a web address")
+    _, cid = _space(body.space)
+    me = current_user()
+    if cid and "edit" not in rights(me, cid):
+        cid = ""
+    # read now, so it is kept under its own title; one that cannot be fetched is kept by its address and read later
+    html, final = await pages.fetch_html(url)
+    entry = pages.save_page(me.user_id, url=(final or url) if html else url, html=html, campaign_id=cid,
+                            source="person", added_by="You" if me.is_local else me.name)
+    return {"paper_id": entry["paper_id"], "key": entry["key"], "space": cid or "global"}
+
+
 @router.get("/papers/{ident}/page")
 async def get_page(ident: str) -> dict[str, Any]:
     """A page kept in the Library, as it was saved: its readable HTML and its text (taken now if it has none)."""
@@ -335,14 +359,19 @@ def _ask(ann_id: str, agent: str, campaign_id: str) -> None:
         note = annotations.get(ann_id)
         if note and note["state"] == "kept" and note["zotero_key"]:
             annotations.update(ann_id)                   # the thread is part of the Zotero comment
-            _to_zotero(note["owner"])
+            _to_zotero(note["owner"], note["paper_id"])
 
     _spawn(go())
 
 
-def _to_zotero(owner: str) -> None:
+def _to_zotero(owner: str, paper_id: str = "") -> None:
+    """Notes changed: Zotero hears at its next push, and the paper's note in Obsidian or Notion (when set to auto) a
+    little later."""
+    from aurora.literature import kb
     from aurora.literature.zotero import notes_soon
     notes_soon(owner)
+    if paper_id:
+        kb.soon(owner, paper_id)
 
 
 class ReadAlong(BaseModel):
@@ -520,7 +549,7 @@ async def add_note(ident: str, body: NewNote) -> dict[str, Any]:
     if not body.draft:
         for agent in dict.fromkeys([body.ask] if body.ask else _mentioned(comment)):
             _ask(a["ann_id"], agent, cid)
-        _to_zotero(_uid())
+        _to_zotero(_uid(), entry["paper_id"])
     return _note_out(a["ann_id"], key, cid)
 
 
@@ -596,7 +625,7 @@ async def change_note(ann_id: str, body: NoteChange) -> dict[str, Any]:
     for agent in asks:
         _ask(ann_id, agent, cid)
     if touch:
-        _to_zotero(a["owner"])
+        _to_zotero(a["owner"], a["paper_id"])
     return _note_out(ann_id, a["space"], cid)
 
 
@@ -605,7 +634,7 @@ async def delete_note(ann_id: str) -> dict[str, Any]:
     """Deleted here; Zotero is told after a few seconds (Undo until then)."""
     a, _ = _own(ann_id)
     annotations.remove(ann_id)
-    _to_zotero(a["owner"])
+    _to_zotero(a["owner"], a["paper_id"])
     return {"deleted": True, "in_zotero": bool(a["zotero_key"])}
 
 
@@ -615,6 +644,7 @@ async def restore_note(ann_id: str) -> dict[str, Any]:
     if a["deleted_at"] is None:
         return _note_out(ann_id, a["space"], cid)
     annotations.restore(ann_id)
+    _to_zotero(a["owner"], a["paper_id"])
     return _note_out(ann_id, a["space"], cid)
 
 
@@ -636,7 +666,10 @@ async def reply(ann_id: str, body: Reply) -> dict[str, Any]:
         _ask(ann_id, agent, cid)
     if a["state"] == "kept" and a["zotero_key"]:
         annotations.update(ann_id)
-        _to_zotero(a["owner"])
+        _to_zotero(a["owner"], a["paper_id"])
+    elif a["state"] == "kept":
+        from aurora.literature import kb
+        kb.soon(a["owner"], a["paper_id"])
     return _note_out(ann_id, a["space"], cid)
 
 
@@ -685,3 +718,66 @@ async def sync_now() -> dict[str, Any]:
     except ZoteroError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Your knowledge base: Obsidian and Notion
+
+
+@router.get("/kb")
+async def kb_status() -> dict[str, Any]:
+    """Where what you keep can go (Obsidian, Notion): set up or not, and each one's write switch."""
+    from aurora.literature import kb
+    return {**kb.status(_uid()), "notion_settings": kb.notion_settings(_uid())}
+
+
+class NotionBody(BaseModel):
+    token: str = ""          # '' : keep the one already given
+    page: str = ""           # the link of the page notes go under
+
+
+@router.put("/kb/notion")
+async def kb_notion(body: NotionBody) -> dict[str, Any]:
+    from aurora.literature import kb
+    try:
+        await kb.connect_notion(_uid(), body.token, body.page)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    return await kb_status()
+
+
+@router.delete("/kb/notion")
+async def kb_notion_off() -> dict[str, Any]:
+    from aurora.literature import kb
+    kb.disconnect_notion(_uid())
+    return await kb_status()
+
+
+@router.get("/papers/{ident}/kb")
+async def kb_note(ident: str) -> dict[str, Any]:
+    """The note for this paper as it would be written (to copy when writing is off), and where it went before."""
+    from aurora.literature import kb
+    entry = _paper(ident)
+    return {**kb.note(_uid(), entry["paper_id"]), "sent": kb.sent_to(_uid(), entry["paper_id"])}
+
+
+class KbSend(BaseModel):
+    target: str              # obsidian | notion
+
+
+@router.post("/papers/{ident}/kb")
+async def kb_send(ident: str, body: KbSend) -> dict[str, Any]:
+    """Write this paper's note to Obsidian or Notion now (the switch must be ask or auto)."""
+    from aurora.auth.writes import allowed
+    from aurora.literature import kb
+    entry = _paper(ident)
+    if body.target not in kb.TARGETS:
+        raise HTTPException(400, "Send it to obsidian or notion")
+    if not allowed(_uid(), kb.WRITE_KEY[body.target]):
+        name = "Obsidian" if body.target == "obsidian" else "Notion"
+        raise HTTPException(403, f"Writing to {name} is off: turn it on under the account button → What Pippin may write, "
+                                 "or copy the note")
+    try:
+        return await kb.send(_uid(), entry["paper_id"], body.target)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None

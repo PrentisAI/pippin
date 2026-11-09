@@ -1,11 +1,12 @@
-/** Settings › Chat apps: talk to Pippin from Feishu/Lark or WeCom. You link your chat account with a code; a team
+/** Settings › Chat apps: talk to Pippin from Feishu/Lark, WeCom, Slack or WhatsApp, typed or spoken. You link your chat account with a code; a team
  *  admin connects the team's app once (its IDs and secrets, and the callback address to give it). */
 import { useCallback, useEffect, useState } from 'react'
 import { api, describeError } from '../api/client'
 import { useAuth } from '../auth'
 import type { ChatApp, ChatAppSettings } from '../types'
 
-const NAME: Record<ChatApp, string> = { feishu: 'Feishu / Lark (飞书)', wecom: 'WeCom (企业微信)' }
+const APPS: ChatApp[] = ['feishu', 'wecom', 'slack', 'whatsapp']
+const NAME: Record<ChatApp, string> = { feishu: 'Feishu / Lark (飞书)', wecom: 'WeCom (企业微信)', slack: 'Slack', whatsapp: 'WhatsApp' }
 const FIELDS: Record<ChatApp, { key: string; label: string; secret?: boolean; hint?: string }[]> = {
   feishu: [
     { key: 'app_id', label: 'App ID' },
@@ -21,10 +22,23 @@ const FIELDS: Record<ChatApp, { key: string; label: string; secret?: boolean; hi
     { key: 'token', label: 'Token', secret: true, hint: 'Receive messages › API settings' },
     { key: 'aes_key', label: 'EncodingAESKey', secret: true },
   ],
+  slack: [
+    { key: 'bot_token', label: 'Bot User OAuth Token', secret: true, hint: 'OAuth & Permissions: starts with xoxb-' },
+    { key: 'signing_secret', label: 'Signing Secret', secret: true, hint: 'Basic Information › App Credentials' },
+  ],
+  whatsapp: [
+    { key: 'phone_number_id', label: 'Phone number ID', hint: 'WhatsApp › API Setup' },
+    { key: 'access_token', label: 'Access token', secret: true, hint: 'A permanent token of a system user' },
+    { key: 'app_secret', label: 'App secret', secret: true, hint: 'App settings › Basic' },
+    { key: 'verify_token', label: 'Verify token', secret: true, hint: 'Any phrase: give the same one to the webhook' },
+    { key: 'version', label: 'Graph API version', hint: 'v21.0 when empty' },
+  ],
 }
 const HOW: Record<ChatApp, string> = {
-  feishu: 'Create a custom app in the Feishu developer console, give it the bot ability and the permission to read and send messages to users (im:message), subscribe to “Receive messages” (im.message.receive_v1) with the callback address below, and publish it.',
-  wecom: 'Create a self-built app in the WeCom admin console, turn on “Receive messages” with the callback address below and the Token and EncodingAESKey it gives, and add this server’s IP to the app’s trusted IPs.',
+  feishu: 'Create a custom app in the Feishu developer console, give it the bot ability and the permissions to read and send messages to users (im:message) and to get and upload files (im:resource, for voice messages), subscribe to “Receive messages” (im.message.receive_v1) with the callback address below, and publish it.',
+  wecom: 'Create a self-built app in the WeCom admin console, turn on “Receive messages” with the callback address below and the Token and EncodingAESKey it gives, and add this server’s IP to the app’s trusted IPs. Voice answers need an ffmpeg that writes AMR; otherwise Pippin answers voice in writing.',
+  slack: 'Create an app at api.slack.com/apps. Under OAuth & Permissions give the bot the scopes chat:write, im:history, im:write, app_mentions:read, files:read and files:write, and install it to the workspace. Under Event Subscriptions turn events on with the callback address below and subscribe the bot to message.im and app_mention. Under App Home allow people to send messages from the Messages tab.',
+  whatsapp: 'In developers.facebook.com, create a Business app and add the WhatsApp product with your business number. Make a permanent token for a system user with whatsapp_business_messaging. Under WhatsApp › Configuration set the webhook to the callback address below with your verify token, and subscribe to messages. WhatsApp lets Pippin write first only within 24 hours of someone’s last message, so a notification reaches a person who wrote to Pippin that day.',
 }
 
 export function ChatAppsSection() {
@@ -47,8 +61,9 @@ export function ChatAppsSection() {
     <div className="settings-group">
       <div className="search-group-title">Chat apps</div>
       <div className="panel-hint" style={{ padding: '0 0 6px' }}>
-        Talk to Pippin from Feishu or WeCom: ask about your projects, and answer a run’s decision by replying to its message.
-        What Pippin offers to do happens when you reply 确认 / yes.
+        Talk to Pippin from Feishu, WeCom, Slack or WhatsApp: ask about your projects, and answer a run’s decision by replying to its message.
+        What Pippin offers to do happens when you reply 确认 / yes. You can send a voice message too: Pippin answers in writing and aloud,
+        when this console has speech recognition (AURORA_WHISPER) and a voice set up.
       </div>
       {error && <div className="panel-message error">{error}</div>}
       {(me?.links ?? []).map((l) => (
@@ -62,7 +77,7 @@ export function ChatAppsSection() {
         code && !linked ? (
           <div className="im-code">
             <span>Send this to the Pippin bot in {me.ready.map((a) => NAME[a]).join(' or ')}:</span>
-            <b className="mono">绑定 {code.code}</b>
+            <b className="mono">{me.ready.every((a) => a === 'slack' || a === 'whatsapp') ? 'bind' : '绑定'} {code.code}</b>
             <span className="lit-sub">Valid for 15 minutes. This page notices when it is done.</span>
           </div>
         ) : (
@@ -105,7 +120,7 @@ function TeamApps({ onChanged }: { onChanged: () => void }) {
     <div className="im-team">
       <div className="settings-label">The team’s apps (admins)</div>
       {msg && <div className={`panel-message ${msg.tone}`}>{msg.text}</div>}
-      {(['feishu', 'wecom'] as ChatApp[]).map((app) => {
+      {APPS.map((app) => {
         const s = data.apps[app]
         return (
           <div key={app} className={`notify-channel${s.enabled ? '' : ' off'}`}>

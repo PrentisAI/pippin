@@ -441,6 +441,7 @@ NOTIFY_EVENTS: dict[str, str] = {
     "compute_job": "A cluster job of an experiment ended",
     "estimate_exceeded": "An experiment costs or takes much more than estimated",
     "memory_alert": "Something you would regret missing: a retraction in what you rely on, a paper overlapping your work",
+    "progress": "How a running experiment is getting on: each new phase, and a summary every few hours",
 }
 DEFAULT_NOTIFY_EVENTS = ["decision_needed", "run_finished", "run_failed", "budget_warning", "estimate_exceeded",
                          "memory_alert"]
@@ -489,6 +490,11 @@ class NotificationsConfig(_Section):
     quiet_end: str = Field(default="", description="Quiet hours until (HH:MM).")
     quiet_except: list[str] = Field(default_factory=list, description="Kinds sent even in quiet hours "
                                                                       "(e.g. decision_needed).")
+    progress_every_hours: float = Field(default=3, ge=0, le=48, description="While an experiment runs, how it is "
+                                        "getting on, every this many hours (when something happened); 0: never. "
+                                        "Goes to your linked chat apps, and to channels that take `progress`.")
+    progress_phases: bool = Field(default=True, description="Also a word when an experiment enters a new phase "
+                                                            "(planning, research, analysis, writing).")
     action_links: bool = Field(default=True, description="Put \"Approve\" and \"Stop\" links into decision "
                                                         "messages (they open a confirmation page; the console "
                                                         "address must be set).")

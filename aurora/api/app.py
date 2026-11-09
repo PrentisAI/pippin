@@ -85,7 +85,7 @@ def create_app(*, cors_origins: list[str] | None = None) -> FastAPI:
     app.include_router(decision_links)          # /a/<token>: answering a decision from a notification
     from aurora.api.routes.im import public_router as chat_apps
     from aurora.api.routes.im import router as im_router
-    app.include_router(chat_apps)               # /im/feishu, /im/wecom: messages to Pippin from a chat app
+    app.include_router(chat_apps)               # /im/feishu, /im/wecom, /im/slack, /im/whatsapp: messages to Pippin
     for router in (campaign_router, settings_router, skills_router, insights_router, files_router,
                    me_router, team_router, access_router, project_router, library_router,
                    zotero_router, brainstorm_router, feed_router, links_router, results_router, setup_router,

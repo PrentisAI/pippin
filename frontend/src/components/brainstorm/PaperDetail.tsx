@@ -25,9 +25,11 @@ export function PaperDetail({ paper, space, onBack, onIdea, onAsk, onRead, onSta
   const [copied, setCopied] = useState(false)
   const [allAuthors, setAllAuthors] = useState(false)
   const p = paper
-  const readable = !!(p.pdf_file || p.pdf_url || p.arxiv_id)
+  // a paper with a PDF, or a page of text kept in the Library (its snapshot); not a video
+  const isPage = !!p.kind && p.kind !== 'paper'
+  const readable = isPage ? !!p.url && p.kind !== 'video' : !!(p.pdf_file || p.pdf_url || p.arxiv_id)
   // the PDF is fetched while the paper is looked at, so "Read the PDF" opens it at once
-  useEffect(() => { if (readable && p.key) api.reader.prefetch(p.key, space.space).catch(() => {}) }, [readable, p.key, space.space])
+  useEffect(() => { if (readable && !isPage && p.key) api.reader.prefetch(p.key, space.space).catch(() => {}) }, [readable, p.key, space.space])
   const page = p.doi ? `https://doi.org/${p.doi}` : p.arxiv_id ? `https://arxiv.org/abs/${p.arxiv_id}` : p.url
   const where = p.doi ? 'DOI' : p.arxiv_id ? 'arXiv' : 'the paper’s page'
   // the ideas of this space it is evidence for or against
@@ -54,7 +56,7 @@ export function PaperDetail({ paper, space, onBack, onIdea, onAsk, onRead, onSta
       </div>
       <div className="pd-actions">
         {readable && <button className="btn-sm btn-approve" onClick={() => onRead(p.key, links[0]?.idea?.card_id)}
-          title="Read it here: highlight, write notes and ask the agents about a passage">Read the PDF</button>}
+          title="Read it here: highlight, write notes and ask the agents about a passage">{isPage ? 'Read with Pippin' : 'Read the PDF'}</button>}
         {page && <a className="btn-sm lit-btn" href={page} target="_blank" rel="noreferrer">Open on {where}</a>}
         <button className="btn-sm lit-btn" onClick={copy} title="Its key, to cite it in a message">{copied ? 'Copied' : `Copy [${p.key}]`}</button>
         {onStar && <button className="btn-sm lit-btn" onClick={onStar}>{p.starred ? '★ Starred' : '☆ Star'}</button>}

@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, describeError } from '../../api/client'
 import { useAuth } from '../../auth'
-import type { Activity, AddFound, BsAttachment, BsCard, BsChat, BsMessage, BsSpace, BsSuggestion, ProjectLiterature, ZoteroStatus } from '../../types'
+import type { Activity, AddFound, BsAttachment, BsCard, BsChat, BsChatView, BsMessage, BsSpace, BsSuggestion, ProjectLiterature, ZoteroStatus } from '../../types'
 import { ShareDialog } from '../ShareDialog'
 import { ZoteroDialog } from '../ZoteroDialog'
 import { RULE_LABELS } from '../LiteratureView'
@@ -9,7 +9,7 @@ import { CardDrawer } from './CardDrawer'
 import { IdeasPane } from './Ideas'
 import { FILTER_LABELS, PapersPane, inFilter, type PaperFilter } from './Papers'
 import { ACTIVITY, Avatar, BULB, CHAT, LENS, LOCK, Rich, VisPill, analyse, ago, short } from './common'
-import { NewCard, PickFile, PickPaper, Promote, ShareChat } from './dialogs'
+import { NewCard, PickFile, PickPaper, Promote, ReturnDialog, ShareChat } from './dialogs'
 import { FirstTip } from '../../onboarding/FirstTip'
 import { seeTip } from '../../onboarding/store'
 import { readPaper } from '../reader/open'
@@ -20,13 +20,24 @@ import { ActionWidget, MapPane } from '../review/ChatWidgets'
 import { PlanPane } from './Plan'
 
 type Dialog = null | { kind: 'share' } | { kind: 'projectShare' } | { kind: 'promote'; card: BsCard } | { kind: 'new'; type: 'idea' | 'question' | 'note' }
-  | { kind: 'bring' } | { kind: 'attachPaper' } | { kind: 'attachFile' } | { kind: 'zotero' }
+  | { kind: 'bring' } | { kind: 'attachPaper' } | { kind: 'attachFile' } | { kind: 'zotero' } | { kind: 'return' }
 
 /** The brainstorm space of a project (or your own): conversations with the agents and the ideas they produce. */
 // the widths of the side columns, kept in this browser
 const BS_COLS = { left: 240, right: 400, reader: 640 }
 const BS_COLS_KEY = 'aurora.brainstorm.cols'
 const BS_CENTER_MIN = 360
+/** Conversations with their tangents right under them, indented (a tangent whose parent is not listed stands alone). */
+function withTangents(chats: BsChat[]): { c: BsChat; depth: number }[] {
+  const ids = new Set(chats.map((c) => c.chat_id))
+  const out: { c: BsChat; depth: number }[] = []
+  const add = (c: BsChat, depth: number) => {
+    out.push({ c, depth })
+    chats.filter((k) => k.parent === c.chat_id).reverse().forEach((k) => add(k, depth + 1))
+  }
+  chats.filter((c) => !c.parent || !ids.has(c.parent)).forEach((c) => add(c, 0))
+  return out
+}
 function loadCols(): typeof BS_COLS {
   try { return { ...BS_COLS, ...JSON.parse(localStorage.getItem(BS_COLS_KEY) || '{}') } } catch { return BS_COLS }
 }
@@ -48,7 +59,7 @@ export function BrainstormView({ initialSpace, opening, onOpeningSent, reader, o
   const [lit, setLit] = useState<ProjectLiterature | null>(null)
   const [zotero, setZotero] = useState<ZoteroStatus | null>(null)
   const [chatId, setChatId] = useState<string | null>(null)
-  const [chat, setChat] = useState<{ chat: BsChat; messages: BsMessage[]; pending: boolean; here: { user_id: string; name: string }[] } | null>(null)
+  const [chat, setChat] = useState<BsChatView | null>(null)
   const [focus, setFocus] = useState('')
   const [tab, setTab] = useState<'ideas' | 'papers' | 'map' | 'plan'>('ideas')
   const [ideaFilter, setIdeaFilter] = useState<'all' | 'project' | 'mine'>('all')
@@ -283,6 +294,19 @@ export function BrainstormView({ initialSpace, opening, onOpeningSent, reader, o
   }, [handsFree, chat, busy, speaking, voice.state, voice.error]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!handsFree) { stopSpeaking(); setSpeaking(false); voice.cancel() } }, [handsFree]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => stopSpeaking(), [])
+  // who leads this conversation: you, or Pippin (the agents propose the next step with drafts); switch any time
+  const lead = chat?.chat.lead ?? 'me'
+  const setLead = (to: 'me' | 'pippin') => act(async () => {
+    const id = await ensureChat()
+    await api.brainstorm.setLead(id, to)
+    setChat(await api.brainstorm.chat(id))
+  })
+  const branchAt = (m: BsMessage) => act(async () => {
+    const b = await api.brainstorm.branch(m.chat_id, m.msg_id)
+    await loadSpace()
+    setChatId(b.chat_id)
+    setToast({ text: 'A tangent of its own: the agents here also see the conversation up to that message. “Back” returns, bringing what you found if you like.' })
+  })
   const deep = () => act(async () => {
     const id = await ensureChat()
     await api.brainstorm.deep(id, text.trim(), focus)
@@ -380,9 +404,10 @@ export function BrainstormView({ initialSpace, opening, onOpeningSent, reader, o
         ) : <div className="lit-sub" style={{ padding: '6px 8px 0' }}>Your own space is only yours.</div>}
 
         <div className="bs-h">{LOCK} Only you</div>
-        {myChats.map((c) => (
-          <button key={c.chat_id} className="bs-item" aria-current={c.chat_id === chatId} onClick={() => setChatId(c.chat_id)}>
-            {CHAT}<span className="bs-ell">{c.title}</span></button>
+        {withTangents(myChats).map(({ c, depth }) => (
+          <button key={c.chat_id} className="bs-item" aria-current={c.chat_id === chatId} onClick={() => setChatId(c.chat_id)}
+            style={depth ? { paddingLeft: 8 + depth * 14 } : undefined} title={depth ? 'A tangent' : undefined}>
+            {depth ? <span className="bs-tangent-mark" aria-hidden="true">↳</span> : CHAT}<span className="bs-ell">{depth ? c.title.replace(/^↳\s*/, '') : c.title}</span></button>
         ))}
         {!myChats.length && <div className="lit-sub" style={{ padding: '2px 8px' }}>No private brainstorms yet: start one to think an idea through before you run anything.</div>}
         {space.can_write && (
@@ -396,9 +421,10 @@ export function BrainstormView({ initialSpace, opening, onOpeningSent, reader, o
         )}
         {space.project && (<>
           <div className="bs-h">Shared with the project</div>
-          {sharedChats.map((c) => (
-            <button key={c.chat_id} className="bs-item" aria-current={c.chat_id === chatId} onClick={() => setChatId(c.chat_id)}>
-              {c.run_id ? <span className={`bs-dot${['finished', ''].includes(c.status ?? '') ? '' : ' on'}`} aria-label="live" /> : CHAT}
+          {withTangents(sharedChats).map(({ c, depth }) => (
+            <button key={c.chat_id} className="bs-item" aria-current={c.chat_id === chatId} onClick={() => setChatId(c.chat_id)}
+              style={depth ? { paddingLeft: 8 + depth * 14 } : undefined}>
+              {c.run_id ? <span className={`bs-dot${['finished', ''].includes(c.status ?? '') ? '' : ' on'}`} aria-label="live" /> : depth ? <span className="bs-tangent-mark" aria-hidden="true">↳</span> : CHAT}
               <span className="bs-ell">{c.title}</span><span className="lit-sub">{c.mine ? '' : c.owner_name.split(' ')[0]}</span></button>
           ))}
           {!sharedChats.length && <div className="lit-sub" style={{ padding: '2px 8px' }}>Nothing shared yet.</div>}
@@ -483,6 +509,14 @@ export function BrainstormView({ initialSpace, opening, onOpeningSent, reader, o
           </div>
         </div>
         <div className="bs-body" ref={bodyRef}>
+          {chat?.parent && (
+            <div className="bs-crumb">
+              <span>↰ A tangent from <button className="link-btn" onClick={() => setChatId(chat.parent!.chat_id)}>{short(chat.parent.title, 50)}</button>
+                {chat.parent.at && <>, at <span className="bs-crumb-at">{chat.parent.at_who ? `${chat.parent.at_who}: ` : ''}“{short(chat.parent.at, 90)}”</span></>}</span>
+              <span className="lit-sub">The agents here see that conversation up to there.</span>
+              {space.can_write && <button className="btn-sm lit-btn" onClick={() => setDialog({ kind: 'return' })}>Back…</button>}
+            </div>
+          )}
           {!chat?.messages.length && (
             <div className="bs-note">A new brainstorm. Say what you are thinking about; the Skeptic, Methods, the Librarian and the Mentor
               join when you ask them, or use the buttons below{space.activity !== 'off' ? ' (and when what you write calls for one of them)' : ''}.
@@ -490,6 +524,8 @@ export function BrainstormView({ initialSpace, opening, onOpeningSent, reader, o
           )}
           {chat?.messages.map((m) => <Message key={m.msg_id} m={m} space={space} cards={cards} onIdea={showIdea} onPaper={showPaper}
             spaceId={spaceId} onChanged={() => { loadChat(); loadSpace() }} reading={readingId === m.msg_id}
+            onBranch={space.can_write && !currentChat?.run_id && m.kind !== 'system' && !m.pending ? () => branchAt(m) : undefined}
+            branches={(chat.branches ?? []).filter((b) => b.branch_at === m.msg_id)} onOpenChat={setChatId}
             onSpeak={(t) => { if (readingId === m.msg_id) { stopSpeaking(); setSpeaking(false); setReadingId(null) } else readAloud(t, undefined, m.msg_id) }}
             onConsent={(share) => act(async () => { await api.brainstorm.consent(m.msg_id, share); await loadChat(); loadSpace() })} />)}
         </div>
@@ -501,6 +537,15 @@ export function BrainstormView({ initialSpace, opening, onOpeningSent, reader, o
                 : 'This round table has finished. Its ideas and questions are on the board.'}</div>
             ) : (
               <div className="bs-quick">
+                {(!currentChat || currentChat.mine) && (
+                  <span className="bs-lead" role="group" aria-label="Who leads">
+                    <span className="bs-lead-label">Who leads</span>
+                    <button type="button" className={lead === 'me' ? 'on' : ''} aria-pressed={lead === 'me'} disabled={busy}
+                      title="You drive; the agents answer, and question you when you seem very sure" onClick={() => lead !== 'me' && setLead('me')}>You</button>
+                    <button type="button" className={lead === 'pippin' ? 'on' : ''} aria-pressed={lead === 'pippin'} disabled={busy}
+                      title="Pippin drives: after each message, where things stand, the next step with drafts, and a choice for you" onClick={() => lead !== 'pippin' && setLead('pippin')}>Pippin</button>
+                  </span>
+                )}
                 <button type="button" className={handsFree ? 'on' : ''} aria-pressed={handsFree}
                   title={handsFree ? 'Back to typing (Esc, or just start typing)' : 'Talk instead of typing: what you say is sent after a pause, and the answers are read aloud'}
                   onClick={() => setHandsFree(!handsFree)}>
@@ -542,7 +587,7 @@ export function BrainstormView({ initialSpace, opening, onOpeningSent, reader, o
                       : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>}
                   </button>
                 ) : null}
-                <textarea ref={msgRef} rows={1} className={voice.state !== 'idle' ? 'bs-hearing' : undefined} aria-label="Message" placeholder={currentChat?.run_id ? 'Speak in the round table' : chat?.chat.guided ? 'Answer the Mentor, or name another agent' : 'Think out loud, or @Skeptic @Methods @Librarian @Mentor'}
+                <textarea ref={msgRef} rows={1} className={voice.state !== 'idle' ? 'bs-hearing' : undefined} aria-label="Message" placeholder={currentChat?.run_id ? 'Speak in the round table' : lead === 'pippin' ? 'Steer: reply, or say “I’ll lead” to take it back' : chat?.chat.guided ? 'Answer the Mentor, or name another agent' : 'Think out loud, or @Skeptic @Methods @Librarian @Mentor'}
                   value={text} onChange={(e) => { if (voiceOn) { typing.current = true; quiet() } setText(e.target.value) }}
                   disabled={!!currentChat?.run_id && !live}
                   onKeyDown={(e) => {
@@ -627,6 +672,10 @@ export function BrainstormView({ initialSpace, opening, onOpeningSent, reader, o
       )}
       {dialog?.kind === 'attachPaper' && <PickPaper space={space} title="Attach a paper" onClose={() => setDialog(null)} onPick={(pid, key) => { setAttachments([...attachments, { kind: 'paper', paper_id: pid, label: key }]); setDialog(null) }} />}
       {dialog?.kind === 'attachFile' && <PickFile campaignId={space.space} onClose={() => setDialog(null)} onPick={(a) => { setAttachments([...attachments, a]); setDialog(null) }} />}
+      {dialog?.kind === 'return' && chat?.parent && (
+        <ReturnDialog chatId={chat.chat.chat_id} parentTitle={chat.parent.title} onClose={() => setDialog(null)}
+          onDone={(parent, posted) => { setDialog(null); setChatId(parent); loadSpace(); if (posted) setToast({ text: 'Brought back: it is your message there now.' }) }} />
+      )}
       {dialog?.kind === 'zotero' && <ZoteroDialog onChanged={setZotero} onClose={() => { setDialog(null); loadSpace() }} />}
       {toast && (
         <div className="bs-toast" role="status">{toast.text}
@@ -637,7 +686,28 @@ export function BrainstormView({ initialSpace, opening, onOpeningSent, reader, o
   )
 }
 
-function Message({ m, space, cards, onIdea, onPaper, onConsent, spaceId, onChanged, onSpeak, reading }: {
+function Message(props: Parameters<typeof MessageBody>[0] & {
+  /** Go off on a tangent from here. */
+  onBranch?: () => void
+  branches?: { chat_id: string; title: string }[]
+  onOpenChat?: (chatId: string) => void
+}) {
+  const { onBranch, branches = [], onOpenChat, ...rest } = props
+  if (!onBranch && !branches.length) return <MessageBody {...rest} />
+  return (
+    <div className="bs-msg-wrap">
+      <MessageBody {...rest} />
+      {onBranch && <button type="button" className="bs-branch-btn" title="Go off on a tangent from here, and come back later" onClick={onBranch}>Branch off here</button>}
+      {branches.length > 0 && (
+        <div className="bs-branches">{branches.map((b) => (
+          <button key={b.chat_id} type="button" className="link-btn" onClick={() => onOpenChat?.(b.chat_id)}>↳ {b.title.replace(/^↳\s*/, '')}</button>
+        ))}</div>
+      )}
+    </div>
+  )
+}
+
+function MessageBody({ m, space, cards, onIdea, onPaper, onConsent, spaceId, onChanged, onSpeak, reading }: {
   m: BsMessage; space: BsSpace; cards: Map<string, BsCard>; onIdea: (id: string) => void; onPaper: (key: string) => void; onConsent: (share: boolean) => void
   spaceId: string; onChanged: () => void
   /** Read an answer aloud, or stop reading it. */
@@ -647,7 +717,7 @@ function Message({ m, space, cards, onIdea, onPaper, onConsent, spaceId, onChang
 }) {
   const agent = space.agents[m.who]
   const seat = /^p\d\d$/.test(m.who)
-  if (m.kind === 'system') return <div className="bs-system"><Rich text={m.text} cards={cards} onIdea={onIdea} onPaper={onPaper} /></div>
+  if (m.kind === 'system') return <div className="bs-system"><Rich text={m.text} cards={cards} onIdea={onIdea} onPaper={onPaper} space={space.space} /></div>
   if (m.kind === 'consent') {
     const c = cards.get(m.consent)
     return (
@@ -666,7 +736,8 @@ function Message({ m, space, cards, onIdea, onPaper, onConsent, spaceId, onChang
   if (!m.agent && !seat && m.who !== 'Chair') {
     return (
       <div className={`bs-msg${m.mine ? ' you' : ''}`}><Avatar name={m.who_name === 'You' ? 'Y' : m.who_name} />
-        <div className="bs-msg-main"><div className="bs-bubble">{m.text}</div>
+        <div className="bs-msg-main">{m.widget?.type === 'from_branch' && <div className="bs-from-branch">↩ Brought back from the tangent “{m.widget.title.replace(/^↳\s*/, '')}”</div>}
+          <div className="bs-bubble">{m.text}</div>
           {(m.attachments ?? []).length > 0 && <div className="lit-sub">With {m.attachments!.map((a) => a.kind === 'paper' ? `paper ${a.label ?? ''}` : a.label ?? a.path).join(', ')}</div>}
           {!m.mine && <div className="lit-sub">{m.who_name}</div>}</div></div>
     )
@@ -684,10 +755,16 @@ function Message({ m, space, cards, onIdea, onPaper, onConsent, spaceId, onChang
               : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" /></svg>}</button>}</div>
         {steps.length > 0 && (
           <div className="bs-steps">{steps.map((s, i) => <div key={i}>{s === 'Thinking' ? BULB : LENS}
-            <span><Rich text={s} cards={cards} onIdea={onIdea} onPaper={onPaper} />{m.pending && i === steps.length - 1 ? '…' : ''}</span></div>)}</div>
+            <span><Rich text={s} cards={cards} onIdea={onIdea} onPaper={onPaper} space={space.space} />{m.pending && i === steps.length - 1 ? '…' : ''}</span></div>)}</div>
         )}
-        {m.text && <div className="bs-text"><Rich text={m.text} cards={cards} onIdea={onIdea} onPaper={onPaper} />{m.pending && seat ? '…' : ''}</div>}
+        {m.text && <div className="bs-text"><Rich text={m.text} cards={cards} onIdea={onIdea} onPaper={onPaper} space={space.space} />{m.pending && seat ? '…' : ''}</div>}
         {m.kind === 'action' && m.widget && <ActionWidget m={m} space={spaceId} onChanged={onChanged} onIdea={onIdea} />}
+        {m.widget?.type === 'friction' && m.widget.state === 'open' && !m.pending && (
+          <div className="bs-friction"><span className="lit-sub">Answer it, or</span>
+            <button type="button" className="link-btn" title="No questions like this for a while"
+              onClick={async () => { try { await api.brainstorm.act(m.msg_id, 'later'); onChanged() } catch { /* already decided */ } }}>not now</button></div>
+        )}
+        {m.widget?.type === 'friction' && m.widget.state === 'waved' && <div className="lit-sub">Waved off: fewer questions like this for a while.</div>}
         {m.effects.map(([what, id], i) => (
           <div key={i} className="bs-effect">↳ {what} {!id ? null : cards.get(id) ? <button className="bs-ichip" onClick={() => onIdea(id)}>{short(cards.get(id)!.text, 40)}</button> : 'an idea'}</div>
         ))}

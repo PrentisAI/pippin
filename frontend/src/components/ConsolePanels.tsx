@@ -343,6 +343,7 @@ function NotificationsSection() {
   const [channels, setChannels] = useState<NotifyChannel[]>([])
   const [consoleUrl, setConsoleUrl] = useState('')
   const [quiet, setQuiet] = useState({ start: '', end: '', except: [] as string[], links: true })
+  const [progress, setProgress] = useState({ hours: '3', phases: true })
   const [adding, setAdding] = useState<NotifyChannel | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
@@ -352,6 +353,7 @@ function NotificationsSection() {
     setChannels(n.channels)
     setConsoleUrl(n.console_url)
     setQuiet({ start: n.quiet_start ?? '', end: n.quiet_end ?? '', except: n.quiet_except ?? [], links: n.action_links ?? true })
+    setProgress({ hours: String(n.progress_every_hours ?? 3), phases: n.progress_phases ?? true })
   }
   useEffect(() => {
     api.settings.notifications().then(reset).catch((err) => setMessage({ tone: 'error', text: describeError(err) }))
@@ -362,6 +364,7 @@ function NotificationsSection() {
   const dirty = consoleUrl !== saved.console_url || JSON.stringify(channels) !== JSON.stringify(saved.channels)
     || quiet.start !== (saved.quiet_start ?? '') || quiet.end !== (saved.quiet_end ?? '') || quiet.links !== (saved.action_links ?? true)
     || JSON.stringify(quiet.except) !== JSON.stringify(saved.quiet_except ?? [])
+    || Number(progress.hours) !== (saved.progress_every_hours ?? 3) || progress.phases !== (saved.progress_phases ?? true)
   const update = (id: string, patch: Partial<NotifyChannel>) =>
     setChannels((list) => list.map((c) => (c.id === id ? { ...c, ...patch } : c)))
 
@@ -370,7 +373,8 @@ function NotificationsSection() {
     setMessage(null)
     try {
       reset(await api.settings.saveNotifications({ console_url: consoleUrl, budget_warning_at: saved.budget_warning_at, channels: list,
-        quiet_start: quiet.start, quiet_end: quiet.end, quiet_except: quiet.except, action_links: quiet.links }))
+        quiet_start: quiet.start, quiet_end: quiet.end, quiet_except: quiet.except, action_links: quiet.links,
+        progress_every_hours: Math.max(0, Math.min(48, Number(progress.hours) || 0)), progress_phases: progress.phases }))
       setMessage({ tone: 'ok', text: 'Saved. Running experiments use these settings too.' })
     } catch (err) {
       setMessage({ tone: 'error', text: describeError(err) })
@@ -473,6 +477,19 @@ function NotificationsSection() {
           Decisions still come through</label>
         <div className="panel-hint" style={{ padding: 0 }}>What arrives in quiet hours is held and sent as one message when they end. A run waiting
           for a decision goes on by itself after the time set under Decisions.</div>
+      </div>
+      <div className="settings-field" title="While an experiment runs: the phase, the jobs done, what happened since the last word, the cost">
+        <span className="settings-label">How a running experiment is getting on</span>
+        <div className="notify-quiet">
+          <span>every</span>
+          <input aria-label="Every how many hours" inputMode="decimal" style={{ width: 48 }} value={progress.hours}
+            onChange={(e) => setProgress({ ...progress, hours: e.target.value })} />
+          <span>hours (0: never)</span>
+        </div>
+        <label className="notify-check"><input type="checkbox" checked={progress.phases} onChange={(e) => setProgress({ ...progress, phases: e.target.checked })} />
+          And a word at each new phase (planning, research, analysis, writing)</label>
+        <div className="panel-hint" style={{ padding: 0 }}>It comes to your linked chat apps, where you can reply to ask about it or give the run an
+          instruction, and to any channel above that takes “How a running experiment is getting on”.</div>
       </div>
       <label className="notify-check" title="The links open a page that asks to confirm; group chats: anyone in the chat could use them">
         <input type="checkbox" checked={quiet.links} onChange={(e) => setQuiet({ ...quiet, links: e.target.checked })} />

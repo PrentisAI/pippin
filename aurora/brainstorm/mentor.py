@@ -421,7 +421,7 @@ FINER = ("feasible", "interesting", "novel", "ethical", "relevant")
 
 def _conversation(chat_id: str, viewer: str, n: int = 40) -> str:
     out = []
-    for m in bs_store.messages(chat_id)[-n:]:
+    for m in bs_store.context(chat_id)[-n:]:
         if m["kind"] != "text" or not m["text"] or m["pending"]:
             continue
         who = "Researcher" if m["who"] == viewer else m["who"] if m["who"] in ("Mentor", "Skeptic", "Methods", "Librarian") else "Colleague"

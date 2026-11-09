@@ -1,5 +1,5 @@
-"""Pippin in a chat app: ``/im/feishu`` and ``/im/wecom`` take the apps' message callbacks (checked by their
-token or signature, not by a sign-in); ``/api/im`` is the console's side (the team's apps, linking your account)."""
+"""Pippin in a chat app: ``/im/feishu``, ``/im/wecom``, ``/im/slack`` and ``/im/whatsapp`` take the apps' message
+callbacks (checked by their token or signature, not by a sign-in); ``/api/im`` is the console's side (the team's apps, linking your account)."""
 
 from __future__ import annotations
 
@@ -44,6 +44,34 @@ async def wecom(request: Request, msg_signature: str, timestamp: str, nonce: str
     return PlainTextResponse("success")
 
 
+@public_router.post("/im/slack")
+async def slack(request: Request) -> dict[str, Any]:
+    try:
+        return await im.slack_event(request.headers.get("X-Slack-Request-Timestamp", ""),
+                                    request.headers.get("X-Slack-Signature", ""), await request.body())
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from None
+
+
+@public_router.get("/im/whatsapp")
+async def whatsapp_check(request: Request) -> PlainTextResponse:
+    q = request.query_params
+    try:
+        return PlainTextResponse(im.whatsapp_check(q.get("hub.mode", ""), q.get("hub.verify_token", ""),
+                                                   q.get("hub.challenge", "")))
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from None
+
+
+@public_router.post("/im/whatsapp")
+async def whatsapp(request: Request) -> dict[str, Any]:
+    try:
+        await im.whatsapp_event(request.headers.get("X-Hub-Signature-256", ""), await request.body())
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from None
+    return {}
+
+
 def _callbacks() -> dict[str, str]:
     from aurora.api.routes.campaigns import console_url
     base = console_url()
@@ -59,7 +87,7 @@ async def get_settings() -> dict[str, Any]:
 @router.put("/settings/{app}")
 async def put_settings(app: str, body: dict[str, Any]) -> dict[str, Any]:
     if app not in im.APPS:
-        raise HTTPException(404, "feishu or wecom")
+        raise HTTPException(404, "feishu, wecom, slack or whatsapp")
     return im.save_settings(app, body)
 
 

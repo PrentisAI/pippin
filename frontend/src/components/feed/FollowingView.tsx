@@ -175,12 +175,19 @@ function XKey({ on, act }: { on: boolean; act: (fn: () => Promise<unknown>, ok?:
 function Digest({ f, act }: { f: Following; act: (fn: () => Promise<unknown>, ok?: string) => void }) {
   const d = f.digest
   const [at, setAt] = useState(d.at)
+  const [at2, setAt2] = useState(d.at2)
   const [top, setTop] = useState(String(d.top))
-  useEffect(() => { setAt(d.at); setTop(String(d.top)) }, [d.at, d.top])
+  useEffect(() => { setAt(d.at); setAt2(d.at2); setTop(String(d.top)) }, [d.at, d.at2, d.top])
+  const apps: Record<string, string> = { feishu: 'Feishu', wecom: 'WeCom', slack: 'Slack', whatsapp: 'WhatsApp' }
   return (
     <section className="fd-box">
-      <h3>Daily digest</h3>
-      <label className="fd-field">Send to
+      <h3>Digest</h3>
+      <div className="lit-sub">Who you follow, the top items per project and what is trending, since the last one. In a chat app,
+        reply “read 2” (「读 2」) and Pippin keeps it and reads it with you.</div>
+      <label className="modal-check"><input type="checkbox" checked={d.chat} onChange={(e) => act(() => api.feed.settings({ digest: { chat: e.target.checked } }))} />
+        {' '}In my chat app{d.linked.length ? ` (${d.linked.map((a) => apps[a] ?? a).join(', ')})` : ''}</label>
+      {d.chat && !d.linked.length && <div className="lit-sub">Link Feishu, WeCom, Slack or WhatsApp under Settings → Chat apps first.</div>}
+      <label className="fd-field">Also to
         <select value={d.to} onChange={(e) => act(() => api.feed.settings({ digest: { to: e.target.value } }))}>
           {d.channels.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
           <option value="console">Only in the console</option>
@@ -189,15 +196,21 @@ function Digest({ f, act }: { f: Following; act: (fn: () => Promise<unknown>, ok
       {!d.channels.length && <div className="lit-sub">To get it in WeCom, Feishu, Slack or WeChat (Server酱), add a channel under Settings → Notifications.</div>}
       <div className="bs-row fd-small">
         <label htmlFor="dg-at">At</label>
-        <input id="dg-at" className="fd-input" style={{ width: 70 }} value={at} onChange={(e) => setAt(e.target.value)}
+        <input id="dg-at" className="fd-input" style={{ width: 70, flex: "none" }} value={at} onChange={(e) => setAt(e.target.value)}
           onBlur={() => at !== d.at && act(() => api.feed.settings({ digest: { at } }))} />
-        <label htmlFor="dg-top">top</label>
-        <input id="dg-top" className="fd-input" style={{ width: 50 }} inputMode="numeric" value={top} onChange={(e) => setTop(e.target.value)}
+        <label htmlFor="dg-at2">and</label>
+        <input id="dg-at2" className="fd-input" style={{ width: 96, flex: "none" }} value={at2} placeholder="once a day" onChange={(e) => setAt2(e.target.value)}
+          onBlur={() => at2 !== d.at2 && act(() => api.feed.settings({ digest: { at2 } }))} />
+      </div>
+      <div className="bs-row fd-small">
+        <label htmlFor="dg-top">Top</label>
+        <input id="dg-top" className="fd-input" style={{ width: 50, flex: "none" }} inputMode="numeric" value={top} onChange={(e) => setTop(e.target.value)}
           onBlur={() => Number(top) !== d.top && act(() => api.feed.settings({ digest: { top: Number(top) } }))} />
         <span>per project</span>
       </div>
-      <label className="modal-check"><input type="checkbox" checked={d.skip} onChange={(e) => act(() => api.feed.settings({ digest: { skip: e.target.checked } }))} /> Skip days when nothing fits a project well</label>
-      {d.to !== 'console' && <button className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={() => act(() => api.feed.testDigest(), `Sent today’s digest to ${d.label}.`)}>Send today’s now, to see it</button>}
+      <label className="modal-check"><input type="checkbox" checked={d.skip} onChange={(e) => act(() => api.feed.settings({ digest: { skip: e.target.checked } }))} /> Skip it when nothing new fits a project well</label>
+      {(d.to !== 'console' || (d.chat && d.linked.length > 0)) && <button className="link-btn" style={{ alignSelf: 'flex-start' }}
+        onClick={() => act(() => api.feed.testDigest(), 'Sent the digest.')}>Send one now, to see it</button>}
     </section>
   )
 }

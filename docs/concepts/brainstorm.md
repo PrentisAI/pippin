@@ -138,6 +138,46 @@ embeddings are unavailable) and how much of them is the researcher's;
 `POST /api/brainstorm/chats/{chat_id}/depth` codes how far the researcher
 elaborated in each answer, on the paper's five levels (a few cents).
 
+## Who leads
+
+**Who leads** (above the message box) is set per conversation, and you can switch it at any moment, as often as
+you like:
+
+| | What happens after you write |
+|---|---|
+| **You** (default) | You drive. The agents answer what you ask, one joins when the conversation calls for it, and they question you on their own when you seem very sure (below). |
+| **Pippin** | The agents drive. After each of your messages a lead agent says where things stand, proposes the next step, writes two or three drafts of it (edit one in place, take it, or ask for another round) and ends with one concrete choice for you. You steer by replying and by what you take and change. |
+
+You can also hand it over in words, at the start of a message: *I'll lead* / *我来*, *you lead* / *你来带*. The rest
+of the message is said as usual (*你来带吧，先把实验设计理一下* hands over the lead and asks for the design). Handing
+the lead to Pippin pauses the Mentor's guiding; it keeps what it learned.
+
+**Questioning you, adaptively.** When you lead, the Skeptic questions you unasked, as much as the conversation
+calls for. Rules decide it, without a model call:
+
+| More when you… | Less, or not at all, when you… |
+|---|---|
+| say something sweeping or certain (*obviously*, *always*, *显然*, *一定*) | are still exploring (your first messages) |
+| have stayed with one idea for a while | seem tired (short or unsure answers) |
+| took an AI draft almost unchanged | waved the last challenge off, or one came just now |
+| have gone a long while without anyone questioning you | set *How active* to *Only when asked* (at *Moderately* it needs more reason than at *Very*) |
+
+At most one challenge a turn. The line before it says why (*Skeptic questions this: you sound very sure…*). Answer
+it, or press **not now**: no challenge for your next several messages. Each decision, fired or not, is kept with its
+signals for evaluating the ideation.
+
+## Tangents
+
+Any message has **Branch off here** (on hover): it opens a side conversation of its own. Its agents see the
+conversation it came from up to that message, and what is said in the tangent; nothing said in the main conversation
+after that point. A tangent can branch again. Tangents are listed under their conversation, indented, and the message
+they started from links to them.
+
+**Back…** at the top of a tangent returns to where it came from. Pippin writes what the tangent found in two to four
+sentences, in your voice; change it as you like and **Bring it back** posts it there as your message (marked as
+brought back from the tangent), or **Go back without it**. A tangent of yours in a shared conversation is private to
+you unless the conversation is yours; deleting a conversation keeps its tangents, as conversations of their own.
+
 ## What the agents do on their own
 
 | How active | On their own |

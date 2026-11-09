@@ -30,6 +30,7 @@ WRITES: dict[str, dict[str, str]] = {
     "overleaf.bib": {"target": "Overleaf", "label": "Add entries to the .bib file"},
     "obsidian.create": {"target": "Obsidian", "label": "Create notes in your vault"},
     "obsidian.append": {"target": "Obsidian", "label": "Append to an existing note"},
+    "notion.write": {"target": "Notion", "label": "Write what you keep from a paper as a Notion page"},
 }
 PREF = "writes"
 
