@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, describeError } from '../api/client'
 import type { InviteInfo } from '../types'
+import PippinMark from '../components/PippinMark'
 
 /** Sign in with email and password. */
 export function LoginPage({ team, onSignedIn }: { team: string | null; onSignedIn: () => void }) {
@@ -27,7 +28,7 @@ export function LoginPage({ team, onSignedIn }: { team: string | null; onSignedI
   return (
     <div className="signin-page">
       <form className="signin-card" onSubmit={submit}>
-        <div className="signin-brand"><span className="signin-logo">A</span>Pippin</div>
+        <div className="signin-brand"><PippinMark className="signin-logo" size={24} />Pippin</div>
         <h1>Sign in{team ? ` to ${team}` : ''}</h1>
         <label className="signin-field" htmlFor="si-email">Email
           <input id="si-email" type="email" autoComplete="username" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} required />
@@ -74,7 +75,7 @@ export function InvitePage({ token, onDone }: { token: string; onDone: () => voi
   return (
     <div className="signin-page">
       <form className="signin-card" onSubmit={accept}>
-        <div className="signin-brand"><span className="signin-logo">A</span>Pippin</div>
+        <div className="signin-brand"><PippinMark className="signin-logo" size={24} />Pippin</div>
         {!info && !error && <div className="signin-hint">Opening the invitation…</div>}
         {!info && error && <><h1>Invitation</h1><div className="modal-error">{error}</div></>}
         {info && (

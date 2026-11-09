@@ -2,22 +2,20 @@
 <html><head><meta charset="utf-8"><title>Pippin</title>
 <style>
 html,body{margin:0;background:transparent;overflow:hidden;user-select:none;-webkit-user-select:none}
-.orb{position:absolute;inset:8px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4f8cf0,#2d6cdf 60%,#1d4fa8);
-  box-shadow:0 4px 16px rgba(20,40,90,.35);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .25s}
-.orb svg{width:52%;height:52%}
+.orb{position:absolute;inset:8px;border-radius:50%;background:#1c1c1c;
+  box-shadow:0 4px 14px rgba(0,0,0,.28);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .25s}
+.orb svg{width:62%;height:62%}
 .orb.over{transform:scale(1.18)}
 .orb.swallow{animation:swallow 1.2s ease-in-out infinite}
 @keyframes swallow{0%{transform:scale(1)}40%{transform:scale(1.22)}100%{transform:scale(1)}}
-.orb.listening{background:radial-gradient(circle at 35% 30%,#5fd3a8,#1f9d74 60%,#126b4f)}
-.orb.listening svg path{animation:wave .6s ease-in-out infinite alternate}
-@keyframes wave{from{transform:scaleY(.6)}to{transform:scaleY(1.4)}}
-.orb.listening svg path{transform-origin:center}
+.orb.listening{background:#2f6f5e;animation:listen .9s ease-in-out infinite alternate}
+@keyframes listen{from{box-shadow:0 0 0 0 rgba(47,111,94,.45)}to{box-shadow:0 0 0 7px rgba(47,111,94,0)}}
 .orb.thinking{animation:swallow 1.2s ease-in-out infinite;opacity:.85}
 .dot{position:absolute;right:10px;top:10px;width:12px;height:12px;border-radius:50%;background:#f59e0b;border:2px solid #fff;display:none}
 </style></head>
 <body>
 <div class="orb" id="orb" title="Pippin: drop a link, a selection or a file to save it; click for your notebook; hold ⌥⇧Space to talk; right click for settings">
-  <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M3 9c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2M3 15c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2"/></svg>
+  <svg viewBox="0 0 100 100" aria-hidden="true"><path d="M38 82V50A17 17 0 1 1 43 62" stroke="#f6f3ea" stroke-width="11" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M36 40c-1-9-7-15-16-15 0 9 7 14 16 15z" fill="#f6f3ea"/></svg>
 </div><div class="dot" id="dot"></div>
 <script>
 const { invoke } = window.__TAURI__.core
