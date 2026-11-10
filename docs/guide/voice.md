@@ -10,7 +10,7 @@ say is sent after a short pause, the agents' answers are read aloud, and it list
 Any answer can be read aloud with the speaker beside the agent's name. Answers are read in the console's cloud
 voice when one is set up (below), otherwise in the browser's voice; citation keys and links are left out.
 
-Speech is recognised by the console (see *Recognising speech* below: `AURORA_WHISPER`); the recording is not kept.
+Speech is recognised by the console (see *Recognising speech* below); the recording is not kept.
 
 ## What it understands
 
@@ -51,7 +51,17 @@ whisper-cli -m ~/models/ggml-large-v3-turbo.bin -nt -l auto -f {audio}
 ```
 
 `{audio}` is the recording (16 kHz WAV), deleted right after. Without a command, the app sends the recording to the
-console, which runs the command in `AURORA_WHISPER` the same way.
+console.
+
+The console hears a recording through a model that listens (`voice.hearing_model`, by default
+`qwen/qwen3.8-omni-flash`, through the same key; about a hundredth of a cent a message). It is told the names and
+terms you are likely to say, taken from your projects, the papers in them, what you saved and your last digest, so
+it writes *TabPFN* and *Grinsztajn* rather than what they sound like. When the model cannot be reached, or with
+`voice.hearing: local` (nothing leaves the machine), the console runs the whisper.cpp command in `AURORA_WHISPER`
+instead. The words shown while you speak come from whisper (`AURORA_WHISPER_LIVE`, a small model) when it is set up.
+
+A recording in which nobody speaks (silence, the hum of a room, a click) is not sent anywhere and gives no words:
+every recogniser, local or not, makes words up for silence.
 
 ## Speaking
 

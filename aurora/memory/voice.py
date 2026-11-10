@@ -14,9 +14,11 @@ Writes are confirmed in words ("added to your reading list; say undo to take it 
 when a write is set to "ask", Pippin asks and your next words decide; when it is off, Pippin says where to turn it
 on. Large writes (the manuscript) are never made by voice: they are shown on the panel.
 
-Speech recognition runs on your machine: the desktop app runs whisper.cpp itself and sends the words, or the
-console runs the command in ``AURORA_WHISPER`` on the recording (``{audio}`` stands for the file). Recordings are
-not kept.
+Speech recognition: the desktop app may run whisper.cpp itself and send the words; otherwise the console hears the
+recording through a model that listens (``voice.hearing_model``, the same key; told the names and terms of your
+projects, papers and digest), or with the command in ``AURORA_WHISPER`` (``{audio}`` stands for the file) when
+``voice.hearing`` is 'local' or there is no key. A recording in which nobody speaks is not sent anywhere: every
+recogniser makes words up for silence. Recordings are not kept.
 """
 
 from __future__ import annotations
@@ -53,47 +55,209 @@ INTENTS = ("ask", "compare", "save", "note", "toread", "sink", "raise", "digest"
 # Hearing
 
 
-def can_hear() -> bool:
-    """Whether this console recognises speech: a whisper command is set and its program is installed."""
-    cmd = os.environ.get(WHISPER_ENV, "").strip()
+HEARING_MODEL = "qwen/qwen3.8-omni-flash"
+HEARING_SYSTEM = ("You are a speech-to-text engine. Write exactly the words spoken in the recording, in the language "
+                  "spoken (Mandarin and English often mix; write Chinese in simplified characters), and nothing else: "
+                  "never answer, translate, summarise or add a word. If no words are spoken, write nothing.")
+_hints: dict[str, tuple[float, list[str]]] = {}   # user -> (when, the words) for ten minutes
+
+
+def _voice_cfg() -> dict[str, Any]:
+    from aurora.api.routes.campaigns import base_config
+    return base_config().get("voice") or {}
+
+
+def _local_cmd(fast: bool = False) -> str:
+    return (os.environ.get(WHISPER_LIVE_ENV, "").strip() if fast else "") or os.environ.get(WHISPER_ENV, "").strip()
+
+
+def _local_ok() -> bool:
+    cmd = _local_cmd()
     try:
         return bool(cmd) and shutil.which(shlex.split(cmd)[0]) is not None
     except ValueError:
         return False
 
 
-async def transcribe(data: bytes, suffix: str = ".wav", *, live: bool = False, fast: bool = False) -> str:
-    """The words of a recording, by the local whisper command (``AURORA_WHISPER``). *live*: the words so far
-    while someone speaks, with whisper's window cut to the recording (it otherwise works on 30 s whatever the
-    length); *fast*: by the faster command when there is one (``AURORA_WHISPER_LIVE``, a small model)."""
-    cmd = (os.environ.get(WHISPER_LIVE_ENV, "").strip() if fast else "") or os.environ.get(WHISPER_ENV, "").strip()
-    if not cmd:
-        raise ValueError("Speech recognition is not set up on this console: set AURORA_WHISPER to a whisper.cpp "
-                         "command (for example: whisper-cli -m ~/models/ggml-large-v3-turbo.bin -nt -l auto -f {audio}), "
-                         "or let the desktop app recognise speech itself")
-    with tempfile.TemporaryDirectory(prefix="aurora-voice-") as tmp:
-        path = Path(tmp) / f"said{suffix if suffix.startswith('.') else '.' + suffix}"
-        path.write_bytes(data)
-        if path.suffix != ".wav" and shutil.which("ffmpeg"):      # whisper.cpp reads 16 kHz WAV
-            wav = Path(tmp) / "said.wav"
-            p = await asyncio.create_subprocess_exec("ffmpeg", "-y", "-loglevel", "error", "-i", str(path), "-ar", "16000",
-                                                     "-ac", "1", str(wav))
-            await asyncio.wait_for(p.wait(), 60)
-            if wav.is_file():
-                path = wav
-        args = [a.replace("{audio}", str(path)) for a in shlex.split(cmd)]
-        if not any(str(path) in a for a in args):
-            args.append(str(path))
-        if live and path.suffix == ".wav" and "--audio-ctx" not in args:
-            # 50 frames a second of audio, and a margin: shorter than the recording, whisper repeats itself
-            seconds = max(0, path.stat().st_size - 44) / 32000
-            args[1:1] = ["--audio-ctx", str(min(1500, int(seconds * 50) + 64))]
-        p = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        out, err = await asyncio.wait_for(p.communicate(), 180)
-        if p.returncode != 0:
-            raise ValueError(f"speech recognition failed: {err.decode(errors='replace')[-300:]}")
+def _hearing_key() -> str:
+    """The key that hears through the model (the person's own, else the console's for the local user)."""
+    if (_voice_cfg().get("hearing") or "model") != "model":
+        return ""
+    from aurora.api.routes.memory import _speech_key
+    return _speech_key()
+
+
+def can_hear() -> bool:
+    """Whether this console recognises speech: through the model (a key) or a local whisper command."""
+    return bool(_hearing_key()) or _local_ok()
+
+
+def _pcm16(wav: bytes) -> tuple[int, bytes] | None:
+    """(rate, samples) of a 16-bit mono PCM WAV; None for anything else."""
+    import struct
+    if len(wav) < 12 or wav[:4] != b"RIFF" or wav[8:12] != b"WAVE":
+        return None
+    i, rate, ok = 12, 0, False
+    while i + 8 <= len(wav):
+        cid, size = wav[i:i + 4], struct.unpack("<I", wav[i + 4:i + 8])[0]
+        body = wav[i + 8:i + 8 + size]
+        if cid == b"fmt " and len(body) >= 16:
+            fmt, ch, rate, _, _, bits = struct.unpack("<HHIIHH", body[:16])
+            ok = fmt == 1 and ch == 1 and bits == 16
+        elif cid == b"data":
+            return (rate, body[:len(body) - len(body) % 2]) if ok and rate else None
+        i += 8 + size + size % 2
+    return None
+
+
+def has_speech(wav: bytes) -> bool:
+    """Whether a recording holds someone speaking, not silence or the hum of a room: about a quarter of a second
+    of 20 ms frames well above the recording's own floor. Every recogniser makes words up for silence. What is not
+    16-bit mono WAV is given the benefit of the doubt."""
+    import array
+    import math
+    got = _pcm16(wav)
+    if got is None:
+        return True
+    rate, raw = got
+    pcm = array.array("h", raw)
+    n = max(1, rate // 50)
+    levels = []
+    for i in range(0, len(pcm) - n + 1, n):
+        rms = math.sqrt(sum(x * x for x in pcm[i:i + n]) / n) or 1.0
+        levels.append(20 * math.log10(rms / 32768))
+    if not levels:
+        return False
+    floor = sorted(levels)[len(levels) // 5]
+    return sum(1 for x in levels if x > -40 and x > floor + 12) >= 12
+
+
+def hint_words(user: Any = None) -> list[str]:
+    """Names and terms the person is likely to say (from their projects, the papers in them, what they saved and
+    the digest they last got), so the model spells "TabPFN" and "Grinsztajn" rather than what they sound like."""
+    from aurora.auth.guard import current_user
+    user = user or current_user()
+    got = _hints.get(user.user_id)
+    if got and time.time() - got[0] < 600:
+        return got[1]
+    texts = ["Pippin", "digest", "notebook", "Overleaf", "Zotero", "Obsidian", "Notion"]
+    try:
+        from aurora.feed import service as feed
+        for p in feed.project_profiles(user)[:12]:
+            texts += [p["name"] or "", p["objective"] or ""] + p["papers"][-10:]
+    except Exception:
+        logger.debug("no project words to hear by", exc_info=True)
+    try:
+        texts += [s["title"] or "" for s in mem_store.sources(user.user_id, 20)]
+    except Exception:
+        pass
+    try:
+        from aurora.auth.store import auth_store
+        from aurora.feed.store import feed_store
+        for i in (auth_store.get_pref(user.user_id, "feed_digest_items") or [])[:10]:
+            it = feed_store.item(i)
+            if it:
+                texts.append(it.get("title") or "")
+    except Exception:
+        pass
+    words: dict[str, None] = {}
+    for t in texts:
+        for w in re.findall(r"[A-Za-z][A-Za-z0-9]*(?:[-.][A-Za-z0-9]+)*", t):
+            if len(w) >= 3 and (any(c.isupper() for c in w[1:]) or any(c.isdigit() for c in w)
+                                or (w[0].isupper() and w.lower() not in _COMMON)):
+                words.setdefault(w)
+    out = list(words)[:80]
+    _hints[user.user_id] = (time.time(), out)
+    return out
+
+
+_COMMON = set("""the this that these those with from into over under about after before when what which where while
+does have will would could should their there they them then than your yours our for and but not are was were been
+being how why who whom can may might must shall also only just more most some such each every both all any other
+new using use based towards toward via between within without against among across through study analysis model
+models learning data deep large small results result method methods approach paper papers survey evaluation""".split())
+
+
+async def _to_wav(data: bytes, suffix: str, tmp: str) -> Path:
+    path = Path(tmp) / f"said{suffix if suffix.startswith('.') else '.' + suffix}"
+    path.write_bytes(data)
+    if shutil.which("ffmpeg"):                                   # 16 kHz mono WAV: whisper.cpp and the model read it
+        wav = Path(tmp) / "said16k.wav"
+        p = await asyncio.create_subprocess_exec("ffmpeg", "-y", "-loglevel", "error", "-i", str(path), "-ar", "16000",
+                                                 "-ac", "1", "-c:a", "pcm_s16le", str(wav))
+        await asyncio.wait_for(p.wait(), 60)
+        if wav.is_file():
+            return wav
+    return path
+
+
+async def _hear_by_model(wav: bytes, key: str, hints: list[str]) -> str:
+    import base64
+
+    import httpx
+
+    from aurora.api.routes.campaigns import base_config
+    cfg = base_config()
+    system = HEARING_SYSTEM
+    if hints:
+        system += (" Names and terms this person often says (spell them so when you hear them; never write one you "
+                   "do not hear): " + ", ".join(hints) + ".")
+    body = {"model": (cfg.get("voice") or {}).get("hearing_model") or HEARING_MODEL, "temperature": 0,
+            "messages": [{"role": "system", "content": system},
+                         {"role": "user", "content": [{"type": "input_audio", "input_audio": {
+                             "data": base64.b64encode(wav).decode(), "format": "wav"}}]}]}
+    base = (cfg.get("api_base_url") or "https://openrouter.ai/api/v1").rstrip("/")
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0)) as c:
+        r = await c.post(f"{base}/chat/completions", headers={"Authorization": f"Bearer {key}"}, json=body)
+    if r.status_code != 200:
+        raise ValueError(f"the hearing model answered {r.status_code}: {r.text[:300]}")
+    text = ((r.json().get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+    text = " ".join(str(text).split()).strip("\"“”")
+    return "" if re.fullmatch(r"(?i)\(?(no words( are)? spoken|silence|nothing)[.)]*|[。.…\s]*", text) else text
+
+
+async def _hear_locally(path: Path, *, live: bool, fast: bool) -> str:
+    cmd = _local_cmd(fast)
+    args = [a.replace("{audio}", str(path)) for a in shlex.split(cmd)]
+    if not any(str(path) in a for a in args):
+        args.append(str(path))
+    if live and path.suffix == ".wav" and "--audio-ctx" not in args:
+        # 50 frames a second of audio, and a margin: shorter than the recording, whisper repeats itself
+        seconds = max(0, path.stat().st_size - 44) / 32000
+        args[1:1] = ["--audio-ctx", str(min(1500, int(seconds * 50) + 64))]
+    p = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    out, err = await asyncio.wait_for(p.communicate(), 180)
+    if p.returncode != 0:
+        raise ValueError(f"speech recognition failed: {err.decode(errors='replace')[-300:]}")
     text = re.sub(r"\[\d\d:\d\d[:.\d]*\s*-->\s*[\d:.]+\]\s*", "", out.decode(errors="replace"))
     return " ".join(text.split())
+
+
+async def transcribe(data: bytes, suffix: str = ".wav", *, live: bool = False, fast: bool = False) -> str:
+    """The words of a recording, or "" when nobody speaks in it. Heard by a model that listens
+    (``voice.hearing_model`` through the same key, told the person's names and terms) unless ``voice.hearing`` is
+    'local' or there is no key; by the local whisper command (``AURORA_WHISPER``) otherwise, and always for the
+    words shown while someone speaks (*live*; *fast*: the smaller ``AURORA_WHISPER_LIVE``) when it is set up."""
+    key = _hearing_key()
+    if not key and not _local_ok():
+        raise ValueError("Speech recognition is not set up on this console: add a model key, or set AURORA_WHISPER to "
+                         "a whisper.cpp command (for example: whisper-cli -m ~/models/ggml-large-v3-turbo.bin -nt -l "
+                         "auto -f {audio}), or let the desktop app recognise speech itself")
+    with tempfile.TemporaryDirectory(prefix="aurora-voice-") as tmp:
+        path = await _to_wav(data, suffix, tmp)
+        wav = path.read_bytes() if path.suffix == ".wav" else b""
+        if wav and not has_speech(wav):
+            return ""
+        if key and wav and not (live and _local_ok()):
+            try:
+                return await _hear_by_model(wav, key, hint_words())
+            except Exception as exc:
+                if not _local_ok():
+                    raise ValueError(f"speech recognition failed: {exc}") from None
+                logger.warning("the hearing model failed, whisper hears instead: %s", exc)
+        if not _local_ok():
+            raise ValueError("this recording could not be converted for the model (install ffmpeg)")
+        return await _hear_locally(path, live=live, fast=fast)
 
 
 # ---------------------------------------------------------------------------

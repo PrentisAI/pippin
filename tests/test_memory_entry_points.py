@@ -266,5 +266,6 @@ def test_voice_notes_stay_in_aurora_unless_zotero_notes_are_allowed_and_the_dige
 
 def test_audio_needs_a_recogniser(client, monkeypatch):
     monkeypatch.delenv("AURORA_WHISPER", raising=False)
+    client.put("/api/settings", json={"changes": {"voice.hearing": "local"}})
     r = client.post("/api/memory/voice", json={"audio": "UklGRg=="})
     assert r.status_code == 400 and "AURORA_WHISPER" in r.json()["detail"]

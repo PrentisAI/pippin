@@ -63,7 +63,7 @@ export function ChatAppsSection() {
       <div className="panel-hint" style={{ padding: '0 0 6px' }}>
         Talk to Pippin from Feishu, WeCom, Slack or WhatsApp: ask about your projects, and answer a run’s decision by replying to its message.
         What Pippin offers to do happens when you reply 确认 / yes. You can send a voice message too: Pippin answers in writing and aloud,
-        when this console has speech recognition (AURORA_WHISPER) and a voice set up.
+        when this console has speech recognition (a model key, or whisper in AURORA_WHISPER) and a voice set up.
       </div>
       {error && <div className="panel-message error">{error}</div>}
       {(me?.links ?? []).map((l) => (

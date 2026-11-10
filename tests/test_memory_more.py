@@ -221,6 +221,7 @@ def test_a_recording_becomes_words_for_a_message_box(client, monkeypatch, tmp_pa
     whisper.write_text("#!/bin/sh\necho '[00:00:00.000 --> 00:00:02.000]  I want to work on egocentric memory'\n")
     whisper.chmod(whisper.stat().st_mode | stat.S_IEXEC)
     monkeypatch.delenv("AURORA_WHISPER", raising=False)
+    client.put("/api/settings", json={"changes": {"voice.hearing": "local"}})   # only whisper, on this machine
     assert client.get("/api/memory/voice/status").json()["hear"] is False
     audio = base64.b64encode(b"RIFF....WAVEfmt fake").decode()
     assert client.post("/api/memory/voice/transcribe", json={"audio": audio, "audio_type": "wav"}).status_code == 400
@@ -242,10 +243,12 @@ def test_words_while_speaking_use_the_fast_model_and_a_window_cut_to_the_recordi
         w.write_text(f'#!/bin/sh\necho "{name} $*"\n')
         w.chmod(w.stat().st_mode | stat.S_IEXEC)
         return w
+    client.put("/api/settings", json={"changes": {"voice.hearing": "local"}})
     monkeypatch.setenv("AURORA_WHISPER", f"{whisper('main')} -f {{audio}}")
     monkeypatch.setenv("AURORA_WHISPER_LIVE", f"{whisper('small')} -f {{audio}}")
     # two seconds of 16 kHz mono WAV: a window of 2 * 50 + 64 frames
-    pcm = b"\0\0" * 32000
+    import math
+    pcm = b"\0\0" * 16000 + b"".join(struct.pack("<h", int(8000 * math.sin(i / 5))) for i in range(16000))  # a second of quiet, a second of sound
     wav = b"RIFF" + struct.pack("<I", 36 + len(pcm)) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, 16000, 32000, 2, 16) \
         + b"data" + struct.pack("<I", len(pcm)) + pcm
     audio = base64.b64encode(wav).decode()

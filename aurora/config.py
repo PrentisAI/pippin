@@ -421,6 +421,15 @@ class VoiceConfig(_Section):
                     "times a second; 'accurate': the main model (AURORA_WHISPER), about once a second; 'off': "
                     "only when you stop. What is sent is always recognised again by the main model.",
     )
+    hearing: Literal["model", "local"] = Field(
+        default="model",
+        description="How what you say is recognised. 'model': hearing_model through api_base_url (the same key; "
+                    "told the names and terms of your projects, papers and digest; about a hundredth of a cent a "
+                    "message), falling back to whisper; 'local': only the whisper command in AURORA_WHISPER, nothing "
+                    "leaves the machine. A recording without speech is never sent.",
+    )
+    hearing_model: str = Field(default="qwen/qwen3.8-omni-flash",
+                               description="A model that listens, to recognise speech (google/gemini-3.8-flash also hears well).")
     speech: Literal["model", "browser"] = Field(
         default="model",
         description="Answers read aloud by 'model': speech_model through api_base_url (the same key; a few "

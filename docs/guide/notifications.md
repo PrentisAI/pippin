@@ -113,7 +113,8 @@ they reply `确认` / `yes` (`取消` / `no` drops it). Their decision and run n
 they can answer them there.
 
 **Voice.** Send a voice message instead of typing. Pippin hears it with this console's speech recognition
-(`AURORA_WHISPER`, a whisper.cpp command, the same as the orb's; [Voice](extension-and-desktop.md)), shows what it heard
+(a model that listens, told your projects' names and terms, or the whisper.cpp command in `AURORA_WHISPER`; the same
+as the orb's, see [Voice](voice.md#recognising-speech)), shows what it heard
 above the answer, and answers in writing and, briefly, as a voice message in the orb's voice (the cloud voice, or the
 model that talks). Feishu and WhatsApp get a voice message, Slack an audio file, WeCom a voice message when the
 server's ffmpeg can write AMR. Without speech recognition, the bot says so and asks you to type; without a voice,

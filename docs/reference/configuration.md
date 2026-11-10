@@ -46,6 +46,8 @@ Speaking in the web console (the brainstorm's microphone).
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `voice.live` | `fast` \| `accurate` \| `off` | `"fast"` | Words shown while you speak. 'fast': a small whisper model (AURORA_WHISPER_LIVE), a few times a second; 'accurate': the main model (AURORA_WHISPER), about once a second; 'off': only when you stop. What is sent is always recognised again by the main model. |
+| `voice.hearing` | `model` \| `local` | `"model"` | How what you say is recognised. 'model': hearing_model through api_base_url (the same key; told the names and terms of your projects, papers and digest; about a hundredth of a cent a message), falling back to whisper; 'local': only the whisper command in AURORA_WHISPER, nothing leaves the machine. A recording without speech is never sent. |
+| `voice.hearing_model` | str | `"qwen/qwen3.8-omni-flash"` | A model that listens, to recognise speech (google/gemini-3.8-flash also hears well). |
 | `voice.speech` | `model` \| `browser` | `"model"` | Answers read aloud by 'model': speech_model through api_base_url (the same key; a few tenths of a cent an answer), or by 'browser': the browser's own voice (free, mechanical). A speech service in AURORA_TTS_BASE_URL is used instead of either when set. |
 | `voice.speech_model` | str | `"openai/gpt-audio-mini"` | A model that talks, to read answers aloud. |
 | `voice.speech_voice` | str | `"alloy"` | Its voice (alloy, ash, ballad, coral, echo, sage, shimmer, verse, ...). |
@@ -179,6 +181,8 @@ Messages to you when something needs you or a run ends, so you need not watch th
 | `notifications.quiet_start` | str | `""` | Quiet hours from (HH:MM, the server's time); empty: none. Messages are held and sent together when they end. |
 | `notifications.quiet_end` | str | `""` | Quiet hours until (HH:MM). |
 | `notifications.quiet_except` | list[str] | `[]` | Kinds sent even in quiet hours (e.g. decision_needed). |
+| `notifications.progress_every_hours` | float | `3` | While an experiment runs, how it is getting on, every this many hours (when something happened); 0: never. Goes to your linked chat apps, and to channels that take `progress`. |
+| `notifications.progress_phases` | bool | `true` | Also a word when an experiment enters a new phase (planning, research, analysis, writing). |
 | `notifications.action_links` | bool | `true` | Put "Approve" and "Stop" links into decision messages (they open a confirmation page; the console address must be set). |
 
 ## `compute`

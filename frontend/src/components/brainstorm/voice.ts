@@ -68,7 +68,7 @@ export function useVoice(onWords: (text: string, auto: boolean) => void, onParti
     if (rec.current?.state === 'recording') return
     setError(null)
     if (canHear === false) {
-      setError('Speech recognition is not set up on this console yet: install whisper.cpp and set AURORA_WHISPER (see Help → Voice).')
+      setError('Speech recognition is not set up on this console yet: add a model key, or install whisper.cpp and set AURORA_WHISPER (see Help → Voice).')
       return
     }
     let media: MediaStream

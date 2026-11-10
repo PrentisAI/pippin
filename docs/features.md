@@ -494,8 +494,8 @@ See [Obsidian](guide/obsidian.md).
 
 ### Voice (macOS)
 
-- Hold **⌥⇧Space**, speak, let go. Recognition on your Mac (whisper.cpp) or by the console (`AURORA_WHISPER`);
-  recordings are not kept.
+- Hold **⌥⇧Space**, speak, let go. Recognition on your Mac (whisper.cpp) or by the console (a model that listens, told your
+  projects' names and terms; or whisper); silence is never sent; recordings are not kept.
 - **Pointing words**: *this sentence/paragraph* (selection, else the text around you), *this figure* (a capture
   of the window in front, only then), *this paper*, *the one before*, *the second one* (of the digest you heard).
 - Ask (about what is in front, or your notebook), compare two things, save, keep a thought, add to the reading

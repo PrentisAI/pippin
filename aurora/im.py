@@ -708,9 +708,9 @@ async def _whatsapp_voice(to: str, audio: bytes, suffix: str) -> str:
 # ---------------------------------------------------------------- answering, in writing and aloud
 
 ONLY_WORDS = "目前我只读文字和语音消息。 (I read text and voice messages only, for now.)"
-NOT_HEARING = ("这个 Pippin 还听不懂语音：管理员需要在服务器上设置 AURORA_WHISPER（whisper.cpp 命令）。请先打字。\n"
-               "This Pippin cannot hear voice messages yet: an admin sets AURORA_WHISPER (a whisper.cpp command) on the "
-               "server. Please type for now.")
+NOT_HEARING = ("这个 Pippin 还听不懂语音：需要一个模型 key，或管理员在服务器上设置 AURORA_WHISPER（whisper.cpp 命令）。请先打字。\n"
+               "This Pippin cannot hear voice messages yet: it needs a model key, or an admin sets AURORA_WHISPER (a "
+               "whisper.cpp command) on the server. Please type for now.")
 
 
 async def _send(app: str, account: str, text: str, ctx: dict[str, Any]) -> str:
@@ -744,17 +744,24 @@ async def _reply(app: str, account: str, text: str, ctx: dict[str, Any], *, hear
         await _as(uid, lambda: _say_aloud(app, account, out, ctx))
 
 
+async def _can_hear() -> bool:
+    from aurora.memory import voice
+    return voice.can_hear()
+
+
 async def _reply_heard(app: str, account: str, fetch: Any, suffix: str, ctx: dict[str, Any], *, name: str = "") -> None:
     """A voice message: heard by the console's speech recognition, then answered like a written one."""
     from aurora.memory import voice
     if _who(app, account) is None:              # not linked yet: how to link (nothing to hear)
         await _reply(app, account, "", ctx, name=name)
         return
-    if not voice.can_hear():
+    uid = _who(app, account)
+    if not await _as(uid, lambda: _can_hear()):
         await _send(app, account, NOT_HEARING, ctx)
         return
     try:
-        said = await voice.transcribe(await fetch(), suffix)
+        data = await fetch()
+        said = await _as(uid, lambda: voice.transcribe(data, suffix))
     except Exception as exc:
         logger.warning("a %s voice message could not be heard: %s", app, exc)
         await _send(app, account, "没听清，请再说一次或打字。 (I could not make that out; say it again or type it.)", ctx)

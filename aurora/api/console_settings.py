@@ -78,6 +78,9 @@ EDITABLE: list[tuple] = [
     ("compute.ssh.max_gpu_hours", "GPU machine (SSH)", "GPU hours per experiment (empty: no limit)", "optional-number"),
     ("uploads.max_file_gb", "Uploads", "Largest file (GB)", "number"),
     ("uploads.max_project_gb", "Uploads", "Uploaded files per project (GB)", "number"),
+    ("voice.hearing", "Voice", "Recognise speech with (model: hears names and terms, about a hundredth of a cent a "
+     "message; local: whisper on this machine only)", "choice", ["model", "local"]),
+    ("voice.hearing_model", "Voice", "The model that listens", "text"),
     ("voice.live", "Voice", "Words while you speak (fast: small model, live; accurate: main model, slower; off)",
      "choice", ["fast", "accurate", "off"]),
     ("voice.speech", "Voice", "Read answers aloud with (model: natural, a few tenths of a cent an answer; browser: free)",
