@@ -246,6 +246,15 @@ export async function readFollows() {
       const r = await api(`/memory/follows/${f.follow_id}/items`, { method: 'POST', body: JSON.stringify({ items, error }) })
       taken += r.taken
     }
+    // the X pages the feed reads as you (your timeline, lists): posts, and the papers they link
+    const pages = await api('/feed/x/due').catch(() => [])
+    for (const f of pages) {
+      let items = []
+      let error = ''
+      try { items = await readPage(f) } catch (err) { error = String(err.message || err) }
+      if (!items.length && !error) error = 'nothing could be read there (signed in to X in this browser?)'
+      await api('/feed/x/items', { method: 'POST', body: JSON.stringify({ page: f.url, items, error }) }).catch(() => {})
+    }
   } finally {
     reading = false
   }

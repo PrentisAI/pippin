@@ -7,11 +7,12 @@ export function EXTRACT(platform) {
   const abs = (href) => { try { return new URL(href, location.href).href } catch { return '' } }
   const out = []
   const seen = new Set()
-  const add = (id, url, title, text, author) => {
+  const add = (id, url, title, text, author, links) => {
     id = id || url
     if (!id || seen.has(id) || (clean(title) + clean(text)).length < 20) return
     seen.add(id)
-    out.push({ id, url, title: clean(title).slice(0, 300), text: clean(text).slice(0, 20000), author: clean(author).slice(0, 120) })
+    out.push({ id, url, title: clean(title).slice(0, 300), text: clean(text).slice(0, 20000), author: clean(author).slice(0, 120),
+               links: (links || []).slice(0, 20) })
   }
 
   if (platform === 'zhihu') {
@@ -32,7 +33,10 @@ export function EXTRACT(platform) {
       const m = url.match(/status\/(\d+)/)
       const text = (el.querySelector('[data-testid="tweetText"]') || el).innerText || ''
       const author = (el.querySelector('[data-testid="User-Name"]') || {}).innerText || ''
-      add(m ? m[1] : url, url, '', text, author.split('\n')[0])
+      // the links in the post and its card (t.co, arXiv, HF papers…): what it is about
+      const links = [...el.querySelectorAll('a[href]')].map((x) => abs(x.getAttribute('href')))
+        .filter((h) => h && !/^https:\/\/(x|twitter)\.com\//.test(h))
+      add(m ? m[1] : url, url, '', text, author.split('\n')[0], [...new Set(links)])
     })
   } else if (platform === 'xiaohongshu') {
     document.querySelectorAll('section.note-item, .note-item, .feeds-container section').forEach((el) => {

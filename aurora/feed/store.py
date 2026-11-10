@@ -74,14 +74,32 @@ CREATE TABLE IF NOT EXISTS feed_people (
 CREATE INDEX IF NOT EXISTS feed_people_user ON feed_people(user_id);
 """
 
-_JSON = ("points", "places", "people", "person_ids", "ids", "wants", "coauthors")
+_JSON = ("points", "places", "people", "person_ids", "ids", "wants", "coauthors", "signals")
+_MIGRATIONS = (    # columns added after the first release: (table, column, definition)
+    ("feed_items", "signals", "TEXT NOT NULL DEFAULT '{}'"),     # {arxiv: category, hf: upvotes, x: [{who, url, text}]}
+    ("feed_items", "touched_at", "REAL NOT NULL DEFAULT 0"),     # the last time a new signal came in
+)
+
+
+def merge_signals(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
+    """One paper seen in several places: the category it is in, the most HF upvotes, every X post about it."""
+    out = dict(old or {})
+    for k, v in (new or {}).items():
+        if k == "hf":
+            out["hf"] = max(int(out.get("hf") or 0), int(v or 0))
+        elif k == "x":
+            have = {m.get("url") for m in out.get("x") or []}
+            out["x"] = [*(out.get("x") or []), *[m for m in v or [] if m.get("url") not in have]][-20:]
+        elif v and not out.get(k):
+            out[k] = v
+    return out
 
 
 def _row(r: sqlite3.Row) -> dict[str, Any]:
     d = dict(r)
     for k in _JSON:
         if k in d:
-            d[k] = json.loads(d[k] or ("{}" if k == "wants" else "[]"))
+            d[k] = json.loads(d[k] or ("{}" if k in ("wants", "signals") else "[]"))
     if d.get("paper"):
         d["paper"] = json.loads(d["paper"])
     return d
@@ -96,6 +114,9 @@ class FeedStore:
         self._conn = sqlite3.connect(str(Path(data_dir) / "aurora.db"), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        for table, col, definition in _MIGRATIONS:
+            if col not in {r[1] for r in self._conn.execute(f"PRAGMA table_info({table})")}:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
         self._conn.commit()
         self._lock = threading.RLock()
 
@@ -120,6 +141,10 @@ class FeedStore:
         old = self._all("SELECT * FROM feed_items WHERE user_id=? AND ukey=?", (user_id, item["ukey"]))
         if old:
             row = old[0]
+            sig = merge_signals(row.get("signals") or {}, item.get("signals") or {})
+            if sig != (row.get("signals") or {}):
+                self._x("UPDATE feed_items SET signals=?, touched_at=? WHERE item_id=?",
+                        (json.dumps(sig), time.time(), row["item_id"]))
             pids = sorted(set(row["person_ids"]) | set(item.get("person_ids") or []))
             if pids != sorted(row["person_ids"]):
                 people = row["people"]
@@ -132,14 +157,15 @@ class FeedStore:
         iid = f"f_{uuid.uuid4().hex[:12]}"
         paper = item.get("paper")
         self._x("INSERT INTO feed_items (item_id, user_id, ukey, kind, src, source, url, pdf_url, title, summary, "
-                "points, places, people, person_ids, about, idv, paper, extra, published_at, fetched_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "points, places, people, person_ids, about, idv, paper, extra, published_at, fetched_at, signals) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (iid, user_id, item["ukey"], item["kind"], item["src"], item.get("source", ""), item.get("url", ""),
                  item.get("pdf_url", ""), item["title"][:500], (item.get("summary") or "")[:3000],
                  json.dumps(item.get("points") or []), json.dumps(item.get("places") or []),
                  json.dumps(item.get("people") or []), json.dumps(item.get("person_ids") or []),
                  item.get("about", ""), item.get("idv", ""), json.dumps(paper) if paper else "",
-                 item.get("extra", ""), float(item.get("published_at") or 0), time.time()))
+                 item.get("extra", ""), float(item.get("published_at") or 0), time.time(),
+                 json.dumps(item.get("signals") or {})))
         return self.item(iid), True  # type: ignore[return-value]
 
     def item(self, item_id: str) -> dict[str, Any] | None:
@@ -158,6 +184,11 @@ class FeedStore:
         if hidden is not None:
             sql += f" AND hidden={int(hidden)}"
         return self._all(sql + " ORDER BY fetched_at DESC", (user_id, since))
+
+    def news(self, user_id: str, since: float) -> list[dict[str, Any]]:
+        """What came in, or was newly talked about (a new signal), since *since*."""
+        return self._all("SELECT * FROM feed_items WHERE user_id=? AND hidden=0 AND (fetched_at>=? OR touched_at>=?) "
+                         "ORDER BY fetched_at DESC", (user_id, since, since))
 
     def unranked(self, user_id: str, limit: int = 200) -> list[dict[str, Any]]:
         return self._all("SELECT * FROM feed_items WHERE user_id=? AND ranked=0 AND hidden=0 "

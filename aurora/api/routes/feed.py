@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from datetime import datetime
 from typing import Any
@@ -126,8 +127,10 @@ def _digest_view(cfg: dict[str, Any]) -> dict[str, Any]:
         linked = [link["app"] for link in im.links(_uid()) if im.ready(link["app"])]
     except Exception:
         linked = []
+    from aurora.auth.store import auth_store
+    last = auth_store.get_pref(_uid(), "feed_brief") or {}
     return {**d, "to": d.get("to") if label != "Only in the console" else "console", "label": label, "channels": chans,
-            "linked": linked}
+            "linked": linked, "last": {k: last.get(k) for k in ("title", "text", "at")} if last else None}
 
 
 def _spaces() -> list[dict[str, str]]:
@@ -415,7 +418,8 @@ async def following() -> dict[str, Any]:
     return {"people": [_person_view(p) for p in feed_store.people(me.user_id)], "topics": cfg["topics"],
             "keywords": cfg["keywords"], "from_objectives": cfg["from_objectives"], "derived": derived, "hf": cfg["hf"],
             "discussions": cfg["discussions"], "rss": cfg["rss"], "digest": _digest_view(cfg),
-            "x_key": bool(svc.x_key(me.user_id))}
+            "x_key": bool(svc.x_key(me.user_id)), "sources": cfg["sources"], "x_pages": cfg["x_pages"],
+            "x_read": auth_store.get_pref(me.user_id, "feed_x_read") or {}}
 
 
 class Settings(BaseModel):
@@ -424,6 +428,8 @@ class Settings(BaseModel):
     from_objectives: bool | None = None
     hf: bool | None = None
     discussions: bool | None = None
+    sources: list[str] | None = None
+    x_pages: list[str] | None = None
     digest: dict[str, Any] | None = None
 
 
@@ -437,6 +443,16 @@ async def put_settings(body: Settings) -> dict[str, Any]:
         change["topics"] = list(dict.fromkeys(t.strip() for t in change["topics"] if t.strip()))[:20]
     if "keywords" in change:
         change["keywords"] = list(dict.fromkeys(k.strip() for k in change["keywords"] if k.strip()))[:20]
+    if "sources" in change:
+        bad = [x for x in change["sources"] if x not in svc.SOURCES]
+        if bad:
+            raise HTTPException(400, f"No such source: {', '.join(bad)} (sources are {', '.join(svc.SOURCES)})")
+        change["sources"] = [x for x in svc.SOURCES if x in change["sources"]]
+    if "x_pages" in change:
+        pages = [u.strip() for u in change["x_pages"] if u.strip()]
+        if any(not re.match(r"https://(www\.)?(x|twitter)\.com/", u) for u in pages):
+            raise HTTPException(400, "X pages are addresses on x.com: your timeline, a list or a person")
+        change["x_pages"] = list(dict.fromkeys(pages))[:10]
     if "digest" in change:
         d = {**svc.settings(me.user_id)["digest"], **change["digest"]}
 
@@ -460,11 +476,44 @@ async def put_settings(body: Settings) -> dict[str, Any]:
             raise HTTPException(400, "Choose a notification channel set up under Settings → Notifications")
         d["skip"] = bool(d.get("skip", True))
         d["chat"] = bool(d.get("chat", True))
-        change["digest"] = {k: d[k] for k in ("to", "at", "at2", "top", "skip", "chat")}
-    if {"topics", "keywords", "from_objectives", "hf"} & set(change):
+        if d.get("lang") not in ("en", "zh"):
+            raise HTTPException(400, "The briefing's language: en or zh")
+        d["model"] = str(d.get("model") or "").strip()[:120]
+        change["digest"] = {k: d[k] for k in ("to", "at", "at2", "top", "skip", "chat", "lang", "model")}
+    if {"topics", "keywords", "from_objectives", "hf", "sources"} & set(change):
         auth_store.set_pref(me.user_id, "feed_status", {**svc.status(me.user_id), "last": 0})   # fetch again soon
     svc.save_settings(me.user_id, {**saved, **change})
     return await following()
+
+
+@router.get("/x/due")
+async def x_due() -> list[dict[str, Any]]:
+    """The X pages the browser extension should read now, as you (every hour at most)."""
+    from aurora.auth.store import auth_store
+    me = current_user()
+    cfg = svc.settings(me.user_id)
+    last = (auth_store.get_pref(me.user_id, "feed_x_read") or {}).get("at", 0)
+    if "x" not in cfg["sources"] or time.time() - last < svc.X_EVERY_MIN * 60:
+        return []
+    return [{"url": u, "platform": "x"} for u in cfg["x_pages"]]
+
+
+class XPosts(BaseModel):
+    page: str = ""
+    items: list[dict[str, Any]] = []
+    error: str = ""
+
+
+@router.post("/x/items")
+async def x_items(body: XPosts) -> dict[str, Any]:
+    """What the extension read on an X page: posts, and the papers they link (who posted them goes along)."""
+    if body.error and not body.items:
+        from aurora.auth.store import auth_store
+        me = current_user()
+        auth_store.set_pref(me.user_id, "feed_x_read", {"at": time.time(), "page": body.page, "posts": 0,
+                                                        "error": body.error[:300]})
+        return {"posts": 0, "papers": 0}
+    return await svc.take_x(current_user(), body.items, body.page)
 
 
 class RssBody(BaseModel):

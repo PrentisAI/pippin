@@ -244,6 +244,8 @@ RULES: dict[tuple[str, str], str] = {
     ("POST", "/api/feed/items/{item_id}/ask"): "any",
     ("GET", "/api/feed/following"): "any",
     ("PUT", "/api/feed/settings"): "any",
+    ("GET", "/api/feed/x/due"): "any",
+    ("POST", "/api/feed/x/items"): "any",
     ("POST", "/api/feed/rss"): "any",
     ("DELETE", "/api/feed/rss"): "any",
     ("PUT", "/api/feed/x-key"): "any",

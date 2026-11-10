@@ -157,7 +157,10 @@ def sources(monkeypatch):
 @pytest.fixture()
 def client(sources):
     from aurora.api.app import create_app
-    return TestClient(create_app())
+    c = TestClient(create_app())
+    # these tests cover every kind of source (the default is arXiv, HF and X only)
+    c.put("/api/feed/settings", json={"sources": list(svc.SOURCES)})
+    return c
 
 
 # ---------------------------------------------------------------------------- sources
@@ -441,14 +444,10 @@ def test_the_daily_digest(client, monkeypatch):
     assert r.json()["digest"]["at"] == "07:05" and r.json()["digest"]["label"].startswith("Lab group")
     assert client.put("/api/feed/settings", json={"digest": {"to": "nowhere"}}).status_code == 400
     _refresh(client)
-    best = max(i["rel"] for i in client.get("/api/feed").json()["items"])
-    r = client.post("/api/feed/digest/test")
-    if best < 4:                                   # nothing fits well: the day is skipped
-        assert r.json()["detail"] == "Nothing fits a project well today"
-        client.put("/api/feed/settings", json={"digest": {"skip": False}})
-        r = client.post("/api/feed/digest/test")
+    r = client.post("/api/feed/digest/test")      # without a model: what came in, most talked about first
     assert r.status_code == 200, r.text
-    assert sent and sent[0][1] == "daily_digest" and "e-bike" in sent[0][3]
+    assert sent and sent[0][1] == "daily_digest" and sent[0][2].startswith("Pippin briefing · ")
+    assert "1. " in sent[0][3] and "https://" in sent[0][3]
     from aurora.auth.store import auth_store
     auth_store.set_pref("local", "feed_used", True)
     assert svc._due("local", datetime.now().replace(hour=23, minute=59))

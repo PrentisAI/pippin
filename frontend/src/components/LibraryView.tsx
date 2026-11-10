@@ -213,16 +213,16 @@ export function LibraryView({ onOpenProject }: { onOpenProject: (campaignId: str
             {feed && !feed.people.length && <div className="lit-sub">Nobody yet. <button className="link-btn" onClick={() => setSub('following')}>Follow someone</button>: their papers, posts, blog and what others say about their work.</div>}
           </section>
           <section className="fd-box">
-            <h3>Digest</h3>
+            <h3>Briefing</h3>
             {feed && (() => {
               const d = feed.digest
               const where = [d.to !== 'console' ? d.label : '', d.chat && d.linked.length ? 'your chat app' : ''].filter(Boolean)
               const when = d.at2 ? `${d.at} and ${d.at2}` : d.at
               return where.length
-                ? <div className="fd-small">Every day at {when}: who you follow, the top {d.top} per project and what is trending, to <b>{where.join(' and ')}</b>.</div>
+                ? <div className="fd-small">Every day at {when}: what bears on your work and what your field is talking about, written up with links, to <b>{where.join(' and ')}</b>.</div>
                 : <div className="fd-small">Shown only here. <button className="link-btn" onClick={() => setSub('following')}>Send it to your chat app or a channel</button>.</div>
             })()}
-            <div className="lit-sub">Ranked against each project’s objective, its saved papers and what its runs found. “Not interested” teaches the ranking.</div>
+            <div className="lit-sub">Chosen from arXiv, HF Daily Papers and X against your topics, projects and notebook. “Not interested” teaches it.</div>
           </section>
           {feed && (
             <section className="fd-small lit-sub">Sources today
@@ -418,7 +418,8 @@ function FeedFollows({ f, onChange, onFind, onTopic, onFeed }: {
     f.people.length ? `${f.people.length} ${f.people.length === 1 ? 'person' : 'people'}` : '',
     f.topics.length + f.keywords.length ? `${f.topics.length + f.keywords.length} topic${f.topics.length + f.keywords.length === 1 ? '' : 's'}` : '',
     f.from_objectives ? 'your projects’ objectives' : '',
-    [f.hf ? 'HF Daily Papers' : '', f.rss.length ? `${f.rss.length} feed${f.rss.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and '),
+    [f.sources.includes('hf') && f.hf ? 'HF Daily Papers' : '', f.sources.includes('x') ? 'X' : '',
+      f.sources.includes('blogs') && f.rss.length ? `${f.rss.length} feed${f.rss.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and '),
   ].filter(Boolean)
   const go = (what: 'person' | 'topic') => {
     if (!v) return

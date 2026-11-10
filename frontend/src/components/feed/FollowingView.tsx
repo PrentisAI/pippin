@@ -74,24 +74,7 @@ export function FollowingView({ onBack, onPerson, find = '' }: {
 
         <aside className="fd-side">
           <Topics f={f} act={act} />
-          <section className="fd-box">
-            <h3>Other sources</h3>
-            <label className="modal-check"><input type="checkbox" checked={f.hf} onChange={(e) => act(() => api.feed.settings({ hf: e.target.checked }))} /> HF Daily Papers</label>
-            <label className="modal-check"><input type="checkbox" checked={f.discussions} onChange={(e) => act(() => api.feed.settings({ discussions: e.target.checked }))} /> Discussions around papers in my projects</label>
-            <div className="lit-sub">RSS and Atom feeds</div>
-            {f.rss.map((r) => (
-              <div key={r.url} className="fd-between fd-small">
-                <a href={r.url} target="_blank" rel="noreferrer" className="fd-ellipsis" title={r.url}>{r.title || r.url}</a>
-                <span className="bs-row" style={{ flexWrap: 'nowrap' }}>
-                  {r.state === 'error' ? <span className="fd-warn" title={r.error}>! {r.error.includes('not') ? 'feed not found' : 'not answering'}</span>
-                    : <span className="lit-ok">✓ {r.last_ok ? ago(r.last_ok) : 'added'}</span>}
-                  <button className="link-btn" aria-label={`Stop following ${r.title}`} onClick={() => act(() => api.feed.removeRss(r.url))}>×</button>
-                </span>
-              </div>
-            ))}
-            <AddFeed onAdd={(url) => act(() => api.feed.addRss(url), 'Following the feed.')} />
-            <XKey on={f.x_key} act={act} />
-          </section>
+          <Sources f={f} act={act} />
           <Digest f={f} act={act} />
         </aside>
       </div>
@@ -165,10 +148,70 @@ function XKey({ on, act }: { on: boolean; act: (fn: () => Promise<unknown>, ok?:
             <input type="password" className="fd-input" placeholder="X API key (bearer token)" aria-label="X API key" value={key} onChange={(e) => setKey(e.target.value)} />
             <button className="btn-sm lit-btn" disabled={key.trim().length < 20}>Save</button>
           </form>
-          <div className="lit-sub">Paste an X API key to follow X accounts. Bluesky and Mastodon work without one. The key is stored encrypted, like your other keys.</div>
+          <div className="lit-sub">Without the extension: an X API key (paid) reads the X accounts of the people you follow. It is stored encrypted, like your other keys.</div>
         </>
       )}
     </div>
+  )
+}
+
+const MORE: [string, string][] = [['scholar', 'Scholarly indexes (OpenAlex, Semantic Scholar)'], ['social', 'Bluesky and Mastodon'],
+  ['blogs', 'Blogs (RSS and Atom)'], ['code', 'GitHub'], ['video', 'YouTube'], ['discussions', 'Discussions around papers in my projects']]
+
+/** Where new things come from: arXiv, HF Daily Papers and X first; more when wanted. */
+function Sources({ f, act }: { f: Following; act: (fn: () => Promise<unknown>, ok?: string) => void }) {
+  const on = new Set(f.sources)
+  const set = (k: string, v: boolean) => act(() => api.feed.settings({ sources: v ? [...f.sources, k] : f.sources.filter((x) => x !== k) }))
+  const [pages, setPages] = useState(f.x_pages.join('\n'))
+  useEffect(() => { setPages(f.x_pages.join('\n')) }, [f.x_pages])
+  const [more, setMore] = useState(MORE.some(([k]) => on.has(k)))
+  const r = f.x_read
+  return (
+    <section className="fd-box">
+      <h3>Sources</h3>
+      <label className="modal-check"><input type="checkbox" checked={on.has('arxiv')} onChange={(e) => set('arxiv', e.target.checked)} />
+        {' '}arXiv: every new paper in your categories</label>
+      <label className="modal-check"><input type="checkbox" checked={on.has('hf') && f.hf}
+        onChange={(e) => act(async () => { await api.feed.settings({ hf: true }); return set('hf', e.target.checked) })} /> HF Daily Papers, with upvotes</label>
+      <label className="modal-check"><input type="checkbox" checked={on.has('x')} onChange={(e) => set('x', e.target.checked)} />
+        {' '}X: the papers people post about</label>
+      {on.has('x') && (
+        <>
+          <div className="lit-sub">Pages the browser extension reads as you, every hour (your timeline, a list, a person), one a line:</div>
+          <textarea className="fd-input" rows={2} value={pages} onChange={(e) => setPages(e.target.value)}
+            onBlur={() => pages.trim() !== f.x_pages.join('\n') && act(() => api.feed.settings({ x_pages: pages.split('\n').map((x) => x.trim()).filter(Boolean) }))} />
+          <div className="lit-sub">
+            {r.error ? <span className="fd-warn">! {r.error}</span>
+              : r.at ? <span className="lit-ok">✓ read {ago(r.at)}, {r.posts ?? 0} posts</span>
+              : 'Not read yet: the Pippin extension does it while this browser is open and signed in to X.'}
+          </div>
+          <XKey on={f.x_key} act={act} />
+        </>
+      )}
+      <button className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={() => setMore(!more)}>{more ? 'Fewer sources' : 'More sources…'}</button>
+      {more && (
+        <>
+          {MORE.map(([k, label]) => (
+            <label key={k} className="modal-check"><input type="checkbox" checked={on.has(k)} onChange={(e) => set(k, e.target.checked)} /> {label}</label>
+          ))}
+          {on.has('blogs') && (
+            <>
+              {f.rss.map((r) => (
+                <div key={r.url} className="fd-between fd-small">
+                  <a href={r.url} target="_blank" rel="noreferrer" className="fd-ellipsis" title={r.url}>{r.title || r.url}</a>
+                  <span className="bs-row" style={{ flexWrap: 'nowrap' }}>
+                    {r.state === 'error' ? <span className="fd-warn" title={r.error}>! {r.error.includes('not') ? 'feed not found' : 'not answering'}</span>
+                      : <span className="lit-ok">✓ {r.last_ok ? ago(r.last_ok) : 'added'}</span>}
+                    <button className="link-btn" aria-label={`Stop following ${r.title}`} onClick={() => act(() => api.feed.removeRss(r.url))}>×</button>
+                  </span>
+                </div>
+              ))}
+              <AddFeed onAdd={(url) => act(() => api.feed.addRss(url), 'Following the feed.')} />
+            </>
+          )}
+        </>
+      )}
+    </section>
   )
 }
 
@@ -176,14 +219,14 @@ function Digest({ f, act }: { f: Following; act: (fn: () => Promise<unknown>, ok
   const d = f.digest
   const [at, setAt] = useState(d.at)
   const [at2, setAt2] = useState(d.at2)
-  const [top, setTop] = useState(String(d.top))
-  useEffect(() => { setAt(d.at); setAt2(d.at2); setTop(String(d.top)) }, [d.at, d.at2, d.top])
+  const [shown, setShown] = useState(false)
+  useEffect(() => { setAt(d.at); setAt2(d.at2) }, [d.at, d.at2])
   const apps: Record<string, string> = { feishu: 'Feishu', wecom: 'WeCom', slack: 'Slack', whatsapp: 'WhatsApp' }
   return (
     <section className="fd-box">
-      <h3>Digest</h3>
-      <div className="lit-sub">Who you follow, the top items per project and what is trending, since the last one. In a chat app,
-        reply “read 2” (「读 2」) and Pippin keeps it and reads it with you.</div>
+      <h3>Briefing</h3>
+      <div className="lit-sub">What came in since the last one, chosen and written up by Pippin: what bears on your work and what
+        your field is talking about, each with its links. In a chat app, reply “read 2” (「读 2」) and Pippin keeps it and reads it with you.</div>
       <label className="modal-check"><input type="checkbox" checked={d.chat} onChange={(e) => act(() => api.feed.settings({ digest: { chat: e.target.checked } }))} />
         {' '}In my chat app{d.linked.length ? ` (${d.linked.map((a) => apps[a] ?? a).join(', ')})` : ''}</label>
       {d.chat && !d.linked.length && <div className="lit-sub">Link Feishu, WeCom, Slack or WhatsApp under Settings → Chat apps first.</div>}
@@ -202,15 +245,21 @@ function Digest({ f, act }: { f: Following; act: (fn: () => Promise<unknown>, ok
         <input id="dg-at2" className="fd-input" style={{ width: 96, flex: "none" }} value={at2} placeholder="once a day" onChange={(e) => setAt2(e.target.value)}
           onBlur={() => at2 !== d.at2 && act(() => api.feed.settings({ digest: { at2 } }))} />
       </div>
-      <div className="bs-row fd-small">
-        <label htmlFor="dg-top">Top</label>
-        <input id="dg-top" className="fd-input" style={{ width: 50, flex: "none" }} inputMode="numeric" value={top} onChange={(e) => setTop(e.target.value)}
-          onBlur={() => Number(top) !== d.top && act(() => api.feed.settings({ digest: { top: Number(top) } }))} />
-        <span>per project</span>
-      </div>
-      <label className="modal-check"><input type="checkbox" checked={d.skip} onChange={(e) => act(() => api.feed.settings({ digest: { skip: e.target.checked } }))} /> Skip it when nothing new fits a project well</label>
+      <label className="fd-field">Written in
+        <select value={d.lang} onChange={(e) => act(() => api.feed.settings({ digest: { lang: e.target.value as 'en' | 'zh' } }))}>
+          <option value="en">English</option>
+          <option value="zh">中文</option>
+        </select>
+      </label>
       {(d.to !== 'console' || (d.chat && d.linked.length > 0)) && <button className="link-btn" style={{ alignSelf: 'flex-start' }}
-        onClick={() => act(() => api.feed.testDigest(), 'Sent the digest.')}>Send one now, to see it</button>}
+        onClick={() => act(() => api.feed.testDigest(), 'Sent the briefing.')}>Send one now, to see it</button>}
+      {d.last && (
+        <>
+          <button className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={() => setShown(!shown)}>
+            {shown ? 'Hide the last one' : `The last one (${ago(d.last.at)})`}</button>
+          {shown && <pre className="fd-brief">{d.last.title}{'\n\n'}{d.last.text}</pre>}
+        </>
+      )}
     </section>
   )
 }

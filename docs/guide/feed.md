@@ -66,36 +66,48 @@ What it is sure of is ticked; what it only found by name is offered unticked, wi
 what to follow: papers, posts, blog, code, videos and discussions about their work; click a place to stop or start
 following it there. A person's page lists what came from them by kind.
 
-**Topics.** arXiv categories (`cs.LG`, `stat.AP`) and keywords, searched in
-arXiv and OpenAlex. *Topics from my projects' objectives* adds search phrases
-and categories worked out from each project's objective.
+**Topics.** arXiv categories (`cs.AI`, `cs.LG`) and keywords. Every new paper in your categories is read (up to
+300 a refresh), and the briefing, not the query, picks among them; keywords also find papers outside the categories
+and tell the briefing what you care about. *Topics from my projects' objectives* adds search phrases and categories
+worked out from each project's objective. The examples and the scripted demo project are not counted as your work.
 
-**Other sources.** HF Daily Papers; discussions around the papers in your
-projects; any blog or newsletter (paste its address: its RSS or Atom feed is
-found from the page).
+**Sources.** By default three: **arXiv** (your categories), **HF Daily Papers** (the community's picks, with their
+upvotes) and **X**. *More sources…* turns on the others: scholarly indexes (OpenAlex, Semantic Scholar), Bluesky and
+Mastodon, blogs and newsletters (paste a page's address: its RSS or Atom feed is found), GitHub, YouTube, and
+discussions around the papers in your projects.
 
-**X** has no free API. Paste an X API key (a bearer token) to follow X accounts;
-it is stored encrypted, like your other keys. Bluesky and Mastodon need no key.
-LinkedIn cannot be followed (it has no open API).
+**X** is read by the browser extension as you, every hour while the browser is open and signed in to X: the pages
+under *Sources* (by default your timeline, `x.com/home`; a list or a person's page works too). The posts come into
+the feed, and a post that links a paper (arXiv, HF papers, alphaXiv, through X's short links) adds to that paper who
+posted it and what they said. Without the extension, an X API key (a bearer token; X's API is paid) reads the X
+accounts of the people you follow. LinkedIn cannot be followed (it has no open API).
 
-## The digest
+**One paper, one item.** A paper seen in several places is one item with all its signals: its arXiv category, its HF
+upvotes, and everyone who posted about it on X.
 
-Twice a day by default (08:30 and 20:30; clear the second time for once a day),
-Pippin sends what came in since the last one, numbered: what the people you
-follow published or posted, the top items per project with why each fits, and
-what is trending on HF Daily Papers, with what came into your notebook.
+## The briefing
+
+Twice a day by default (08:30 and 20:30; clear the second time for once a day), Pippin writes a short briefing of
+what came in since the last one. A model (`anthropic/claude-sonnet-5.5`, a few cents a briefing; `digest.model` to
+change it) reads the new items against what you work on and care about (your topics and keywords, your projects,
+what you saved in the notebook and the feed, what you marked *Not interested*) and picks what is worth your time
+today: what bears on your work, and what your field is clearly talking about (many HF upvotes, several people on X)
+even when it is not about your projects. There is no fixed number: a quiet day gives a short briefing, or none.
+
+The picks come under a few headings the model chooses (a project, *Trending*, *What people are discussing*), after
+one sentence on what the day comes down to. Each item has a plain sentence on what it does, one on why it is worth
+your time, where it was seen (`arXiv cs.AI · HF 34 upvotes · on X: …`) and its links: the paper, its HF page, the
+posts on X, and the item in the console. *Written in* chooses English or 中文. Without a model, the most talked-about
+items are listed as they are.
 
 It goes to the chat apps you linked (Feishu, WeCom, Slack, WhatsApp; see
 [Talking to Pippin in a chat app](notifications.md#talking-to-pippin-in-a-chat-app)),
-to one of your notification channels (set them up under **Settings →
-Notifications**), or both. *Skip it when nothing new fits a project well* sends
-nothing when there is no strong match. **Send one now** shows what it looks like.
+to one of your notification channels (set them up under **Settings → Notifications**), or both. **Send one now**
+shows what it looks like; *The last one* shows the last briefing in the console.
 
-Each item links to the console: the link keeps it in the project it fits best
-(or your own library) and opens it in the reader, where Pippin has started
-reading it with you. In a chat app, reply **read 2** (「读 2」) to do the same
-from there: Pippin keeps item 2, starts writing its notes in the margin, and
-answers with the link.
+The console link of an item keeps it in the project it fits best (or your own library) and opens it in the reader,
+where Pippin has started reading it with you. In a chat app, reply **read 2** (「读 2」) to do the same from there:
+Pippin keeps item 2, starts writing its notes in the margin, and answers with the link.
 
 ## How it works
 
@@ -113,9 +125,10 @@ keeps no data; otherwise its items are ranked by the word scores.
 | Source | Needs |
 |---|---|
 | arXiv, HF Daily Papers, Bluesky, Mastodon, RSS, Hacker News, OpenReview | nothing |
+| X, read as you | the Pippin browser extension, signed in to X in that browser |
 | OpenAlex | works without a key, but set `OPENALEX_API_KEY` (free): the keyless daily budget is shared by everyone on your IP address |
 | Semantic Scholar | works without a key, rate-limited; `SEMANTIC_SCHOLAR_API_KEY` to use it fully |
-| X | an X API key, per person |
+| X, without the extension | an X API key, per person (paid) |
 
 Everything in the feed is your own: nobody else sees what you follow, save or
 hide. What you save to a project or bring to a shared brainstorm is seen there

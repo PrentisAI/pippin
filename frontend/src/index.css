@@ -4583,3 +4583,6 @@ button.context-tab { font: inherit; font-size: 13px; font-weight: 500; cursor: p
 ::highlight(pp-g) { background-color: rgba(95,178,54,.3); } ::highlight(pp-g-sug) { background-color: rgba(95,178,54,.14); } ::highlight(pp-g-focus) { background-color: rgba(95,178,54,.5); }
 ::highlight(pp-dim) { background-color: rgba(120,128,145,.12); }
 ::highlight(pp-flash) { background-color: rgba(47,111,222,.28); }
+
+.fd-brief { white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 12.5px; line-height: 1.55;
+  background: var(--bg-subtle, rgba(127,127,127,.06)); border-radius: 8px; padding: 10px 12px; margin: 0; max-height: 420px; overflow: auto; }

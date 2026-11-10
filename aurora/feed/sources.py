@@ -174,8 +174,40 @@ class Sources:
             cat, when = meta.get(p.arxiv_id, ("", 0.0))
             if when and when < since:
                 continue
-            out.append(paper_item(p, "arxiv", f"arXiv · {cat}" if cat else "arXiv", published_at=when))
+            it = paper_item(p, "arxiv", f"arXiv · {cat}" if cat else "arXiv", published_at=when)
+            it["signals"] = {"arxiv": cat or "arXiv"}
+            out.append(it)
         return out
+
+    async def arxiv_ids(self, ids: list[str]) -> list[dict[str, Any]]:
+        """The papers with these arXiv IDs (named in posts), as feed items."""
+        ids = list(dict.fromkeys(i for i in ids if i))[:50]
+        if not ids:
+            return []
+        xml = await self._arxiv({"id_list": ",".join(ids), "max_results": len(ids)})
+        out = []
+        for p in _arxiv_papers(xml):
+            it = paper_item(p, "arxiv", "arXiv")
+            it["signals"] = {"arxiv": "arXiv"}
+            out.append(it)
+        return out
+
+    async def resolve(self, urls: list[str]) -> list[str]:
+        """Short links (t.co) as where they lead; others as they are."""
+        async def one(u: str) -> str:
+            if not re.match(r"https?://(t\.co|bit\.ly|buff\.ly|tinyurl\.com)/", u):
+                return u
+            try:
+                c = self._client or httpx.AsyncClient(timeout=10.0)
+                try:
+                    r = await c.head(u, follow_redirects=True, timeout=10.0)
+                    return str(r.url)
+                finally:
+                    if self._client is None:
+                        await c.aclose()
+            except Exception:
+                return u
+        return list(await asyncio.gather(*(one(u) for u in urls[:40])))
 
     async def openalex_recent(self, keywords: list[str], days: int = 7, limit: int = 15) -> list[dict[str, Any]]:
         """New works in OpenAlex matching each keyword."""
@@ -249,8 +281,10 @@ class Sources:
                           venue="arXiv", arxiv_id=aid, url=f"https://arxiv.org/abs/{aid}",
                           pdf_url=f"https://arxiv.org/pdf/{aid}", abstract=p.get("summary") or "", found_in=["arxiv"])
             up = p.get("upvotes") or 0
-            out.append(paper_item(paper, "hf", "HF Daily Papers · trending", published_at=_ts(p.get("publishedAt")),
-                                  extra=f"{up} upvotes" if up else ""))
+            it = paper_item(paper, "hf", "HF Daily Papers · trending", published_at=_ts(p.get("publishedAt")),
+                            extra=f"{up} upvotes" if up else "")
+            it["signals"] = {"hf": int(up)}
+            out.append(it)
         return out
 
     # ------------------------------------------------------------------ social
@@ -327,7 +361,7 @@ class Sources:
             raise SourceError(f"X has no account @{username}")
         data = await self.json(f"https://api.x.com/2/users/{uid}/tweets", {
             "max_results": max(5, limit), "exclude": "replies,retweets",
-            "tweet.fields": "created_at,public_metrics"}, headers=h, what="X")
+            "tweet.fields": "created_at,public_metrics,entities"}, headers=h, what="X")
         name = (who.get("data") or {}).get("name") or username
         out = []
         for t in data.get("data") or []:
@@ -336,7 +370,9 @@ class Sources:
             out.append({"ukey": f"x:{t['id']}", "kind": "post", "src": "x", "source": f"X · @{username.lstrip('@')}",
                         "url": f"https://x.com/{username.lstrip('@')}/status/{t['id']}", "title": first_line(body),
                         "summary": clip(body, 1200), "people": [[name, ""]], "extra": replies(n),
-                        "published_at": _ts(t.get("created_at"))})
+                        "published_at": _ts(t.get("created_at")),
+                        "links": [u.get("expanded_url") or u.get("url") for u in (t.get("entities") or {}).get("urls") or []]
+                        or re.findall(r"https?://\S+", body)})
         return out
 
     # ------------------------------------------------------------------ blogs
@@ -572,11 +608,16 @@ def parse_feed(text: str, base: str = "") -> tuple[str, list[dict[str, Any]]]:
     return text_of(title), entries
 
 
+_PAPER_HOSTS = ("arxiv.org", "huggingface.co/papers/", "alphaxiv.org", "chatpaper.com/paper/", "papers.cool/arxiv/")
+
+
 def paper_ids_in(links: list[str]) -> tuple[str, str]:
-    """(arXiv ID, DOI) named by any of these links."""
+    """(arXiv ID, DOI) named by any of these links (arXiv, HF papers, alphaXiv pages name the arXiv ID)."""
     for u in links:
-        if "arxiv.org" in u and clean_arxiv(u):
-            return clean_arxiv(u), ""
+        if any(h in u for h in _PAPER_HOSTS):
+            m = re.search(r"(\d{4}\.\d{4,5})(v\d+)?", u)
+            if m:
+                return m.group(1), ""
     for u in links:
         if clean_doi(u):
             return "", clean_doi(u)

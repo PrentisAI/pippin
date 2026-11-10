@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Any
 
 from aurora.feed import rank as rk
-from aurora.feed.sources import SourceError, Sources, clip, paper_ids_in, sources
+from aurora.feed.sources import SourceError, Sources, clip, first_line, paper_ids_in, sources
 from aurora.feed.store import feed_store
 from aurora.literature.records import Paper, family_name, fold
 
@@ -37,8 +37,16 @@ DEFAULTS: dict[str, Any] = {
     "hf": True,                   # HF Daily Papers
     "discussions": True,          # discussions around papers in my projects
     "rss": [],                    # [{url, title, state, last_ok, error}]
-    "digest": {"to": "console", "at": "08:30", "at2": "20:30", "top": 5, "skip": True, "chat": True},
+    # where new things come from: arxiv, hf, x (the core); scholar (OpenAlex, Semantic Scholar), social (Bluesky,
+    # Mastodon), blogs, code (GitHub), video (YouTube), discussions (around your projects' papers)
+    "sources": ["arxiv", "hf", "x"],
+    "x_pages": ["https://x.com/home"],   # X pages the browser extension reads as you (timeline, lists, people)
+    "digest": {"to": "console", "at": "08:30", "at2": "20:30", "top": 5, "skip": True, "chat": True, "lang": "en",
+               "model": ""},       # empty: brief.MODEL
 }
+SOURCES = ("arxiv", "hf", "x", "scholar", "social", "blogs", "code", "video", "discussions")
+X_EVERY_MIN = 60                 # the extension reads the X pages at most this often
+ARXIV_DAILY = 300                # newest submissions read per category and refresh
 
 _running: dict[str, asyncio.Task] = {}
 
@@ -81,16 +89,27 @@ def running(user_id: str) -> bool:
 
 # ---------------------------------------------------------------------------- projects
 
+def _scripted_demo(camp: Any) -> bool:
+    try:
+        from aurora.api.routes.setup import DEMO_OBJECTIVE
+    except ImportError:
+        return False
+    return (camp.objective or "").strip() == DEMO_OBJECTIVE.strip()
+
+
 def project_profiles(user: Any) -> list[dict[str, Any]]:
     """The projects a person can see, each described by its objective, papers and findings."""
     from aurora.api.routes.campaigns import _ensure_campaign, _report_path, _run_findings, store
     from aurora.auth.guard import visible
     from aurora.literature.library import library
+    from aurora.examples import is_example
     out = []
     for cid in visible(user, [r["campaign_id"] for r in store.list_campaigns()]):
         try:
             camp = _ensure_campaign(cid)
         except Exception:
+            continue
+        if is_example(cid) or _scripted_demo(camp):     # not what the person works on
             continue
         parts = [f"Objective: {camp.objective or camp.name}"]
         titles = []
@@ -131,12 +150,21 @@ def is_old(it: dict[str, Any]) -> bool:
 
 
 def same_author(a: str, b: str) -> bool:
-    """The same family name and the same first initial ("Maya Okafor", "M. Okafor"; not "Chidi Okafor")."""
+    """The same person by name: the same family name and the same given names ("Maya Okafor", "M. Okafor", "Maya
+    J. Okafor"; not "Chidi Okafor", and not "Yulin Su" for "Yu Su"). An initial only stands for a name it begins."""
     if not a or not b or family_name(a) != family_name(b):
         return False
-    def given(name: str) -> str:
-        return fold(name.split(",", 1)[1] if "," in name else name)[:1]
-    return given(a) == given(b) != ""
+
+    def given(name: str) -> list[str]:
+        g = name.split(",", 1)[1] if "," in name else " ".join(name.split()[:-1])
+        return [w for w in fold(g.replace(".", " ").replace("-", " ")).split() if w]
+    ga, gb = given(a), given(b)
+    if not ga or not gb:
+        return False
+    full_a, full_b = [w for w in ga if len(w) > 1], [w for w in gb if len(w) > 1]
+    if full_a and full_b:                     # both spelled out: the first given names agree
+        return full_a[0] == full_b[0]
+    return ga[0][0] == gb[0][0]               # one is an initial: it must begin the other
 
 
 def _mark_people(item: dict[str, Any], people: list[dict[str, Any]]) -> dict[str, Any]:
@@ -159,17 +187,27 @@ def _mark_people(item: dict[str, Any], people: list[dict[str, Any]]) -> dict[str
     return item
 
 
+def _source_of(kind: str) -> str:
+    """Which switch in ``sources`` an identity of a followed person belongs to."""
+    return {"openalex": "scholar", "s2": "scholar", "bluesky": "social", "mastodon": "social", "x": "x",
+            "arxiv": "arxiv", "github": "code", "youtube": "video", "blog": "blogs"}.get(kind, kind)
+
+
 async def _gather(user_id: str, src: Sources, cfg: dict[str, Any], derived: dict[str, list[str]],
                   people: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, str]]:
     """Ask every source; (items, counts per source, problems per source)."""
     jobs: list[tuple[str, Any, dict[str, Any]]] = []      # (source key, coroutine, what to tie the items to)
-    cats = list(dict.fromkeys([*cfg["topics"], *derived.get("categories", [])]))
+    on = set(cfg.get("sources") or [])
+    cats = list(dict.fromkeys(cfg["topics"] or derived.get("categories", [])))
     kws = list(dict.fromkeys([*cfg["keywords"], *derived.get("keywords", [])]))[:10]
-    if cats or kws:
-        jobs.append(("arxiv", src.arxiv_recent(cats, kws), {}))
-    if kws:
+    if "arxiv" in on:
+        if cats:          # every new paper of the categories: the ranking, not the query, picks
+            jobs.append(("arxiv", src.arxiv_recent(cats, [], days=2, limit=ARXIV_DAILY), {}))
+        if kws:
+            jobs.append(("arxiv", src.arxiv_recent([], kws, limit=40), {}))
+    if kws and "scholar" in on:
         jobs.append(("openalex", src.openalex_recent(kws), {}))
-    if cfg["hf"]:
+    if cfg["hf"] and "hf" in on:
         jobs.append(("hf", src.hf_daily(), {}))
     xk = x_key(user_id)
     for p in people:
@@ -179,6 +217,8 @@ async def _gather(user_id: str, src: Sources, cfg: dict[str, Any], derived: dict
                 continue
             k, h = ident["kind"], ident.get("handle", "")
             tie = {"person": p}
+            if _source_of(k) not in on:
+                continue
             if k == "openalex" and w.get("papers", True):
                 jobs.append(("openalex", src.openalex_author(h), tie))
             elif k == "s2" and w.get("papers", True):
@@ -197,7 +237,7 @@ async def _gather(user_id: str, src: Sources, cfg: dict[str, Any], derived: dict
                 jobs.append(("youtube", src.youtube(h), tie))
             elif k == "blog" and w.get("blog", True) and ident.get("url"):
                 jobs.append(("rss", src.rss(ident["url"]), {**tie, "rss": None}))
-    for i, feed in enumerate(cfg["rss"]):
+    for i, feed in enumerate(cfg["rss"] if "blogs" in on else []):
         jobs.append(("rss", src.rss(feed["url"]), {"rss": i}))
     results = await asyncio.gather(*(j[1] for j in jobs), return_exceptions=True)
     items: list[dict[str, Any]] = []
@@ -220,6 +260,9 @@ async def _gather(user_id: str, src: Sources, cfg: dict[str, Any], derived: dict
         counts[key] = counts.get(key, 0) + len(res)
         person = tie.get("person")
         for it in res:
+            if person is not None and it["kind"] == "paper" and it.get("people") and not any(
+                    same_author(person["name"], n) for n, _ in it["people"]):
+                continue          # a profile found by name that mixes people up: not theirs
             if person is not None:
                 it["person_ids"] = sorted({*(it.get("person_ids") or []), person["person_id"]})
                 if it["kind"] != "paper":
@@ -398,7 +441,8 @@ async def _refresh(user: Any, src: Sources) -> dict[str, Any]:
                     feed_store.update_item(row["item_id"], extra=(row["extra"] + " · " if row["extra"] else "")
                                            + f"links to {'arXiv:' + aid if aid else 'DOI ' + doi}")
     forced: dict[str, str] = {}
-    if cfg["discussions"]:
+    added += await _papers_in_posts(uid, src, items)
+    if cfg["discussions"] and "discussions" in (cfg.get("sources") or []):
         try:
             for d in await _discussions(user, src, profiles, new_papers, access):
                 cid = d.pop("for_project", "")
@@ -420,6 +464,64 @@ async def _refresh(user: Any, src: Sources) -> dict[str, Any]:
     merged = {**{k: v for k, v in today.items() if k not in merged}, **merged}
     _set_status(uid, date=day, counts=merged, problems=problems, last=time.time())
     return {"added": added, "ranked": ranked, "counts": counts, "problems": problems}
+
+
+def _mention(post: dict[str, Any]) -> dict[str, Any]:
+    who = (post.get("people") or [[""]])[0][0] or post.get("source", "").removeprefix("X · ")
+    return {"who": who, "url": post.get("url", ""), "text": clip(post.get("summary") or post.get("title") or "", 280),
+            "at": post.get("published_at") or time.time()}
+
+
+async def _papers_in_posts(uid: str, src: Sources, items: list[dict[str, Any]]) -> int:
+    """X posts that link a paper (arXiv, HF papers, alphaXiv; through t.co) make that paper an item, or add to
+    it, with who posted and what they said: being talked about is a signal of its own."""
+    posts = [it for it in items if it.get("src") == "x" and it.get("kind") == "post"]
+    named: dict[str, list[dict[str, Any]]] = {}
+    for post in posts:
+        links = await src.resolve(list(post.get("links") or []))
+        aid, _ = paper_ids_in(links + re.findall(r"https?://\S+", post.get("summary") or ""))
+        if aid:
+            named.setdefault(aid, []).append(_mention(post))
+    if not named:
+        return 0
+    known = {r["ukey"][6:]: r for r in feed_store.items(uid, 0, hidden=None) if r["ukey"].startswith("arxiv:")}
+    added = 0
+    try:
+        fetched = await src.arxiv_ids([a for a in named if a not in known])
+    except Exception:
+        logger.info("feed: papers named on X could not be looked up", exc_info=True)
+        fetched = []
+    for it in fetched:
+        aid = it["ukey"][6:]
+        it["signals"] = {**it.get("signals", {}), "x": named.get(aid, [])}
+        if feed_store.add_item(uid, it)[1]:
+            added += 1
+    for aid, row in known.items():
+        if aid in named:
+            feed_store.add_item(uid, {"ukey": row["ukey"], "signals": {"x": named[aid]}})
+    return added
+
+
+async def take_x(user: Any, posts: list[dict[str, Any]], page: str = "") -> dict[str, Any]:
+    """What the browser extension read on an X page, as you: the posts, and the papers they link."""
+    items = []
+    for p in posts[:100]:
+        pid, url = str(p.get("id") or ""), str(p.get("url") or "")
+        text = str(p.get("text") or "")
+        if not (pid or url) or len(text) < 20:
+            continue
+        who = str(p.get("author") or "").strip()
+        items.append({"ukey": f"x:{pid or url}", "kind": "post", "src": "x", "source": f"X · {who}" if who else "X",
+                      "url": url, "title": first_line(text), "summary": clip(text, 1200), "people": [[who, ""]],
+                      "links": [str(u) for u in p.get("links") or []][:20], "published_at": time.time()})
+    taken = 0
+    for it in items:
+        if feed_store.add_item(user.user_id, it)[1]:
+            taken += 1
+    papers = await _papers_in_posts(user.user_id, sources(), items)
+    from aurora.auth.store import auth_store
+    auth_store.set_pref(user.user_id, "feed_x_read", {"at": time.time(), "page": page, "posts": len(items)})
+    return {"posts": taken, "papers": papers}
 
 
 def start_refresh(user: Any) -> bool:
@@ -467,86 +569,30 @@ def activity(user_id: str, person: dict[str, Any]) -> tuple[str, int]:
 READ_WORD = re.compile(r"^(?:读|看|存|保存|打开|read|open|save|keep)\s*(?:第\s*)?(\d{1,2})\s*(?:个|篇|条)?$", re.I)
 
 
-def _digest_items(user: Any, since: float, top: int) -> tuple[list[tuple[str, list[tuple[dict[str, Any], str]]]], str]:
-    """The digest's sections, [(heading, [(item, why)])], and the memory part."""
-    profiles = {p["campaign_id"]: p["name"] for p in project_profiles(user)}
-    rows = feed_store.items(user.user_id, since)
-    ranks = feed_store.ranks([r["item_id"] for r in rows])
-    taken: set[str] = set()
-    sections: list[tuple[str, list[tuple[dict[str, Any], str]]]] = []
-    followed = [r for r in rows if r.get("person_ids")]
-    if followed:
-        picks = []
-        for r in followed[:top]:
-            who = ", ".join(n for n, pid in (r.get("people") or []) if pid) or "someone you follow"
-            picks.append((r, f"by {who}"))
-            taken.add(r["item_id"])
-        sections.append(("From people you follow", picks))
-    per: dict[str, list[tuple[int, dict[str, Any], str]]] = {}
-    for r in rows:
-        if r["item_id"] in taken:
-            continue
-        for rr in ranks.get(r["item_id"], []):
-            if rr["campaign_id"] in profiles and rr["rel"] >= 3:
-                per.setdefault(rr["campaign_id"], []).append((rr["rel"], r, rr["why"]))
-    for cid, picks in per.items():
-        picks.sort(key=lambda x: -x[0])
-        chosen = [(r, why) for _, r, why in picks if r["item_id"] not in taken][:top]
-        taken.update(r["item_id"] for r, _ in chosen)
-        if chosen:
-            sections.append((profiles[cid], chosen))
-
-    def votes(r: dict[str, Any]) -> int:
-        m = re.match(r"(\d+) upvotes", str(r.get("extra") or ""))
-        return int(m.group(1)) if m else 0
-    hot = sorted((r for r in rows if r["item_id"] not in taken and votes(r) >= 20), key=votes, reverse=True)[:3]
-    if hot:
-        sections.append(("Trending", [(r, r.get("extra") or "") for r in hot]))
-    try:                          # what came into the person's memory goes along
+async def digest_note(user: Any, *, since: float | None = None, chat: bool = False) -> tuple[str, str] | None:
+    """(title, text) of the briefing: what came in since the last one, chosen and written up by a model, each item
+    with its links; None when nothing is worth sending.  The items are numbered and remembered, for "read 2"."""
+    from aurora.auth.store import auth_store
+    from aurora.feed import brief
+    cfg = settings(user.user_id)
+    if since is None:
+        last = float(auth_store.get_pref(user.user_id, "feed_digest_at") or 0)
+        since = max(last, time.time() - 86400) if last else time.time() - 86400
+    got = await brief.compose(user, cfg, since, chat=chat, base=_console())
+    try:                          # what came into the person's notebook goes along
         from aurora.memory.relate import digest_text as memory_part
         memory = memory_part(user.user_id)
     except Exception:
         memory = ""
-    return sections, memory
-
-
-def _half() -> str:
-    h = datetime.now().hour
-    return "morning" if h < 12 else "afternoon" if h < 18 else "evening"
-
-
-def digest_text(user: Any, *, since: float | None = None, chat: bool = False) -> tuple[str, str] | None:
-    """(title, text) of the digest: what came in since the last one; None when nothing fits well enough (and
-    skipping is on).  The items are numbered and remembered, for "read 2" in a chat app."""
-    cfg = settings(user.user_id)["digest"]
-    from aurora.auth.store import auth_store
-    if since is None:
-        last = float(auth_store.get_pref(user.user_id, "feed_digest_at") or 0)
-        since = max(last, time.time() - 86400) if last else time.time() - 86400
-    sections, memory = _digest_items(user, since, int(cfg.get("top") or 5))
-    strong = any(sec in ("From people you follow",) for sec, _ in sections) or any(
-        rr["rel"] >= 4 for sec, picks in sections for r, _ in picks
-        for rr in feed_store.ranks([r["item_id"]]).get(r["item_id"], []))
-    if cfg.get("skip", True) and not strong and not memory:
+    if got is None and not memory:
         return None
-    if not sections and not memory:
-        return None
-    base = _console()
-    lines, numbered = [], []
-    for heading, picks in sections:
-        lines.append(f"## {heading}")
-        for r, why in picks:
-            numbered.append(r["item_id"])
-            link = f"{base}/?feed={r['item_id']}" if base else r["url"]
-            lines.append(f"{len(numbered)}. {r['title']} ({r['source']})" + (f"\n   {why}" if why else "")
-                         + (f"\n   {link}" if link else ""))
-        lines.append("")
+    title, text, numbered = got or (brief.WORDS[cfg["digest"].get("lang", "en")]["title"].format(
+        day=brief._day(cfg["digest"].get("lang", "en")), half=brief._half(cfg["digest"].get("lang", "en"))), "", [])
     if memory:
-        lines.append(memory)
-    if chat and numbered:
-        lines.append("Reply “read 2” (or 「读 2」) to keep one and read it with Pippin.")
+        text = f"{text}\n\n{memory}".strip()
     auth_store.set_pref(user.user_id, "feed_digest_items", numbered)
-    return f"Your reading this {_half()}, {datetime.now().strftime('%a %d %b')}", "\n".join(lines).strip()
+    auth_store.set_pref(user.user_id, "feed_brief", {"title": title, "text": text, "at": time.time(), "items": numbered})
+    return title, text
 
 
 def _console() -> str:
@@ -579,9 +625,9 @@ async def send_digest(user: Any) -> str:
             return "The chosen channel no longer exists"
     if channel is None and not to_chat:
         return "The digest goes only to the console"
-    note = digest_text(user, chat=to_chat)
+    note = await digest_note(user, chat=to_chat)
     if note is None:
-        return "Nothing fits a project well today"
+        return "Nothing worth sending since the last briefing"
     errors = []
     if channel is not None:
         error = await deliver(channel, "daily_digest", note[0], note[1])

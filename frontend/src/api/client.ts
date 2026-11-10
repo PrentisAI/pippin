@@ -572,7 +572,7 @@ export const api = {
     ask: (itemId: string, campaign_id: string) =>
       request<{ campaign_id: string; ref: LibraryRef; seed: boolean }>(`/feed/items/${itemId}/ask`, post({ campaign_id })),
     following: () => request<Following>('/feed/following'),
-    settings: (body: Partial<Pick<Following, 'topics' | 'keywords' | 'from_objectives' | 'hf' | 'discussions'>> & { digest?: Partial<{ to: string; at: string; at2: string; top: number; skip: boolean; chat: boolean }> }) =>
+    settings: (body: Partial<Pick<Following, 'topics' | 'keywords' | 'from_objectives' | 'hf' | 'discussions' | 'sources' | 'x_pages'>> & { digest?: Partial<{ to: string; at: string; at2: string; top: number; skip: boolean; chat: boolean; lang: 'en' | 'zh' }> }) =>
       request<Following>('/feed/settings', put(body)),
     addRss: (url: string) => request<Following>('/feed/rss', post({ url })),
     removeRss: (url: string) => request<Following>(`/feed/rss?url=${encodeURIComponent(url)}`, del),

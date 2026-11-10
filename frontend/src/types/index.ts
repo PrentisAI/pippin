@@ -972,6 +972,10 @@ export interface FeedDigest {
   /** the chat apps you linked that can take it */
   linked: string[]
   channels: { id: string; label: string }[]
+  /** the briefing's language */
+  lang: 'en' | 'zh'
+  /** the last briefing sent */
+  last: { title: string; text: string; at: number } | null
 }
 
 export interface FeedView {
@@ -1003,6 +1007,12 @@ export interface Following {
   rss: FeedRss[]
   digest: FeedDigest
   x_key: boolean
+  /** where new things come from: arxiv, hf, x, and more (scholar, social, blogs, code, video, discussions) */
+  sources: string[]
+  /** X pages the browser extension reads as you */
+  x_pages: string[]
+  /** when the extension last read them */
+  x_read: { at?: number; page?: string; posts?: number; error?: string }
 }
 
 export interface PersonCandidate {

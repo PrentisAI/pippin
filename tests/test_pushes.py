@@ -85,7 +85,7 @@ def test_the_digest_twice_a_day_in_the_chat_app_and_read_2(client, monkeypatch):
     from aurora.auth.permissions import LOCAL_USER
     assert asyncio.run(svc.send_digest(LOCAL_USER)) == ""
     title, text = pushed[-1]
-    assert title.startswith("Your reading this ") and "1. " in text and "read 2" in text and "e-bike" in text
+    assert title.startswith("Pippin briefing · ") and "1. " in text and "read 2" in text
     numbered = auth_store.get_pref("local", "feed_digest_items")
     assert numbered
 

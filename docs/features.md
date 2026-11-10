@@ -379,8 +379,12 @@ See [Reading with Pippin](concepts/literature.md#reading-with-pippin).
   OpenReview, with **Show the points**), any blog's RSS or Atom; X with your own API key.
 - Buttons: **Save to project**, **Bring to brainstorm**, **Ask the front desk**, open it, **Not interested** (and
   similar items rank lower).
-- **The digest twice a day** (who you follow, the top per project, what is trending) to your chat app or a
-  notification channel; each item opens in the reader with Pippin's notes, or reply **read 2** in the chat app.
+- **Sources**: arXiv (every new paper in your categories), HF Daily Papers and X (read by the browser extension
+  as you; a post linking a paper adds who posted it to that paper) by default; more on demand. A paper seen in
+  several places is one item with all its signals.
+- **A briefing twice a day**, chosen and written up by a model: what bears on your work and what your field is
+  talking about, each item with what it does, why it is worth your time and its links, in English or Chinese, to
+  your chat app or a notification channel; reply **read 2** in the chat app to read one with Pippin.
 
 See [The feed](guide/feed.md).
 
