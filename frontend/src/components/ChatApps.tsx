@@ -130,6 +130,12 @@ function TeamApps({ onChanged }: { onChanged: () => void }) {
               {open !== app && <button className="link-btn" onClick={() => edit(app)}>{s.ready || s.enabled ? 'change' : 'connect'}</button>}
               {open !== app && s.enabled && <button className="link-btn danger" disabled={busy} onClick={() => { setDraft({}); save(app, false) }}>turn off</button>}
             </div>
+            {open !== app && s.enabled && (
+              <div className="settings-field"><label>
+                <span className="settings-label">Callback address</span>
+                <input readOnly value={data.callbacks[app]} onFocus={(e) => e.target.select()} />
+              </label></div>
+            )}
             {open === app && (
               <>
                 <div className="panel-hint" style={{ padding: '2px 0 4px' }}>{HOW[app]}</div>
