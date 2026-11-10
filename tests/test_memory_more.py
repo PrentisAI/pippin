@@ -297,10 +297,40 @@ def test_answers_are_read_aloud_by_a_model_that_talks(client, monkeypatch):  # n
     assert 1.0 <= seconds <= 1.5                                    # the speech and a breath, not the silences
     body = seen["body"]
     assert body["model"] == "openai/gpt-audio-mini" and body["modalities"] == ["text", "audio"]
-    assert "<read>" in body["messages"][-1]["content"] and "word for word" in body["messages"][0]["content"]
+    assert body["messages"][-1]["content"].startswith("Line: «你提到") and "Speak exactly that line" in body["messages"][0]["content"]
+    assert [m["role"] for m in body["messages"]] == ["system", "user", "assistant", "user", "assistant", "user"]
     assert 60 < body["max_tokens"] < 400                            # about as long as it takes to say
     # the browser's voice instead, when chosen
     client.put("/api/settings", json={"changes": {"voice.speech": "browser"}})
     assert client.get("/api/memory/voice/status").json()["cloud_voice"] is False
     client.put("/api/settings", json={"reset": ["voice.speech"]})
     assert voice._trim_silence(b"\0\0" * 1000) == b""
+
+
+def test_a_reading_that_answers_the_text_is_tried_again_then_refused(client, monkeypatch):  # noqa: F811
+    """A model that talks may take "停掉这个实验？" as said to it; its transcript of what it said gives that away."""
+    import base64
+    import json as _json
+
+    import httpx
+    said = ["好的，我明白了，我会停掉这个实验。", "停掉这个实验？"]
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        words = said[min(len(calls), len(said)) - 1]
+        audio = base64.b64encode(b"\x40\x1f\xc0\xe0" * 12000).decode()
+        events = (f"data: {_json.dumps({'choices': [{'delta': {'audio': {'data': audio, 'transcript': words}}}]})}\n\n"
+                  "data: [DONE]\n\n")
+        return httpx.Response(200, content=events.encode(), headers={"content-type": "text/event-stream"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-" + "a" * 40)
+    monkeypatch.delenv("AURORA_TTS_BASE_URL", raising=False)
+    r = client.post("/api/memory/voice/speak", json={"text": "停掉这个实验？"})
+    assert r.status_code == 200 and len(calls) == 2                 # the second reading was the text
+    said[:] = ["好的，我明白了。"]
+    calls.clear()
+    r = client.post("/api/memory/voice/speak", json={"text": "停掉这个实验？"})
+    assert r.status_code == 400 and "did not read the text" in r.json()["detail"] and len(calls) == 2
